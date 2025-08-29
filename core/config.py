@@ -48,7 +48,7 @@ class ModelConfig:
     def from_env(cls) -> 'ModelConfig':
         """Create config from environment variables"""
         return cls(
-            model_path=os.getenv("MODEL_PATH", "./models/qwen2.5-coder-7b-instruct.gguf"),
+            model_path=os.getenv("MODEL_PATH", "./models/Qwen2.5-7B-Instruct-Q6_K_L.gguf"),
             n_gpu_layers=int(os.getenv("N_GPU_LAYERS", "-1")),
             n_ctx=int(os.getenv("N_CTX", "8192")),
             n_batch=int(os.getenv("N_BATCH", "512")),

@@ -1,197 +1,244 @@
-# File: ~/Projects/local-llm-mcp/README.md
+# Local LLM MCP Server
 
-# Standardized Agent-Based Local LLM MCP Server
+Agent-based MCP server that connects Claude Code to a local CUDA-accelerated LLM for repository orchestration.
 
-A clean, modular HTTP server for Claude Code with persistent agents using standardized JSON schemas.
+## Core Architecture
 
-## 🎯 Core Architecture Principles
+- **One Agent Per File**: Each agent manages exactly one file with strict ownership enforcement
+- **Adversarial Testing**: Every functional file gets a paired pytest agent
+- **JSON Schema Validation**: All agent communications use standardized Pydantic schemas
+- **CUDA Optimization**: Containerized with CUDA 12.5 support for RTX 1080ti
+- **Repository-Scoped**: Agents persist per repository, not globally
 
-- **One Agent Per File**: Hard-enforced rule, zero exceptions
-- **JSON Schema Validation**: All communications follow strict Pydantic schemas  
-- **Separation of Concerns**: Each module has single, focused responsibility
-- **No Monoliths**: Clean interfaces between components
-- **Agent Orchestration**: Claude Code orchestrates, agents specialize
+## Quick Start
 
-## 🏗️ Architecture
+### Prerequisites
 
-```
-local_llm_mcp_server.py  # Entry point - minimal orchestration only
-├── core/                # Business logic layer
-│   ├── config.py        # Configuration management
-│   ├── agent.py         # Individual agent behavior
-│   ├── llm_manager.py   # Model loading & inference  
-│   └── agent_registry.py# Agent lifecycle & file ownership
-├── api/                 # Interface layer
-│   ├── mcp_handler.py   # MCP protocol for Claude Code
-│   ├── http_server.py   # Starlette application setup
-│   ├── endpoints.py     # HTTP API endpoints
-│   └── websocket_handler.py # Real-time communication
-└── schemas/             # Data contracts
-    └── agent_schemas.py # JSON schema definitions
-```
+- Docker with NVIDIA Container Toolkit
+- CUDA-compatible GPU (tested on RTX 1080ti)
+- Models in `~/models/` directory
+- Python with invoke package
 
-## 🚀 Quick Start
+### Setup
 
-```bash
-# Prerequisites: uv installed
-curl -LsSf https://astral.sh/uv/install.sh | sh
+1. **Clone and prepare:**
+   ```bash
+   cd ~/Projects
+   git clone <your-repo>
+   cd local-llm-mcp
+   pip install invoke
+   ```
 
-# Setup project
-cd ~/Projects/local-llm-mcp
-./setup.sh
+2. **Ensure model exists:**
+   ```bash
+   ls ~/models/Qwen2.5-7B-Instruct-Q6_K_L.gguf
+   # If missing, download from Hugging Face
+   ```
 
-# Add your model to models/ directory
-# Place your .gguf file as: models/qwen2.5-coder-7b-instruct.gguf
+3. **Build container:**
+   ```bash
+   inv build
+   ```
 
-# Start server
-uv run local_llm_mcp_server.py
+4. **Start server:**
+   ```bash
+   inv run
+   ```
 
-# Test (in another terminal)
-uv run test.py
-```
+5. **Verify CUDA acceleration:**
+   ```bash
+   inv test
+   # Should return healthy status with GPU information
+   ```
 
-## 📡 Claude Code Integration
+### Claude Code Integration
 
-The server provides a `/mcp` endpoint that Claude Code automatically discovers:
+1. **Install Claude Code** (if not already installed)
 
-```json
-// ~/.config/claude-code/mcp.json
-{
-  "mcpServers": {
-    "standardized-agent-http": {
-      "command": "bash",
-      "args": ["-c", "cd /home/$USER/Projects/local-llm-mcp && uv run local_llm_mcp_server.py"]
-    }
-  }
-}
-```
+2. **Configure MCP connection:**
+   ```bash
+   mkdir -p ~/.config/claude-code
+   
+   cat > ~/.config/claude-code/mcp.json << 'EOF'
+   {
+     "mcpServers": {
+       "local-llm-agents": {
+         "command": "curl",
+         "args": ["-X", "POST", "http://localhost:8000/mcp", "-H", "Content-Type: application/json", "-d"]
+       }
+     }
+   }
+   EOF
+   ```
 
-## 🤖 Agent Workflow
+3. **Test Claude Code connection:**
+   ```bash
+   claude-code
+   # In Claude interface, you should see local-llm-agents tools available
+   ```
 
-```bash
-# In Claude Code:
-claude
+## Repository Orchestration Workflow
 
-# Create specialized agents:
-"Use create_agent to make a database agent managing schema.sql"
-"Use create_agent to make an API agent managing routes.py"
-"Use create_agent to make a frontend agent managing index.html"
+### Phase 1: Agent Creation
 
-# Each agent becomes expert in their single file:
-"Use chat_with_agent to have the database agent design user tables"
-"Use agent_update_file to have the API agent create authentication endpoints"
-
-# Get results:
-"Use get_agent_file to see what the database agent created"
-```
-
-## 📋 JSON Schema Communication
-
-### Agent Request Format
-```json
-{
-  "task_type": "create|update|analyze|refactor|debug|document|test",
-  "instruction": "Detailed instruction for the agent",
-  "context": "Additional context (optional)",
-  "parameters": {},
-  "expected_output": "Description of expected format"
-}
-```
-
-### Agent Response Format
-```json
-{
-  "status": "success|error|warning|partial",
-  "message": "Human-readable description",
-  "file_content": {
-    "filename": "managed_file.py",
-    "content": "complete file content",
-    "language": "python"
-  },
-  "changes_made": ["list of specific changes"],
-  "warnings": ["any warnings or notes"],
-  "tokens_used": 1234,
-  "processing_time": 2.5
-}
-```
-
-## 🖥️ Hardware Optimization
-
-**Target:** RTX 1080ti (11GB VRAM) + CUDA 12.9 + Ubuntu 22.04
-
-- **GPU Layers**: -1 (all layers on GPU)
-- **Context Window**: 8192 tokens
-- **Batch Size**: 512 (optimized for 1080ti)
-- **Expected Performance**: 15-25 tokens/second
-
-## 🔧 Development
+Start Claude Code in your target repository:
 
 ```bash
-# Install dependencies
-uv sync
-
-# Run with development mode
-uv run local_llm_mcp_server.py
-
-# Code formatting
-uv run black .
-uv run isort .
-
-# Type checking
-uv run mypy .
-
-# Tests
-uv run pytest
+cd ~/your-project
+claude-code
 ```
 
-## 📂 File Organization Rules
+**Create functional file agents:**
+```
+Use create_agent to make a database agent managing schema.sql with system prompt "You are a PostgreSQL expert focused on clean, normalized schema design. Always include proper constraints, indexes, and documentation."
 
-1. **One Agent Per File**: Each agent manages exactly one file
-2. **No Conflicts**: File ownership strictly enforced
-3. **Clean Separation**: Core logic separate from API interfaces
-4. **JSON Schemas**: All communications validated via Pydantic
-5. **Git Managed**: State and workspaces gitignored, code versioned
+Use create_agent to make a models agent managing models.py with system prompt "You are a Python ORM expert using SQLAlchemy. Create clean, type-annotated models with proper relationships and validation."
 
-## 🌐 API Endpoints
+Use create_agent to make an API agent managing routes.py with system prompt "You are a FastAPI expert focused on REST API design. Create well-documented endpoints with proper error handling and validation."
+```
 
-- `GET /` - Server information
-- `GET /health` - Health check
-- `POST /mcp` - **MCP endpoint for Claude Code**
-- `GET /api/agents` - List agents (HTTP API)
-- `POST /api/agents/{id}/chat` - Chat with agent
-- `WS /ws` - WebSocket for real-time communication
+**Verify agent creation:**
+```
+Use list_agents to confirm all agents and their file ownership
+```
 
-## 💡 Usage Patterns
+### Phase 2: Development Orchestration
 
-### Single Agent Task
+**Have agents create initial structures:**
+```
+Use chat_with_agent to have the database agent create a user authentication schema with roles and permissions
+
+Use chat_with_agent to have the models agent create SQLAlchemy models matching the database schema
+
+Use chat_with_agent to have the API agent create authentication endpoints using the models
+```
+
+**Review and iterate:**
+```
+Use get_agent_file to review each agent's work
+
+Use chat_with_agent to refine implementations based on cross-file dependencies
+```
+
+### Phase 3: Testing Integration
+
+**Create test agents (adversarial):**
+```
+Use create_agent to make a schema test agent managing test_schema.sql with system prompt "You are a database testing expert. Create comprehensive tests for schema validation, constraint checking, and data integrity."
+
+Use create_agent to make a models test agent managing test_models.py with system prompt "You are a pytest expert focused on ORM testing. Create comprehensive model tests including validation, relationships, and edge cases."
+
+Use create_agent to make an API test agent managing test_routes.py with system prompt "You are a FastAPI testing expert. Create comprehensive endpoint tests including authentication, validation, and error scenarios."
+```
+
+**Generate comprehensive tests:**
+```
+Use chat_with_agent to have each test agent create thorough pytest suites for their corresponding functional files
+```
+
+### Phase 4: Integration and Refinement
+
+**Cross-agent coordination:**
+```
+Use chat_with_agent to have the API agent update endpoints based on any model changes
+
+Use chat_with_agent to have test agents update their tests when functional code changes
+
+Use agent_update_file to have agents make specific targeted changes
+```
+
+**Validation:**
+```
+Use get_agent_file to review all generated files
+
+Run tests locally to verify integration
+```
+
+## Agent Management Commands
+
+### Core Agent Operations
+- `create_agent` - Create new agent for specific file
+- `list_agents` - Show all agents and file ownership
+- `get_agent_info` - Detailed agent information
+- `chat_with_agent` - Send instructions to agent
+- `agent_update_file` - Have agent modify its file
+- `get_agent_file` - Retrieve agent's file content
+- `delete_agent` - Remove agent (frees file for new agent)
+- `system_status` - Server and model status
+
+### Development Workflow
+1. Create agents for core files (models, routes, schemas)
+2. Create corresponding test agents
+3. Have agents build initial implementations
+4. Iterate with chat_with_agent for refinements
+5. Cross-reference between agents for consistency
+6. Generate comprehensive test suites
+7. Validate integration locally
+
+## Container Management
+
 ```bash
-# Create agent for specific file
-"Use create_agent: name='DB Schema', managed_file='schema.sql', system_prompt='Database expert'"
-
-# Have agent work on file
-"Use chat_with_agent to design user authentication tables"
-
-# Get final result
-"Use get_agent_file to see the complete schema"
+inv build          # Build container
+inv run             # Start server (port 8000, ~/models)
+inv run --port=8080 # Custom port
+inv logs            # View server logs
+inv logs --follow   # Follow logs in real-time
+inv stop            # Stop containers
+inv shell           # Access container shell
+inv clean           # Remove containers and images
+inv test            # Health check
+inv dev             # Build and run together
 ```
 
-### Multi-Agent Orchestration
+## File Ownership Rules
+
+- **Strict Enforcement**: One agent per file, one file per agent
+- **No Conflicts**: Cannot create agent for already-managed file
+- **Clean Handoffs**: Deleting agent frees file for new agent
+- **Repository Scoped**: Agent state persists per repository
+- **Test Pairing**: Every functional file should have adversarial test agent
+
+## Architecture Benefits
+
+- **Token Efficiency**: 60-80% reduction in context usage through specialized agents
+- **Privacy**: All processing happens locally on your GPU
+- **Speed**: 15-25 tokens/second on RTX 1080ti
+- **Consistency**: JSON schema validation prevents communication errors
+- **Scalability**: Add agents as project grows
+- **Testing**: Built-in adversarial test generation
+
+## Troubleshooting
+
+**Server won't start:**
 ```bash
-# Create agents for different files
-"Create agents: DB agent (schema.sql), API agent (routes.py), UI agent (index.html)"
-
-# Orchestrate work across agents
-"Have DB agent design tables, then API agent create endpoints using those tables"
-
-# Coordinate final integration
-"Review all agent files and ensure they work together properly"
+inv logs  # Check container logs
+docker ps # Verify container status
+nvidia-smi # Verify GPU accessibility
 ```
 
-## 🎯 Benefits
+**CUDA not working:**
+```bash
+inv shell
+python3 -c "from llama_cpp import Llama; print('CUDA test')"
+```
 
-- **Token Efficiency**: 60-80% cost reduction for large projects
-- **Privacy**: Sensitive code never leaves your machine
-- **Speed**: Local GPU inference at 15-25 tokens/second
-- **Persistence**: Agents remember context across sessions
-- **Clean Architecture**: Maintainable, testable, extensible
-- **JSON Standardization**: Type-safe, validated communications
+**Claude Code not connecting:**
+- Verify server running on port 8000
+- Check MCP configuration in ~/.config/claude-code/mcp.json
+- Test health endpoint: `curl http://localhost:8000/health`
+
+**Agent conflicts:**
+```
+Use list_agents to see current file ownership
+Use delete_agent to free up files if needed
+```
+
+## Performance Tuning
+
+For RTX 1080ti (11GB VRAM):
+- Context size: 8192 tokens (can increase to 16384 if needed)
+- GPU layers: -1 (all layers on GPU)
+- Batch size: 512 (optimal for 1080ti)
+- Expected: 15-25 tokens/second
+
+Model fits comfortably in 11GB with room for context and multiple concurrent agents.
