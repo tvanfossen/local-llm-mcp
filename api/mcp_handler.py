@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Optional
 
 from core.agent_registry import AgentRegistry
 from core.llm_manager import LLMManager
-from schemas.agent_schemas import TaskType, create_standard_request
+from schemas.agent_schemas import TaskType, create_standard_request, ResponseStatus
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +210,74 @@ class MCPHandler:
                     "type": "object",
                     "properties": {}
                 }
-            }
+            },
+            {
+                "name": "agent_write_file",
+                "description": "Have an agent write content to its managed file with validation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": {
+                            "type": "string",
+                            "description": "Agent ID that will write the file"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Content to write to the agent's managed file"
+                        },
+                        "validation_required": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Whether to validate the file after writing"
+                        }
+                    },
+                    "required": ["agent_id", "content"]
+                }
+            },
+            {
+                "name": "validate_agent_file",
+                "description": "Validate a file managed by an agent (syntax, formatting, etc.)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": {
+                            "type": "string",
+                            "description": "Agent ID whose file to validate"
+                        },
+                        "validation_type": {
+                            "type": "string",
+                            "enum": ["syntax", "formatting", "structure", "all"],
+                            "default": "syntax",
+                            "description": "Type of validation to perform"
+                        }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "orchestrate_agents",
+                "description": "Coordinate multiple agents to work on related files",
+                "inputSchema": {
+                    "type": "object", 
+                    "properties": {
+                        "agent_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of agent IDs to coordinate"
+                        },
+                        "task_description": {
+                            "type": "string",
+                            "description": "Overall task description for coordination"
+                        },
+                        "wait_for_completion": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Whether to wait for all agents to complete"
+                        }
+                    },
+                    "required": ["agent_ids", "task_description"]
+                }
+            },
         ]
     
     async def handle_jsonrpc_request(self, request_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
@@ -389,6 +456,13 @@ class MCPHandler:
             return await self._tool_delete_agent(args)
         elif tool_name == "system_status":
             return await self._tool_system_status()
+        elif tool_name == "agent_write_file":
+            return await self._tool_agent_write_file(args)
+        elif tool_name == "validate_agent_file": 
+            return await self._tool_validate_agent_file(args)
+        elif tool_name == "orchestrate_agents":
+            return await self._tool_orchestrate_agents(args)
+    
         else:
             return {
                 "content": [{
@@ -532,8 +606,25 @@ class MCPHandler:
             
             # Generate response
             prompt = agent.build_context_prompt(agent_request)
-            agent_response, metrics = await self.llm_manager.generate_response(prompt)
+            agent_response, metrics = self.llm_manager.generate_response(prompt)
             
+
+            if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
+                try:
+                    if agent_response.file_content.filename == agent.state.managed_file:
+                        success = agent.write_managed_file(agent_response.file_content.content)
+                        if success:
+                            logger.info(f"✅ WebSocket: Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
+                            agent_response.changes_made.append("File written to disk")
+                        else:
+                            logger.error(f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file")
+                            agent_response.warnings.append("File content generated but disk write failed")
+                    else:
+                        agent_response.warnings.append(f"Filename mismatch: generated {agent_response.file_content.filename}, manages {agent.state.managed_file}")
+                except Exception as e:
+                    logger.error(f"WebSocket file writing error for agent {agent.state.agent_id}: {e}")
+                    agent_response.warnings.append(f"File write failed: {str(e)}")
+
             # Update agent
             agent.update_activity(agent_request.task_type)
             agent.update_success_rate(agent_response.status.value == "success")
@@ -833,6 +924,247 @@ class MCPHandler:
                     "text": f"❌ **Error:** {str(e)}"
                 }],
                 "isError": True
+            }
+        
+    async def _tool_agent_write_file(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle agent_write_file tool call"""
+        try:
+            agent_id = args["agent_id"]
+            content = args["content"]
+            validation_required = args.get("validation_required", False)
+            
+            agent = self.agent_registry.get_agent(agent_id)
+            if not agent:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ Agent `{agent_id}` not found"
+                    }],
+                    "isError": True
+                }
+            
+            # Write the content to the agent's managed file
+            success = agent.write_managed_file(content)
+            
+            if success:
+                result_text = f"✅ **File Written Successfully**\n\n"
+                result_text += f"**Agent:** {agent.state.name} ({agent_id})\n"
+                result_text += f"**File:** `{agent.state.managed_file}`\n"
+                result_text += f"**Size:** {len(content)} characters\n"
+                
+                # Update agent activity
+                from schemas.agent_schemas import TaskType
+                agent.update_activity(TaskType.UPDATE)
+                agent.update_success_rate(True)
+                
+                # Optional validation
+                if validation_required:
+                    validation_result = await self._validate_file_content(agent, content)
+                    result_text += f"\n**Validation:** {validation_result['status']}\n"
+                    if validation_result.get('warnings'):
+                        result_text += f"**Warnings:** {', '.join(validation_result['warnings'])}\n"
+                
+                # Save agent state
+                self.agent_registry.save_registry()
+                
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": result_text
+                    }]
+                }
+            else:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ **File write failed** for agent {agent.state.name}"
+                    }],
+                    "isError": True
+                }
+                
+        except Exception as e:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"❌ **Error:** {str(e)}"
+                }],
+                "isError": True
+            }
+
+    async def _tool_validate_agent_file(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle validate_agent_file tool call"""
+        try:
+            agent_id = args["agent_id"]
+            validation_type = args.get("validation_type", "syntax")
+            
+            agent = self.agent_registry.get_agent(agent_id)
+            if not agent:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ Agent `{agent_id}` not found"
+                    }],
+                    "isError": True
+                }
+            
+            file_content = agent.read_managed_file()
+            if not file_content:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ **File not found:** `{agent.state.managed_file}`"
+                    }],
+                    "isError": True
+                }
+            
+            # Perform validation
+            validation_result = await self._validate_file_content(agent, file_content, validation_type)
+            
+            result_text = f"🔍 **File Validation Results**\n\n"
+            result_text += f"**Agent:** {agent.state.name} ({agent_id})\n"
+            result_text += f"**File:** `{agent.state.managed_file}`\n"
+            result_text += f"**Validation Type:** {validation_type}\n"
+            result_text += f"**Status:** {validation_result['status']}\n"
+            
+            if validation_result.get('errors'):
+                result_text += f"**❌ Errors:** {', '.join(validation_result['errors'])}\n"
+            
+            if validation_result.get('warnings'):
+                result_text += f"**⚠️ Warnings:** {', '.join(validation_result['warnings'])}\n"
+            
+            if validation_result.get('suggestions'):
+                result_text += f"**💡 Suggestions:** {', '.join(validation_result['suggestions'])}\n"
+            
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": result_text
+                }],
+                "isError": validation_result['status'] == 'failed'
+            }
+            
+        except Exception as e:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"❌ **Validation error:** {str(e)}"
+                }],
+                "isError": True
+            }
+
+    async def _tool_orchestrate_agents(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle orchestrate_agents tool call for coordinating multiple agents"""
+        try:
+            agent_ids = args["agent_ids"]
+            task_description = args["task_description"]
+            wait_for_completion = args.get("wait_for_completion", True)
+            
+            # Validate all agents exist
+            agents = []
+            for agent_id in agent_ids:
+                agent = self.agent_registry.get_agent(agent_id)
+                if not agent:
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": f"❌ Agent `{agent_id}` not found"
+                        }],
+                        "isError": True
+                    }
+                agents.append(agent)
+            
+            result_text = f"🎭 **Agent Orchestration Started**\n\n"
+            result_text += f"**Task:** {task_description}\n"
+            result_text += f"**Agents:** {len(agents)} agents coordinated\n\n"
+            
+            # List participating agents
+            for agent in agents:
+                result_text += f"• **{agent.state.name}** ({agent.state.agent_id}) → `{agent.state.managed_file}`\n"
+            
+            result_text += f"\n**Coordination Mode:** {'Wait for completion' if wait_for_completion else 'Async execution'}\n"
+            result_text += f"**Status:** Ready for task execution\n\n"
+            result_text += f"**Next Steps:**\n"
+            result_text += f"1. Use `chat_with_agent` to send specific tasks to each agent\n"
+            result_text += f"2. Use `validate_agent_file` to check each agent's output\n"
+            result_text += f"3. Use `agent_write_file` for direct file operations if needed\n"
+            
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": result_text
+                }]
+            }
+            
+        except Exception as e:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"❌ **Orchestration error:** {str(e)}"
+                }],
+                "isError": True
+            }
+
+    async def _validate_file_content(self, agent, content: str, validation_type: str = "syntax") -> Dict[str, Any]:
+        """Validate file content based on type and extension"""
+        try:
+            import ast
+            import json as json_module
+            
+            file_ext = agent.state.managed_file.split('.')[-1].lower()
+            errors = []
+            warnings = []
+            suggestions = []
+            
+            # Python file validation
+            if file_ext == 'py' and validation_type in ['syntax', 'all']:
+                try:
+                    ast.parse(content)
+                except SyntaxError as e:
+                    errors.append(f"Python syntax error: {str(e)}")
+            
+            # JSON file validation  
+            if file_ext == 'json' and validation_type in ['syntax', 'all']:
+                try:
+                    json_module.loads(content)
+                except json_module.JSONDecodeError as e:
+                    errors.append(f"JSON syntax error: {str(e)}")
+            
+            # General formatting checks
+            if validation_type in ['formatting', 'all']:
+                if len(content.split('\n')) > 1000:
+                    warnings.append("File is very large (>1000 lines)")
+                
+                if not content.strip():
+                    errors.append("File is empty")
+            
+            # Structure checks for code files
+            if validation_type in ['structure', 'all'] and file_ext in ['py', 'js']:
+                if file_ext == 'py':
+                    if 'def ' not in content and 'class ' not in content:
+                        suggestions.append("Consider adding functions or classes")
+                        
+                    if content.count('import ') > 10:
+                        suggestions.append("Consider organizing imports")
+            
+            status = "passed"
+            if errors:
+                status = "failed"
+            elif warnings:
+                status = "passed_with_warnings"
+            
+            return {
+                "status": status,
+                "errors": errors,
+                "warnings": warnings,
+                "suggestions": suggestions
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "errors": [f"Validation failed: {str(e)}"],
+                "warnings": [],
+                "suggestions": []
             }
     
     def _create_success_response(self, request_id: Any, result: Any) -> Dict[str, Any]:

@@ -19,7 +19,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from core.agent_registry import AgentRegistry
 from core.llm_manager import LLMManager
-from schemas.agent_schemas import TaskType, create_standard_request
+from schemas.agent_schemas import TaskType, create_standard_request, ResponseStatus
 
 logger = logging.getLogger(__name__)
 
@@ -176,8 +176,25 @@ class WebSocketHandler:
             
             # Generate response
             prompt = agent.build_context_prompt(agent_request)
-            agent_response, metrics = await self.llm_manager.generate_response(prompt)
+            agent_response, metrics = self.llm_manager.generate_response(prompt)
             
+            if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
+                try:
+                    if agent_response.file_content.filename == agent.state.managed_file:
+                        success = agent.write_managed_file(agent_response.file_content.content)
+                        if success:
+                            logger.info(f"✅ WebSocket: Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
+                            agent_response.changes_made.append("File written to disk")
+                        else:
+                            logger.error(f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file")
+                            agent_response.warnings.append("File content generated but disk write failed")
+                    else:
+                        agent_response.warnings.append(f"Filename mismatch: generated {agent_response.file_content.filename}, manages {agent.state.managed_file}")
+                except Exception as e:
+                    logger.error(f"WebSocket file writing error for agent {agent.state.agent_id}: {e}")
+                    agent_response.warnings.append(f"File write failed: {str(e)}")
+
+
             # Update agent
             agent.update_activity(agent_request.task_type)
             agent.update_success_rate(agent_response.status.value == "success")

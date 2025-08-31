@@ -174,6 +174,7 @@ class LLMManager:
                 return error_response, {"error": "no_response"}
             
             response_text = response["choices"][0]["text"].strip()  # Fixed variable name
+            logger.info(f"🔍 RAW MODEL OUTPUT: {repr(response_text)}")
             tokens_used = response["usage"]["total_tokens"] if "usage" in response else None
             
             # Update performance tracking
@@ -211,61 +212,102 @@ class LLMManager:
     def _parse_agent_response(self, response_text: str) -> AgentResponse:
         """
         Parse agent response from LLM output, extracting JSON when possible
-        
-        Args:
-            response_text: Raw text output from LLM
-            
-        Returns:
-            AgentResponse object
+        FIXED: Better JSON extraction and error handling
         """
         try:
             import json
             import re
             
-            # Try to extract JSON from response
-            json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-            json_matches = re.findall(json_pattern, response_text, re.DOTALL)
+            # DEBUG: Log what we're trying to parse
+            logger.info(f"Attempting to parse response: {repr(response_text[:200])}")
             
-            if json_matches:
-                # Try to parse the last (most complete) JSON match
-                for json_str in reversed(json_matches):
+            # Clean up the response text BEFORE parsing
+            cleaned_text = response_text.strip()
+            
+            # *** ADD THIS BLOCK TO FIX TRIPLE QUOTES ***
+            # Fix triple-quoted strings in JSON (convert """ to properly escaped ")
+            cleaned_text = cleaned_text.replace('"""', '"')            
+            # Try direct JSON parsing first
+            try:
+                response_data = json.loads(cleaned_text)
+                logger.info("✅ Direct JSON parsing succeeded")
+            except json.JSONDecodeError:
+                # Try to clean up the response text
+                cleaned_text = response_text.strip()
+                
+                # Remove common prefixes/suffixes that break JSON
+                prefixes_to_remove = ["```json", "```", "Response:", "Assistant:", "JSON:"]
+                suffixes_to_remove = ["```", "\n\nEnd", "---"]
+                
+                for prefix in prefixes_to_remove:
+                    if cleaned_text.startswith(prefix):
+                        cleaned_text = cleaned_text[len(prefix):].strip()
+                
+                for suffix in suffixes_to_remove:
+                    if cleaned_text.endswith(suffix):
+                        cleaned_text = cleaned_text[:-len(suffix)].strip()
+                
+                # Find JSON boundaries more aggressively
+                first_brace = cleaned_text.find('{')
+                last_brace = cleaned_text.rfind('}')
+                
+                if first_brace >= 0 and last_brace > first_brace:
+                    json_candidate = cleaned_text[first_brace:last_brace + 1]
                     try:
-                        response_data = json.loads(json_str)
+                        response_data = json.loads(json_candidate)
+                        logger.info("✅ JSON extraction with boundaries succeeded")
+                    except json.JSONDecodeError:
+                        # Try fixing common JSON issues
+                        fixed_json = json_candidate
                         
-                        # Validate required fields
-                        if "status" in response_data and "message" in response_data:
-                            # Create FileContent if file_content is present
-                            file_content = None
-                            if "file_content" in response_data and response_data["file_content"]:
-                                from schemas.agent_schemas import FileContent
-                                fc_data = response_data["file_content"]
-                                if isinstance(fc_data, dict) and "filename" in fc_data and "content" in fc_data:
-                                    file_content = FileContent(
-                                        filename=fc_data["filename"],
-                                        content=fc_data["content"],
-                                        language=fc_data.get("language"),
-                                        line_count=len(fc_data["content"].split('\n')) if fc_data["content"] else 0
-                                    )
-                            
-                            # Create AgentResponse
-                            agent_response = AgentResponse(
-                                status=ResponseStatus(response_data["status"]),
-                                message=response_data["message"],
-                                file_content=file_content,
-                                changes_made=response_data.get("changes_made", []),
-                                warnings=response_data.get("warnings", [])
-                            )
-                            
-                            return agent_response
-                            
-                    except (json.JSONDecodeError, KeyError, ValueError) as e:
-                        logger.debug(f"Failed to parse JSON: {e}")
-                        continue
+                        # Fix unescaped newlines in strings
+                        fixed_json = re.sub(r'(?<!\\)"([^"]*)\n([^"]*)"', r'"\1\\n\2"', fixed_json)
+                        
+                        # Fix unescaped quotes
+                        fixed_json = re.sub(r'(?<!\\)"([^"]*)"([^",}\]]*)"', r'"\1\"\2"', fixed_json)
+                        
+                        try:
+                            response_data = json.loads(fixed_json)
+                            logger.info("✅ JSON parsing with fixes succeeded")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"All JSON parsing attempts failed: {e}")
+                            raise ValueError("Could not parse JSON")
+                else:
+                    raise ValueError("No JSON boundaries found")
             
-            # Fallback: Create response from raw text
-            logger.warning("Could not parse JSON response, creating text-based response")
+            # Validate required fields
+            if "status" in response_data and "message" in response_data:
+                # Create FileContent if file_content is present
+                file_content = None
+                if "file_content" in response_data and response_data["file_content"]:
+                    from schemas.agent_schemas import FileContent
+                    fc_data = response_data["file_content"]
+                    if isinstance(fc_data, dict) and "filename" in fc_data and "content" in fc_data:
+                        file_content = FileContent(
+                            filename=fc_data["filename"],
+                            content=fc_data["content"],
+                            language=fc_data.get("language"),
+                            line_count=len(fc_data["content"].split('\n')) if fc_data["content"] else 0
+                        )
+                
+                # Create AgentResponse
+                agent_response = AgentResponse(
+                    status=ResponseStatus(response_data["status"]),
+                    message=response_data["message"],
+                    file_content=file_content,
+                    changes_made=response_data.get("changes_made", []),
+                    warnings=response_data.get("warnings", [])
+                )
+                
+                return agent_response
+            else:
+                logger.warning("JSON missing required fields, falling back to text analysis")
+                raise ValueError("Missing required JSON fields")
+                
+        except Exception as e:
+            logger.warning(f"JSON parsing completely failed: {e}, falling back to text analysis")
             
-            # Determine status from text content
+            # Fallback: Create response from raw text (your existing logic)
             status = ResponseStatus.SUCCESS
             if any(word in response_text.lower() for word in ["error", "failed", "cannot", "unable"]):
                 status = ResponseStatus.ERROR
@@ -275,10 +317,6 @@ class LLMManager:
             return create_success_response(
                 message=response_text[:500] + "..." if len(response_text) > 500 else response_text
             )
-            
-        except Exception as e:
-            logger.error(f"Failed to parse agent response: {e}")
-            return create_error_response(f"Response parsing failed: {str(e)}")
     
     async def generate_streaming_response(
         self,
