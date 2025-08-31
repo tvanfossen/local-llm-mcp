@@ -35,7 +35,7 @@ def run(ctx, port=8000, models_path=None):
     print(f"Models: {models_path}")
     print(f"GPU: Enabled")
     
-    cmd = f"docker run --gpus all -p {port}:8000 -v {models_path}:/app/models local-llm-mcp"
+    cmd = f"docker run --gpus all --network host -v {models_path}:/app/models local-llm-mcp"
     ctx.run(cmd, pty=True)
 
 
