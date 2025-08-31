@@ -202,16 +202,28 @@ class Agent:
             self.logger.error(f"Failed to save conversation history: {e}")
     
     def build_context_prompt(self, request: AgentRequest) -> str:
-        """
-        Build standardized context prompt for LLM generation
+        """Build context prompt with simple file content approach"""
         
-        Constructs a comprehensive prompt that includes:
-        - Agent identity and role
-        - Current context and state
-        - Task specification
-        - Expected response format (JSON schema)
-        - Recent conversation history (if relevant)
-        """
+        # Read current file content if it exists
+        current_content = self.read_managed_file()
+        current_file_info = ""
+        
+        if current_content:
+            file_size = len(current_content)
+            line_count = len(current_content.split('\n'))
+            current_file_info = f"""
+CURRENT FILE ({self.state.managed_file}):
+```
+{current_content}
+```
+File has {line_count} lines, {file_size} characters.
+"""
+        else:
+            current_file_info = f"""
+CURRENT FILE STATUS:
+- File: {self.state.managed_file} (does not exist yet)
+"""
+        
         context_parts = [
             f"<|im_start|>system\n{self.state.system_prompt}\n\n",
             
@@ -219,55 +231,56 @@ class Agent:
             f"AGENT IDENTITY:\n",
             f"- Name: {self.state.name}\n",
             f"- Role: {self.state.description}\n",
-            f"- Managed File: {self.state.managed_file}\n",
-            f"- Success Rate: {self.state.success_rate:.2f}\n",
-            f"- Total Interactions: {self.state.total_interactions}\n\n",
+            f"- Managed File: {self.state.managed_file}\n\n",
             
-            # Current context
+            # Current context and file
             f"CURRENT CONTEXT:\n{self.state.context}\n\n" if self.state.context else "",
+            current_file_info,
             
-            # Task specification
-            f"TASK SPECIFICATION:\n",
-            f"- Task Type: {request.task_type.value}\n",
-            f"- Expected Output: {request.expected_output or 'Standard JSON response'}\n\n",
+            # SIMPLE JSON FORMAT - no nested objects, no quotes in content
+            f"🚨 RESPONSE FORMAT (REQUIRED) 🚨\n",
+            f"Respond with valid JSON. Use SIMPLE format - no nested objects:\n\n",
             
-            # JSON response format
-            f"RESPONSE FORMAT (REQUIRED):\n",
-            f"Always respond with valid JSON matching this exact structure:\n",
-            f'{{\n',
-            f'  "status": "success|error|warning|partial",\n',
-            f'  "message": "Human-readable description of what was done",\n',
-            f'  "file_content": {{"filename": "your_managed_file", "content": "complete_file_content", "language": "file_type"}},\n',
-            f'  "changes_made": ["list", "of", "specific", "changes"],\n',
-            f'  "warnings": ["any", "warnings", "or", "notes"]\n',
-            f'}}\n\n',
+            "{\n",
+            '  "status": "success",\n',
+            '  "message": "Brief description of what you did",\n',
+            '  "full_file_content": "complete updated file content goes here as single string",\n',
+            '  "changes_summary": "Added multiply function with docstring",\n',
+            '  "warnings": "any warnings or empty string"\n',
+            "}\n\n",
+            
+            f"CRITICAL RULES:\n",
+            f"1. Always provide COMPLETE file content in 'full_file_content'\n",
+            f"2. Escape newlines as \\n in the JSON string\n",
+            f"3. Escape quotes as \" in the JSON string\n",
+            f"4. No nested objects - keep it flat and simple\n",
+            f"5. If file doesn't exist, create complete new content\n\n",
             
             "<|im_end|>\n",
             
-            # User request
-            f"<|im_start|>user\n{request.instruction}",
+            # User request  
+            f"<|im_start|>user\n{request.instruction}"
         ]
         
-        # Add additional context and parameters if provided
+        # Add additional context if provided
         if request.context:
             context_parts.append(f"\n\nAdditional Context: {request.context}")
         
-        if request.parameters:
-            context_parts.append(f"\n\nParameters: {json.dumps(request.parameters, indent=2)}")
-        
-        # Add recent conversation context (last 2 entries for continuity)
-        if len(self.conversation_history) > 0:
-            recent_entries = self.conversation_history[-2:]
-            context_parts.append(f"\n\nRecent Conversation Context:")
-            for entry in recent_entries:
-                context_parts.append(f"Previous task: {entry.request.task_type.value} -> {entry.response.status.value}")
-        
         context_parts.extend([
-            "\n\nRemember: Respond with valid JSON only.",
+            f"\n\n🚨 REMINDER: Provide COMPLETE file content. Use simple JSON format.",
             "<|im_end|>\n<|im_start|>assistant\n"
         ])
         
         return "".join(filter(None, context_parts))
+
+    def _get_file_language(self) -> str:
+        """Get syntax highlighting language for current file"""
+        ext = self.state.managed_file.split('.')[-1].lower()
+        lang_map = {
+            'py': 'python', 'js': 'javascript', 'ts': 'typescript',
+            'html': 'html', 'css': 'css', 'sql': 'sql', 'md': 'markdown'
+        }
+        return lang_map.get(ext, 'text')
     
     def get_managed_file_path(self) -> Path:
         """Get the full path to the managed file"""

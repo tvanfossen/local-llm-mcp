@@ -210,114 +210,187 @@ class LLMManager:
             return error_response, {"error": str(e)}
     
     def _parse_agent_response(self, response_text: str) -> AgentResponse:
-        """
-        Parse agent response from LLM output, extracting JSON when possible
-        FIXED: Better JSON extraction and error handling
-        """
+        """Parse agent response - Handle unescaped quotes in JSON strings"""
         try:
             import json
             import re
             
-            # DEBUG: Log what we're trying to parse
             logger.info(f"Attempting to parse response: {repr(response_text[:200])}")
             
-            # Clean up the response text BEFORE parsing
+            # Clean the response - find JSON boundaries
             cleaned_text = response_text.strip()
             
-            # *** ADD THIS BLOCK TO FIX TRIPLE QUOTES ***
-            # Fix triple-quoted strings in JSON (convert """ to properly escaped ")
-            cleaned_text = cleaned_text.replace('"""', '"')            
-            # Try direct JSON parsing first
-            try:
-                response_data = json.loads(cleaned_text)
-                logger.info("✅ Direct JSON parsing succeeded")
-            except json.JSONDecodeError:
-                # Try to clean up the response text
-                cleaned_text = response_text.strip()
-                
-                # Remove common prefixes/suffixes that break JSON
-                prefixes_to_remove = ["```json", "```", "Response:", "Assistant:", "JSON:"]
-                suffixes_to_remove = ["```", "\n\nEnd", "---"]
-                
-                for prefix in prefixes_to_remove:
-                    if cleaned_text.startswith(prefix):
-                        cleaned_text = cleaned_text[len(prefix):].strip()
-                
-                for suffix in suffixes_to_remove:
-                    if cleaned_text.endswith(suffix):
-                        cleaned_text = cleaned_text[:-len(suffix)].strip()
-                
-                # Find JSON boundaries more aggressively
-                first_brace = cleaned_text.find('{')
-                last_brace = cleaned_text.rfind('}')
-                
-                if first_brace >= 0 and last_brace > first_brace:
-                    json_candidate = cleaned_text[first_brace:last_brace + 1]
-                    try:
-                        response_data = json.loads(json_candidate)
-                        logger.info("✅ JSON extraction with boundaries succeeded")
-                    except json.JSONDecodeError:
-                        # Try fixing common JSON issues
-                        fixed_json = json_candidate
-                        
-                        # Fix unescaped newlines in strings
-                        fixed_json = re.sub(r'(?<!\\)"([^"]*)\n([^"]*)"', r'"\1\\n\2"', fixed_json)
-                        
-                        # Fix unescaped quotes
-                        fixed_json = re.sub(r'(?<!\\)"([^"]*)"([^",}\]]*)"', r'"\1\"\2"', fixed_json)
-                        
-                        try:
-                            response_data = json.loads(fixed_json)
-                            logger.info("✅ JSON parsing with fixes succeeded")
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"All JSON parsing attempts failed: {e}")
-                            raise ValueError("Could not parse JSON")
-                else:
-                    raise ValueError("No JSON boundaries found")
+            # Find first { and last }
+            first_brace = cleaned_text.find('{')
+            last_brace = cleaned_text.rfind('}')
             
-            # Validate required fields
-            if "status" in response_data and "message" in response_data:
-                # Create FileContent if file_content is present
-                file_content = None
-                if "file_content" in response_data and response_data["file_content"]:
-                    from schemas.agent_schemas import FileContent
-                    fc_data = response_data["file_content"]
-                    if isinstance(fc_data, dict) and "filename" in fc_data and "content" in fc_data:
+            if first_brace >= 0 and last_brace > first_brace:
+                json_text = cleaned_text[first_brace:last_brace + 1]
+                
+                # FIX: Handle unescaped quotes inside JSON string values
+                def fix_unescaped_quotes_in_strings(text):
+                    """Fix unescaped quotes inside JSON string values"""
+                    
+                    # Pattern to find "key": "value with potential unescaped quotes"
+                    def fix_string_value(match):
+                        key_part = match.group(1)  # "key": "
+                        content = match.group(2)   # the string content
+                        end_quote = match.group(3)  # the closing "
+                        
+                        # Escape any unescaped quotes in the content
+                        # Replace """ with \"\"\" but be careful not to double-escape
+                        fixed_content = content.replace('"""', '\\"\\"\\"')
+                        fixed_content = fixed_content.replace('""', '\\"\\""')
+                        
+                        return key_part + fixed_content + end_quote
+                    
+                    # Match string values in JSON (handling multiline)
+                    pattern = r'("[\w_]+"\s*:\s*")((?:[^"\\]|\\.)*?)("(?:\s*[,}]))'
+                    result = re.sub(pattern, fix_string_value, text, flags=re.DOTALL | re.MULTILINE)
+                    return result
+                
+                # Apply the fix
+                fixed_json_text = fix_unescaped_quotes_in_strings(json_text)
+                
+                try:
+                    response_data = json.loads(fixed_json_text)
+                    logger.info("✅ JSON parsing succeeded after quote fixing")
+                    
+                    # Create FileContent from full_file_content field
+                    file_content = None
+                    if "full_file_content" in response_data and response_data["full_file_content"]:
+                        from schemas.agent_schemas import FileContent
+                        content = response_data["full_file_content"]
                         file_content = FileContent(
-                            filename=fc_data["filename"],
-                            content=fc_data["content"],
-                            language=fc_data.get("language"),
-                            line_count=len(fc_data["content"].split('\n')) if fc_data["content"] else 0
+                            filename="temp_filename",  # Will be set by the endpoint
+                            content=content,
+                            language="python",  # Will be inferred
+                            line_count=len(content.split('\n')) if content else 0
                         )
-                
-                # Create AgentResponse
-                agent_response = AgentResponse(
-                    status=ResponseStatus(response_data["status"]),
-                    message=response_data["message"],
-                    file_content=file_content,
-                    changes_made=response_data.get("changes_made", []),
-                    warnings=response_data.get("warnings", [])
-                )
-                
-                return agent_response
+                    
+                    return AgentResponse(
+                        status=ResponseStatus(response_data.get("status", "success")),
+                        message=response_data.get("message", "Task completed"),
+                        file_content=file_content,
+                        changes_made=[response_data.get("changes_summary", "")] if response_data.get("changes_summary") else [],
+                        warnings=[response_data.get("warnings", "")] if response_data.get("warnings") else []
+                    )
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON parsing failed even after quote fixing: {e}")
+                    logger.error(f"Fixed JSON text was: {repr(fixed_json_text[:500])}")
+                    
+                    # Last resort: Manual extraction
+                    return self._manual_extract_response(json_text)
             else:
-                logger.warning("JSON missing required fields, falling back to text analysis")
-                raise ValueError("Missing required JSON fields")
+                logger.error("No JSON boundaries found")
+                raise ValueError("No JSON found")
                 
         except Exception as e:
             logger.warning(f"JSON parsing completely failed: {e}, falling back to text analysis")
             
-            # Fallback: Create response from raw text (your existing logic)
-            status = ResponseStatus.SUCCESS
-            if any(word in response_text.lower() for word in ["error", "failed", "cannot", "unable"]):
-                status = ResponseStatus.ERROR
-            elif any(word in response_text.lower() for word in ["warning", "caution", "note"]):
-                status = ResponseStatus.WARNING
-            
+            # Fallback: Create simple response
             return create_success_response(
-                message=response_text[:500] + "..." if len(response_text) > 500 else response_text
+                message=response_text[:300] + "..." if len(response_text) > 300 else response_text
             )
-    
+
+    def _manual_extract_response(self, json_text: str) -> AgentResponse:
+        """Manually extract response when JSON parsing fails"""
+        try:
+            import re
+            
+            logger.info("Attempting manual extraction")
+            
+            # Extract key fields manually using regex
+            status_match = re.search(r'"status"\s*:\s*"([^"]*)"', json_text)
+            message_match = re.search(r'"message"\s*:\s*"([^"]*)"', json_text)
+            
+            # For file content, extract everything between the quotes (more complex)
+            content_match = re.search(r'"full_file_content"\s*:\s*"(.*?)"(?=\s*,\s*"|\s*})', json_text, re.DOTALL)
+            
+            status = status_match.group(1) if status_match else "success"
+            message = message_match.group(1) if message_match else "Manual extraction"
+            
+            file_content = None
+            if content_match:
+                # Unescape the content
+                content = content_match.group(1)
+                content = content.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+                
+                from schemas.agent_schemas import FileContent
+                file_content = FileContent(
+                    filename="temp_filename",
+                    content=content,
+                    language="python",
+                    line_count=len(content.split('\n'))
+                )
+            
+            logger.info("✅ Manual extraction succeeded")
+            
+            return AgentResponse(
+                status=ResponseStatus(status),
+                message=message,
+                file_content=file_content,
+                changes_made=["Manual extraction applied"],
+                warnings=["Used manual extraction due to JSON parsing issues"]
+            )
+            
+        except Exception as e:
+            logger.error(f"Manual extraction also failed: {e}")
+
+
+    # ALSO ADD this helper method to apply diffs
+
+    def _apply_diff_to_file(self, current_content: str, diff_content: str) -> str:
+        """Apply unified diff to current file content"""
+        try:
+            import difflib
+            import re
+            
+            # Parse unified diff
+            lines = diff_content.split('\n')
+            current_lines = current_content.split('\n') if current_content else []
+            result_lines = []
+            
+            i = 0
+            for line in lines:
+                if line.startswith('@@'):
+                    # Parse hunk header: @@ -start,count +start,count @@
+                    match = re.match(r'@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@', line)
+                    if match:
+                        old_start = int(match.group(1)) - 1  # Convert to 0-based
+                        new_start = int(match.group(3)) - 1
+                        # Add unchanged lines before this hunk
+                        while len(result_lines) < new_start:
+                            if i < len(current_lines):
+                                result_lines.append(current_lines[i])
+                                i += 1
+                            else:
+                                break
+                elif line.startswith('+'):
+                    # Add new line
+                    result_lines.append(line[1:])
+                elif line.startswith('-'):
+                    # Skip removed line
+                    if i < len(current_lines):
+                        i += 1
+                elif line.startswith(' '):
+                    # Unchanged line
+                    result_lines.append(line[1:])
+                    i += 1
+            
+            # Add remaining unchanged lines
+            while i < len(current_lines):
+                result_lines.append(current_lines[i])
+                i += 1
+            
+            return '\n'.join(result_lines)
+            
+        except Exception as e:
+            logger.error(f"Failed to apply diff: {e}")
+            # Fallback: return the diff as-is (for debugging)
+            return f"DIFF APPLICATION FAILED:\n{diff_content}\n\nORIGINAL:\n{current_content}"
+        
     async def generate_streaming_response(
         self,
         prompt: str,

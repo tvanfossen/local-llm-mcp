@@ -259,22 +259,27 @@ class APIEndpoints:
 
             if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
                 try:
-                    # Verify the filename matches the agent's managed file
-                    if agent_response.file_content.filename == agent.state.managed_file:
-                        success = agent.write_managed_file(agent_response.file_content.content)
-                        if success:
-                            logger.info(f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
-                            agent_response.changes_made.append("File written to disk")
-                        else:
-                            logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
-                            agent_response.warnings.append("File content generated but disk write failed")
+                    # Set the correct filename
+                    agent_response.file_content.filename = agent.state.managed_file
+                    
+                    # Write the complete file content
+                    success = agent.write_managed_file(agent_response.file_content.content)
+                    
+                    if success:
+                        logger.info(f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
+                        agent_response.changes_made.append("File written to disk")
+                        
+                        # Log file stats for debugging
+                        content = agent_response.file_content.content
+                        logger.info(f"File written: {len(content)} chars, {len(content.split(chr(10)))} lines")
                     else:
-                        logger.warning(f"Agent {agent.state.agent_id} tried to write {agent_response.file_content.filename} but manages {agent.state.managed_file}")
-                        agent_response.warnings.append(f"Filename mismatch: generated {agent_response.file_content.filename}, manages {agent.state.managed_file}")
+                        logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
+                        agent_response.warnings.append("File content generated but disk write failed")
+                        
                 except Exception as e:
                     logger.error(f"File writing error for agent {agent.state.agent_id}: {e}")
                     agent_response.warnings.append(f"File write failed: {str(e)}")
-                        
+                                                
             # Update agent
             agent.update_activity(agent_request.task_type)
             agent.update_success_rate(agent_response.status.value == "success")
