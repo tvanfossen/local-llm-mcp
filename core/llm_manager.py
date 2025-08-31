@@ -173,7 +173,7 @@ class LLMManager:
                 error_response = create_error_response("No response generated from model")
                 return error_response, {"error": "no_response"}
             
-            response_response_text = response["choices"][0]["text"].strip()
+            response_text = response["choices"][0]["text"].strip()  # Fixed variable name
             tokens_used = response["usage"]["total_tokens"] if "usage" in response else None
             
             # Update performance tracking

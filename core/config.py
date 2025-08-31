@@ -91,7 +91,7 @@ class ServerConfig:
     def from_env(cls) -> 'ServerConfig':
         """Create config from environment variables"""
         return cls(
-            host=os.getenv("SERVER_HOST", "localhost"),
+            host=os.getenv("SERVER_HOST", "0.0.0.0"),  # Change from "localhost"
             port=int(os.getenv("SERVER_PORT", "8000")),
             log_level=os.getenv("LOG_LEVEL", "info"),
             access_log=os.getenv("ACCESS_LOG", "true").lower() == "true"
