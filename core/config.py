@@ -72,7 +72,7 @@ class ModelConfig:
 class ServerConfig:
     """Server configuration for HTTP and WebSocket"""
     
-    host: str = "localhost"
+    host: str = "0.0.0.0"  # Change from "localhost"
     port: int = 8000
     
     # CORS settings

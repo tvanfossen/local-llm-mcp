@@ -625,6 +625,215 @@ class MCPHandler:
                 }],
                 "isError": True
             }
+        
+    async def _tool_agent_update_file(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle agent_update_file tool call"""
+        try:
+            agent_id = args["agent_id"]
+            agent = self.agent_registry.get_agent(agent_id)
+            
+            if not agent:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ Agent `{agent_id}` not found"
+                    }],
+                    "isError": True
+                }
+            
+            # Build file update instruction
+            instruction = args["instruction"]
+            current_content = args.get("current_content", "") or agent.read_managed_file() or ""
+            
+            file_update_message = f"Update your managed file `{agent.state.managed_file}` according to these instructions:\n\n{instruction}\n\n"
+            
+            if current_content:
+                file_update_message += f"Current file content:\n```\n{current_content}\n```\n\n"
+            
+            file_update_message += "Provide the complete updated file content in your JSON response under 'file_content'."
+            
+            # Use chat functionality for file update
+            chat_result = await self._tool_chat_with_agent({
+                "agent_id": agent_id,
+                "message": file_update_message,
+                "task_type": "update",
+                "parameters": {"file_operation": "update"}
+            })
+            
+            # Return the result
+            return chat_result
+            
+        except Exception as e:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"❌ **File update failed:** {str(e)}"
+                }],
+                "isError": True
+            }
+
+    async def _tool_get_agent_info(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle get_agent_info tool call"""
+        try:
+            agent_id = args["agent_id"]
+            agent = self.agent_registry.get_agent(agent_id)
+            
+            if not agent:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ Agent `{agent_id}` not found"
+                    }],
+                    "isError": True
+                }
+            
+            summary = agent.get_summary()
+            
+            info_text = f"🤖 **Agent Information: {agent.state.name}**\n\n"
+            info_text += f"**ID:** {agent.state.agent_id}\n"
+            info_text += f"**Description:** {agent.state.description}\n"
+            info_text += f"**Managed File:** `{agent.state.managed_file}`\n"
+            info_text += f"**File Exists:** {'✅' if summary['file_exists'] else '❌'}\n"
+            
+            if summary['file_size']:
+                info_text += f"**File Size:** {summary['file_size']} bytes\n"
+            
+            info_text += f"**Total Interactions:** {summary['total_interactions']}\n"
+            info_text += f"**Success Rate:** {summary['success_rate']:.2f}\n"
+            info_text += f"**Conversation Entries:** {summary['conversation_entries']}\n"
+            info_text += f"**Context Length:** {summary['context_length']} chars\n"
+            info_text += f"**Created:** {agent.state.created_at}\n"
+            info_text += f"**Last Active:** {agent.state.last_activity}\n"
+            info_text += f"**Workspace:** `{agent.workspace_dir}`"
+            
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": info_text
+                }]
+            }
+            
+        except Exception as e:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"❌ **Failed to get agent info:** {str(e)}"
+                }],
+                "isError": True
+            }
+
+    async def _tool_get_agent_file(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle get_agent_file tool call"""
+        try:
+            agent_id = args["agent_id"]
+            agent = self.agent_registry.get_agent(agent_id)
+            
+            if not agent:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ Agent `{agent_id}` not found"
+                    }],
+                    "isError": True
+                }
+            
+            file_content = agent.read_managed_file()
+            filename = agent.state.managed_file
+            
+            if file_content is None:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": (
+                            f"📄 **File Status:** `{filename}`\n\n"
+                            f"Agent: {agent.state.name} ({agent_id})\n"
+                            f"File does not exist yet.\n\n"
+                            f"*Use `agent_update_file` to create the file.*"
+                        )
+                    }]
+                }
+            
+            # Determine file language for syntax highlighting
+            file_ext = filename.split('.')[-1].lower() if '.' in filename else 'text'
+            language_map = {
+                'py': 'python', 'js': 'javascript', 'ts': 'typescript',
+                'html': 'html', 'css': 'css', 'sql': 'sql',
+                'json': 'json', 'yaml': 'yaml', 'yml': 'yaml',
+                'md': 'markdown', 'sh': 'bash'
+            }
+            language = language_map.get(file_ext, file_ext)
+            
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        f"📄 **File Content:** `{filename}`\n\n"
+                        f"**Agent:** {agent.state.name} ({agent_id})\n"
+                        f"**Size:** {len(file_content)} characters\n\n"
+                        f"```{language}\n{file_content}\n```"
+                    )
+                }]
+            }
+            
+        except Exception as e:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"❌ **Failed to read file:** {str(e)}"
+                }],
+                "isError": True
+            }
+
+    async def _tool_delete_agent(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle delete_agent tool call"""
+        try:
+            agent_id = args["agent_id"]
+            agent = self.agent_registry.get_agent(agent_id)
+            
+            if not agent:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ Agent `{agent_id}` not found"
+                    }],
+                    "isError": True
+                }
+            
+            agent_name = agent.state.name
+            managed_file = agent.state.managed_file
+            
+            success, error = self.agent_registry.delete_agent(agent_id)
+            
+            if success:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": (
+                            f"✅ **Agent Deleted Successfully**\n\n"
+                            f"**Deleted:** {agent_name} (ID: {agent_id})\n"
+                            f"**File Released:** `{managed_file}`\n\n"
+                            f"The file `{managed_file}` is now available for a new agent.\n"
+                            f"Workspace preserved at `workspaces/{agent_id}/`"
+                        )
+                    }]
+                }
+            else:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"❌ **Deletion failed:** {error}"
+                    }],
+                    "isError": True
+                }
+                
+        except Exception as e:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"❌ **Error:** {str(e)}"
+                }],
+                "isError": True
+            }
     
     def _create_success_response(self, request_id: Any, result: Any) -> Dict[str, Any]:
         """Create JSON-RPC 2.0 success response"""

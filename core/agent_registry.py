@@ -292,6 +292,14 @@ class AgentRegistry:
     def save_registry(self) -> bool:
         """Save registry state to file"""
         try:
+            print(f"DEBUG: Attempting to save to {self.registry_file}")
+            print(f"DEBUG: Registry file parent exists: {self.registry_file.parent.exists()}")
+            print(f"DEBUG: Number of agents to save: {len(self.agents)}")
+            
+            # Ensure state directory exists
+            self.registry_file.parent.mkdir(parents=True, exist_ok=True)
+            print(f"DEBUG: State directory created/verified: {self.registry_file.parent}")
+            
             registry_data = {
                 "schema_version": "1.0",
                 "agents": [agent.to_json() for agent in self.agents.values()],
@@ -304,17 +312,24 @@ class AgentRegistry:
                 }
             }
             
+            print(f"DEBUG: Registry data prepared, writing to file...")
+            
             with open(self.registry_file, 'w') as f:
                 json.dump(registry_data, f, indent=2)
             
+            print(f"DEBUG: Registry saved successfully to {self.registry_file}")
+            
             # Save individual agent states
             for agent in self.agents.values():
+                print(f"DEBUG: Saving agent {agent.state.agent_id} context...")
                 agent.save_context()
                 agent.save_conversation_history()
             
+            print(f"DEBUG: All agent states saved")
             return True
             
         except Exception as e:
+            print(f"DEBUG: Save registry failed: {e}")
             logger.error(f"Failed to save registry: {e}")
             return False
     
