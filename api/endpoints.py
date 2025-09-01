@@ -62,11 +62,10 @@ class APIEndpoints:
         try:
             data = await request.json()
 
-            # Extract required fields
-            required_fields = ["name", "description", "system_prompt", "managed_file"]
-            for field in required_fields:
-                if field not in data:
-                    return JSONResponse({"error": f"Missing required field: {field}"}, status_code=400)
+            # Validate required fields
+            validation_result = self._validate_create_agent_request(data)
+            if validation_result["error"]:
+                return JSONResponse({"error": validation_result["message"]}, status_code=validation_result["status"])
 
             # Create agent
             success, agent, error = self.agent_registry.create_agent(
@@ -77,26 +76,37 @@ class APIEndpoints:
                 initial_context=data.get("initial_context", ""),
             )
 
+            # Return result based on success
             if success:
-                return JSONResponse(
-                    {
-                        "success": True,
-                        "agent": {
-                            "id": agent.state.agent_id,
-                            "name": agent.state.name,
-                            "description": agent.state.description,
-                            "managed_file": agent.state.managed_file,
-                            "created_at": agent.state.created_at,
-                        },
+                response_data = {
+                    "success": True,
+                    "agent": {
+                        "id": agent.state.agent_id,
+                        "name": agent.state.name,
+                        "description": agent.state.description,
+                        "managed_file": agent.state.managed_file,
+                        "created_at": agent.state.created_at,
                     },
-                    status_code=201,
-                )
+                }
+                status_code = 201
+            else:
+                response_data = {"error": f"Agent creation failed: {error}"}
+                status_code = 400
 
-            return JSONResponse({"error": f"Agent creation failed: {error}"}, status_code=400)
+            return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
             logger.error(f"Failed to create agent: {e}")
             return JSONResponse({"error": f"Failed to create agent: {e!s}"}, status_code=500)
+
+    def _validate_create_agent_request(self, data: dict) -> dict:
+        """Validate create agent request data"""
+        required_fields = ["name", "description", "system_prompt", "managed_file"]
+        for field in required_fields:
+            if field not in data:
+                return {"error": True, "message": f"Missing required field: {field}", "status": 400}
+
+        return {"error": False}
 
     async def get_agent(self, request: Request) -> JSONResponse:
         """GET /api/agents/{agent_id} - Get agent details"""
@@ -167,17 +177,26 @@ class APIEndpoints:
             return JSONResponse({"error": f"Chat failed: {e!s}"}, status_code=500)
 
     def _validate_chat_request(self, agent_id: str, data: dict) -> dict:
-        """Validate chat request - simplified validation"""
+        """Validate chat request - consolidated validation"""
+        # Check for missing message
         message = data.get("message")
         if not message:
             return {"error": True, "message": "Missing message", "status": 400}
 
+        # Check agent existence and model loading in single validation flow
+        validation_issues = []
+
         agent = self.agent_registry.get_agent(agent_id)
         if not agent:
-            return {"error": True, "message": f"Agent {agent_id} not found", "status": 404}
+            validation_issues.append((f"Agent {agent_id} not found", 404))
 
         if not self.llm_manager.model_loaded:
-            return {"error": True, "message": "Model not loaded", "status": 503}
+            validation_issues.append(("Model not loaded", 503))
+
+        # Return first validation issue if any exist
+        if validation_issues:
+            error_msg, status = validation_issues[0]
+            return {"error": True, "message": error_msg, "status": status}
 
         return {"error": False, "agent": agent}
 
