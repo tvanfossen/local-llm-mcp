@@ -117,37 +117,26 @@ async def _health_handler(
 
 
 async def _mcp_streamable_http_handler(request: Request, mcp_handler: MCPHandler) -> Response:
-    """MCP Streamable HTTP transport endpoint"""
+    """MCP Streamable HTTP transport endpoint - simplified to reduce complexity"""
     try:
         session_id = request.headers.get("mcp-session-id")
 
+        # Route to appropriate method handler
         if request.method == "POST":
             return await _handle_mcp_post_request(request, mcp_handler, session_id)
-        elif request.method == "GET":
-            return JSONResponse(
-                {
-                    "error": "GET method not yet implemented",
-                    "message": "Streaming support via SSE will be added in future version",
-                },
-                status_code=501,
-            )
-        else:
-            return JSONResponse(
-                {"error": "Method not allowed", "allowed": ["POST", "GET"]}, status_code=405
-            )
+
+        # GET method (not yet implemented)
+        return JSONResponse(
+            {
+                "error": "GET method not yet implemented",
+                "message": "Streaming support via SSE will be added in future version",
+            },
+            status_code=501,
+        )
 
     except Exception as e:
         logger.error(f"MCP endpoint error: {e}")
-        error_response = {
-            "jsonrpc": "2.0",
-            "id": None,
-            "error": {
-                "code": -32603,
-                "message": "Internal error",
-                "data": str(e),
-            },
-        }
-        return JSONResponse(error_response, status_code=500)
+        return _create_mcp_error_response(None, e)
 
 
 async def _handle_mcp_post_request(
@@ -176,45 +165,79 @@ async def _handle_mcp_post_request(
 
     except Exception as e:
         logger.error(f"Failed to parse MCP request: {e}")
-        error_response = {
-            "jsonrpc": "2.0",
-            "id": None,
-            "error": {
-                "code": -32700,
-                "message": "Parse error",
-                "data": str(e),
-            },
-        }
-        return JSONResponse(error_response, status_code=400)
+        return _create_mcp_parse_error_response(e)
+
+
+def _create_mcp_error_response(request_id: Any, error: Exception) -> JSONResponse:
+    """Create standardized MCP error response"""
+    error_response = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {
+            "code": -32603,
+            "message": "Internal error",
+            "data": str(error),
+        },
+    }
+    return JSONResponse(error_response, status_code=500)
+
+
+def _create_mcp_parse_error_response(error: Exception) -> JSONResponse:
+    """Create MCP parse error response"""
+    error_response = {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {
+            "code": -32700,
+            "message": "Parse error",
+            "data": str(error),
+        },
+    }
+    return JSONResponse(error_response, status_code=400)
 
 
 async def _mcp_legacy_handler(request: Request, mcp_handler: MCPHandler) -> JSONResponse:
-    """Legacy MCP endpoint for backwards compatibility"""
+    """Legacy MCP endpoint for backwards compatibility - simplified"""
     try:
         data = await request.json()
 
-        if "method" in data and "params" in data:
-            jsonrpc_request = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": data["method"],
-                "params": data["params"],
-            }
-            response = await mcp_handler.handle_jsonrpc_request(jsonrpc_request)
+        # Handle different request formats
+        response = await _process_legacy_request(data, mcp_handler)
 
-            if response and "result" in response:
-                return JSONResponse(response["result"])
-            elif response and "error" in response:
-                return JSONResponse(response["error"], status_code=400)
-            else:
-                return JSONResponse({"error": "No response"}, status_code=500)
-
-        response = await mcp_handler.handle_jsonrpc_request(data)
-        return JSONResponse(response or {"status": "ok"})
+        # Return appropriate response format
+        return _format_legacy_response(response)
 
     except Exception as e:
         logger.error(f"Legacy MCP endpoint error: {e}")
         return JSONResponse({"error": f"Request failed: {e!s}"}, status_code=500)
+
+
+async def _process_legacy_request(data: dict, mcp_handler: MCPHandler):
+    """Process legacy request format"""
+    if "method" in data and "params" in data:
+        jsonrpc_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": data["method"],
+            "params": data["params"],
+        }
+        return await mcp_handler.handle_jsonrpc_request(jsonrpc_request)
+
+    return await mcp_handler.handle_jsonrpc_request(data)
+
+
+def _format_legacy_response(response) -> JSONResponse:
+    """Format legacy response"""
+    if not response:
+        return JSONResponse({"status": "ok"})
+
+    if "result" in response:
+        return JSONResponse(response["result"])
+
+    if "error" in response:
+        return JSONResponse(response["error"], status_code=400)
+
+    return JSONResponse({"error": "No response"}, status_code=500)
 
 
 def create_http_server(
@@ -223,7 +246,19 @@ def create_http_server(
     config: ConfigManager,
 ) -> Starlette:
     """Create and configure the Starlette HTTP application with proper MCP support"""
-    # Initialize handlers
+    # Initialize all handlers
+    handlers = _initialize_handlers(agent_registry, llm_manager, config)
+
+    # Create application with routes and middleware
+    app = _create_starlette_app(handlers)
+    _configure_middleware(app, config)
+
+    logger.info("✅ HTTP server configured with MCP Streamable HTTP transport")
+    return app
+
+
+def _initialize_handlers(agent_registry, llm_manager, config):
+    """Initialize all route handlers"""
     mcp_handler = MCPHandler(agent_registry, llm_manager)
     api_endpoints = APIEndpoints(agent_registry, llm_manager)
     security_manager = SecurityManager(config.system.state_dir)
@@ -247,23 +282,21 @@ def create_http_server(
     async def websocket_endpoint(websocket):
         await websocket_handler.handle_connection(websocket)
 
-    # Build routes list
-    routes = _build_routes(
-        root_handler,
-        health_handler,
-        mcp_handler_wrapper,
-        legacy_handler_wrapper,
-        api_endpoints,
-        orchestrator_api,
-        websocket_endpoint,
+    return RouteHandlers(
+        root_handler=root_handler,
+        health_handler=health_handler,
+        mcp_handler_wrapper=mcp_handler_wrapper,
+        legacy_handler_wrapper=legacy_handler_wrapper,
+        api_endpoints=api_endpoints,
+        orchestrator_api=orchestrator_api,
+        websocket_endpoint=websocket_endpoint,
     )
 
-    # Create and configure Starlette application
-    app = Starlette(routes=routes)
-    _configure_middleware(app, config)
 
-    logger.info("✅ HTTP server configured with MCP Streamable HTTP transport")
-    return app
+def _create_starlette_app(handlers: RouteHandlers) -> Starlette:
+    """Create Starlette application with routes"""
+    routes = _build_routes(handlers)
+    return Starlette(routes=routes)
 
 
 def _build_routes(handlers: RouteHandlers):
@@ -319,9 +352,9 @@ def _configure_middleware(app: Starlette, config: ConfigManager):
         expose_headers=["Mcp-Session-Id"],
     )
 
-    # Add logging and session middleware
+    # Add logging middleware
     @app.middleware("http")
-    async def log_and_session_middleware(request, call_next):
+    async def log_middleware(request, call_next):
         start_time = datetime.now()
         session_id = request.headers.get("mcp-session-id", "no-session")
         logger.info(f"Request: {request.method} {request.url.path} (session: {session_id})")
@@ -337,7 +370,7 @@ def _configure_middleware(app: Starlette, config: ConfigManager):
 
     # Add CORS preflight middleware
     @app.middleware("http")
-    async def cors_preflight_middleware(request, call_next):
+    async def cors_middleware(request, call_next):
         if request.method == "OPTIONS":
             response = Response()
             response.headers["Access-Control-Allow-Origin"] = "*"

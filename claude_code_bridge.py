@@ -30,7 +30,7 @@ class ClaudeCodeMCPBridge:
         self.initialized = False
 
     async def handle_request(self, request: dict[str, Any]) -> dict[str, Any] | None:
-        """Handle MCP request from Claude Code"""
+        """Handle MCP request from Claude Code - simplified error handling"""
         try:
             method = request.get("method", "")
             params = request.get("params", {})
@@ -39,15 +39,7 @@ class ClaudeCodeMCPBridge:
             logger.info(f"Handling request: {method}")
 
             # Build JSON-RPC request for HTTP server
-            jsonrpc_request = {
-                "jsonrpc": "2.0",
-                "method": method,
-                "params": params,
-            }
-
-            # Add ID if this is a request (not notification)
-            if request_id is not None:
-                jsonrpc_request["id"] = request_id
+            jsonrpc_request = self._build_jsonrpc_request(method, params, request_id)
 
             # Send to HTTP server and process response
             return await self._process_http_request(jsonrpc_request, method, request_id)
@@ -59,6 +51,20 @@ class ClaudeCodeMCPBridge:
             logger.error(f"Unexpected error: {e}")
             return self._create_unexpected_error_response(request, e)
 
+    def _build_jsonrpc_request(self, method: str, params: dict, request_id: Any) -> dict[str, Any]:
+        """Build JSON-RPC request for HTTP server"""
+        jsonrpc_request = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        }
+
+        # Add ID if this is a request (not notification)
+        if request_id is not None:
+            jsonrpc_request["id"] = request_id
+
+        return jsonrpc_request
+
     async def _process_http_request(
         self, jsonrpc_request: dict, method: str, request_id: Any
     ) -> dict[str, Any] | None:
@@ -69,6 +75,13 @@ class ClaudeCodeMCPBridge:
             headers={"Content-Type": "application/json"},
         )
 
+        # Handle different response status codes
+        return self._handle_http_response(response, method, request_id)
+
+    def _handle_http_response(
+        self, response: httpx.Response, method: str, request_id: Any
+    ) -> dict[str, Any] | None:
+        """Handle HTTP response based on status code"""
         if response.status_code == 200:
             response_data = response.json()
             # Handle initialization response
@@ -80,6 +93,7 @@ class ClaudeCodeMCPBridge:
         if response.status_code == 204:
             return None  # No content for notifications
 
+        # Handle error status codes
         logger.error(f"HTTP error {response.status_code}: {response.text}")
         if request_id is not None:
             return {
@@ -125,57 +139,65 @@ class ClaudeCodeMCPBridge:
         return None
 
     async def run(self):
-        """Main stdio loop"""
+        """Main stdio loop - simplified to reduce complexity"""
         logger.info(f"Starting Claude Code MCP bridge to {self.server_url}")
 
         try:
-            while True:
-                # Read line from stdin
-                line = sys.stdin.readline()
-                if not line:
-                    logger.info("EOF received, shutting down")
-                    break
-
-                line = line.strip()
-                if not line:
-                    continue
-
-                try:
-                    # Parse JSON-RPC request
-                    request = json.loads(line)
-                    logger.info(f"Received: {request.get('method', 'unknown')}")
-
-                    # Handle request
-                    response = await self.handle_request(request)
-
-                    # Send response if needed
-                    if response is not None:
-                        response_line = json.dumps(response)
-                        print(response_line, flush=True)
-                        logger.info(f"Sent response for {request.get('method', 'unknown')}")
-
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON decode error: {e}")
-                    error_response = {
-                        "jsonrpc": "2.0",
-                        "id": None,
-                        "error": {
-                            "code": -32700,
-                            "message": "Parse error",
-                            "data": str(e),
-                        },
-                    }
-                    print(json.dumps(error_response), flush=True)
-
-                except Exception as e:
-                    logger.error(f"Request handling error: {e}")
-
+            await self._main_loop()
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received")
-
         finally:
             await self.client.aclose()
             logger.info("Bridge shutdown complete")
+
+    async def _main_loop(self):
+        """Main processing loop"""
+        while True:
+            # Read line from stdin
+            line = sys.stdin.readline()
+            if not line:
+                logger.info("EOF received, shutting down")
+                break
+
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                await self._process_input_line(line)
+            except json.JSONDecodeError as e:
+                self._handle_json_decode_error(e)
+            except Exception as e:
+                logger.error(f"Request handling error: {e}")
+
+    async def _process_input_line(self, line: str):
+        """Process a single input line"""
+        # Parse JSON-RPC request
+        request = json.loads(line)
+        logger.info(f"Received: {request.get('method', 'unknown')}")
+
+        # Handle request
+        response = await self.handle_request(request)
+
+        # Send response if needed
+        if response is not None:
+            response_line = json.dumps(response)
+            print(response_line, flush=True)
+            logger.info(f"Sent response for {request.get('method', 'unknown')}")
+
+    def _handle_json_decode_error(self, error: json.JSONDecodeError):
+        """Handle JSON decode errors"""
+        logger.error(f"JSON decode error: {error}")
+        error_response = {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "code": -32700,
+                "message": "Parse error",
+                "data": str(error),
+            },
+        }
+        print(json.dumps(error_response), flush=True)
 
 
 async def main():

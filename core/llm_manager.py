@@ -9,7 +9,6 @@ Responsibilities:
 - Streaming response support
 """
 
-import json
 import logging
 import time
 from dataclasses import dataclass
@@ -61,18 +60,18 @@ class LLMManager:
 
     def load_model(self) -> tuple[bool, str | None]:
         """Load the model with optimized settings for RTX 1080ti + CUDA 12.9"""
+        model_path = Path(self.config.model_path)
+        if not model_path.exists():
+            error_msg = f"Model file not found: {self.config.model_path}"
+            logger.error(error_msg)
+            return False, error_msg
+
+        # Log initialization info
+        self._log_model_loading_info()
+
+        start_time = time.time()
+
         try:
-            # Validate model file exists
-            if not Path(self.config.model_path).exists():
-                error_msg = f"Model file not found: {self.config.model_path}"
-                logger.error(error_msg)
-                return False, error_msg
-
-            # Log initialization info
-            self._log_model_loading_info()
-
-            start_time = time.time()
-
             # Initialize the model
             self.llm = Llama(
                 model_path=self.config.model_path,
@@ -126,75 +125,36 @@ class LLMManager:
     def generate_response(
         self,
         prompt: str,
-        params: GenerationParams | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        repeat_penalty: float | None = None,
     ) -> tuple[AgentResponse, dict[str, Any]]:
         """Generate response from the model with performance tracking"""
-        if params is None:
-            params = GenerationParams()
-
         if not self.model_loaded:
             error_response = create_error_response("Model not loaded")
             return error_response, {"error": "model_not_loaded"}
 
         # Use config defaults if not specified
-        temperature = params.temperature or self.config.temperature
-        max_tokens = params.max_tokens or self.config.max_tokens
-        top_p = params.top_p or self.config.top_p
-        repeat_penalty = params.repeat_penalty or self.config.repeat_penalty
-        stop_sequences = params.stop_sequences or ["</s>", "<|im_end|>", "<|endoftext|>"]
+        params = self._prepare_generation_params(temperature, max_tokens, top_p, repeat_penalty)
 
         try:
             start_time = time.time()
 
             response = self.llm(
                 prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                repeat_penalty=repeat_penalty,
-                stop=stop_sequences,
+                max_tokens=params["max_tokens"],
+                temperature=params["temperature"],
+                top_p=params["top_p"],
+                repeat_penalty=params["repeat_penalty"],
+                stop=params["stop_sequences"],
                 echo=False,
             )
 
-            end_time = time.time()
-            processing_time = end_time - start_time
+            processing_time = time.time() - start_time
 
-            if not response or not response.get("choices"):
-                error_response = create_error_response("No response generated from model")
-                return error_response, {"error": "no_response"}
-
-            response_text = response["choices"][0]["text"].strip()
-            logger.info(f"🔍 RAW MODEL OUTPUT: {response_text!r}")
-            tokens_used = response["usage"]["total_tokens"] if "usage" in response else None
-
-            # Update performance tracking
-            self.inference_count += 1
-            self.total_inference_time += processing_time
-            if tokens_used:
-                self.total_tokens_generated += tokens_used
-                self.avg_tokens_per_second = (
-                    tokens_used / processing_time if processing_time > 0 else 0
-                )
-
-            self.last_inference_time = processing_time
-
-            # Parse agent response from LLM output
-            agent_response = self._parse_agent_response(response_text)
-
-            # Update tokens and timing
-            agent_response.tokens_used = tokens_used
-            agent_response.processing_time = processing_time
-
-            # Performance metrics
-            performance_metrics = {
-                "tokens_generated": tokens_used or 0,
-                "processing_time": processing_time,
-                "tokens_per_second": self.avg_tokens_per_second,
-                "inference_count": self.inference_count,
-                "model_efficiency": "high" if self.avg_tokens_per_second > 10 else "moderate",
-            }
-
-            return agent_response, performance_metrics
+            # Process response
+            return self._process_llm_response(response, processing_time)
 
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
@@ -204,8 +164,6 @@ class LLMManager:
     def _parse_agent_response(self, response_text: str) -> AgentResponse:
         """Parse agent response - Handle unescaped quotes in JSON strings"""
         try:
-            import json
-            import re
 
             logger.info(f"Attempting to parse response: {response_text[:200]!r}")
 
@@ -235,6 +193,8 @@ class LLMManager:
         """Try parsing JSON with progressive fixes"""
         # First, try parsing as-is
         try:
+            import json
+
             response_data = json.loads(json_text)
             logger.info("✅ JSON parsing succeeded without fixes")
             return self._create_response_from_json(response_data)
@@ -243,6 +203,8 @@ class LLMManager:
 
         # Try with quote fixing
         try:
+            import json
+
             fixed_json_text = self._fix_unescaped_quotes(json_text)
             response_data = json.loads(fixed_json_text)
             logger.info("✅ JSON parsing succeeded after quote fixing")
@@ -354,56 +316,6 @@ class LLMManager:
         except Exception as e:
             logger.error(f"Manual extraction also failed: {e}")
 
-    # ALSO ADD this helper method to apply diffs
-
-    def _apply_diff_to_file(self, current_content: str, diff_content: str) -> str:
-        """Apply unified diff to current file content"""
-        try:
-            import re
-
-            # Parse unified diff
-            lines = diff_content.split("\n")
-            current_lines = current_content.split("\n") if current_content else []
-            result_lines = []
-
-            i = 0
-            for line in lines:
-                if line.startswith("@@"):
-                    # Parse hunk header: @@ -start,count +start,count @@
-                    match = re.match(r"@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@", line)
-                    if match:
-                        new_start = int(match.group(3)) - 1
-                        # Add unchanged lines before this hunk
-                        while len(result_lines) < new_start:
-                            if i < len(current_lines):
-                                result_lines.append(current_lines[i])
-                                i += 1
-                            else:
-                                break
-                elif line.startswith("+"):
-                    # Add new line
-                    result_lines.append(line[1:])
-                elif line.startswith("-"):
-                    # Skip removed line
-                    if i < len(current_lines):
-                        i += 1
-                elif line.startswith(" "):
-                    # Unchanged line
-                    result_lines.append(line[1:])
-                    i += 1
-
-            # Add remaining unchanged lines
-            while i < len(current_lines):
-                result_lines.append(current_lines[i])
-                i += 1
-
-            return "\n".join(result_lines)
-
-        except Exception as e:
-            logger.error(f"Failed to apply diff: {e}")
-            # Fallback: return the diff as-is (for debugging)
-            return f"DIFF APPLICATION FAILED:\n{diff_content}\n\nORIGINAL:\n{current_content}"
-
     async def generate_streaming_response(
         self,
         prompt: str,
@@ -411,17 +323,7 @@ class LLMManager:
         max_tokens: int | None = None,
         stop_sequences: list | None = None,
     ):
-        """Generate streaming response from the model
-
-        Args:
-            prompt: Input prompt for generation
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            stop_sequences: Stop sequences for generation
-
-        Yields:
-            Dictionary with streaming data
-        """
+        """Generate streaming response from the model"""
         if not self.model_loaded:
             yield {"type": "error", "message": "Model not loaded"}
             return
@@ -470,11 +372,7 @@ class LLMManager:
             agent_response.processing_time = processing_time
 
             # Update performance tracking
-            self.inference_count += 1
-            self.total_inference_time += processing_time
-            self.total_tokens_generated += tokens_generated
-            if processing_time > 0:
-                self.avg_tokens_per_second = tokens_generated / processing_time
+            self._update_performance_metrics(tokens_generated, processing_time)
 
             metrics = {
                 "tokens_generated": tokens_generated,
@@ -590,21 +488,16 @@ class LLMManager:
     def _validate_model_loading(self) -> tuple[bool, str | None]:
         """Test generation to ensure model is working properly"""
         test_success = self._test_generation()
-        if test_success:
-            return True, None
-        else:
-            return False, "Model loaded but test generation failed"
+        return (True, None) if test_success else (False, "Model loaded but test generation failed")
 
-    def _prepare_generation_params(
-        self, temperature, max_tokens, top_p, repeat_penalty, stop_sequences
-    ) -> dict:
+    def _prepare_generation_params(self, temperature, max_tokens, top_p, repeat_penalty) -> dict:
         """Prepare generation parameters with defaults"""
         return {
             "temperature": temperature or self.config.temperature,
             "max_tokens": max_tokens or self.config.max_tokens,
             "top_p": top_p or self.config.top_p,
             "repeat_penalty": repeat_penalty or self.config.repeat_penalty,
-            "stop_sequences": stop_sequences or ["</s>", "<|im_end|>", "<|endoftext|>"],
+            "stop_sequences": ["</s>", "<|im_end|>", "<|endoftext|>"],
         }
 
     def _process_llm_response(

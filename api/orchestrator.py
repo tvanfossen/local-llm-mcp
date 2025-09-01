@@ -82,7 +82,7 @@ class OrchestratorAPI:
             )
 
     async def authenticate(self, request: Request) -> JSONResponse:
-        """Authenticate with private key"""
+        """Authenticate with private key - simplified error handling"""
         try:
             data = await request.json()
             private_key = data.get("private_key")
@@ -102,21 +102,21 @@ class OrchestratorAPI:
                         "expires_in": 14400,  # 4 hours
                     }
                 )
-            else:
-                return JSONResponse({"error": f"Authentication failed: {error}"}, status_code=401)
+
+            return JSONResponse({"error": f"Authentication failed: {error}"}, status_code=401)
 
         except Exception as e:
             logger.error(f"Authentication error: {e}")
             return JSONResponse({"error": f"Authentication error: {e!s}"}, status_code=500)
 
     async def validate_session(self, request: Request) -> JSONResponse:
-        """Validate current session"""
+        """Validate current session - simplified"""
         try:
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
+            # Extract and validate session token
+            session_token = self._extract_session_token(request)
+            if not session_token:
                 return JSONResponse({"error": "Invalid authorization header"}, status_code=401)
 
-            session_token = auth_header[7:]  # Remove "Bearer " prefix
             valid, session = self.security_manager.validate_session(session_token)
 
             if valid:
@@ -128,8 +128,8 @@ class OrchestratorAPI:
                         "expires_at": session["expires_at"],
                     }
                 )
-            else:
-                return JSONResponse({"valid": False}, status_code=401)
+
+            return JSONResponse({"valid": False}, status_code=401)
 
         except Exception as e:
             logger.error(f"Session validation error: {e}")
@@ -141,7 +141,7 @@ class OrchestratorAPI:
             agent_id = request.path_params["agent_id"]
 
             # Validate session and get agent
-            validation_result = await self._validate_session_and_agent(request, agent_id)
+            validation_result = self._validate_session_and_agent(request, agent_id)
             if validation_result.get("error"):
                 return JSONResponse(
                     validation_result, status_code=validation_result.get("status", 400)
@@ -181,25 +181,18 @@ class OrchestratorAPI:
             logger.error(f"Test execution failed: {e}")
             return JSONResponse({"error": f"Test failed: {e!s}"}, status_code=500)
 
-    def _create_auth_error(self, message: str, status_code: int) -> JSONResponse:
-        """Create standardized authentication error response"""
-        return JSONResponse({"error": message}, status_code=status_code)
-
     def _extract_session_token(self, request: Request) -> str | None:
         """Extract session token from authorization header"""
         auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            return auth_header[7:]  # Remove "Bearer " prefix
-        return None
+        return auth_header[7:] if auth_header.startswith("Bearer ") else None
 
     def _validate_session_and_agent(self, request: Request, agent_id: str) -> dict:
-        """Validate session and get agent"""
+        """Validate session and get agent - consolidated validation"""
         # Extract and validate session token
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
+        session_token = self._extract_session_token(request)
+        if not session_token:
             return {"error": "Authentication required", "status": 401}
 
-        session_token = auth_header[7:]
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
             return {"error": "Invalid or expired session", "status": 401}
@@ -218,9 +211,10 @@ class OrchestratorAPI:
 
             # Validate authentication and parameters
             validation_result = self._validate_deployment_request(request, data)
-            if validation_result.get("error"):
+            error = validation_result.get("error")
+            if error:
                 status_code = validation_result.get("status", 400)
-                return JSONResponse(validation_result, status_code=status_code)
+                return JSONResponse({"error": error}, status_code=status_code)
 
             session_token = validation_result["session_token"]
             agent = validation_result["agent"]
@@ -239,10 +233,9 @@ class OrchestratorAPI:
                         "deployment": deployment_info,
                     }
                 )
-            else:
-                return JSONResponse(
-                    {"error": deployment_info.get("error", "Staging failed")}, status_code=400
-                )
+
+            error_msg = deployment_info.get("error", "Staging failed")
+            return JSONResponse({"error": error_msg}, status_code=400)
 
         except Exception as e:
             logger.error(f"Staging failed: {e}")
@@ -254,25 +247,28 @@ class OrchestratorAPI:
             data = await request.json()
 
             # Validate authentication and parameters
-            validation_result = await self._validate_full_deployment_request(request, data)
-            if validation_result.get("error"):
+            validation_result = self._validate_deployment_request(request, data)
+            error = validation_result.get("error")
+            if error:
                 return JSONResponse(
-                    validation_result, status_code=validation_result.get("status", 400)
+                    {"error": error}, status_code=validation_result.get("status", 400)
                 )
 
             session_token = validation_result["session_token"]
             agent = validation_result["agent"]
             target_path = validation_result["target_path"]
-            file_path = validation_result["file_path"]
+            file_path = data.get("file_path")
+
+            if not file_path:
+                return JSONResponse({"error": "file_path required"}, status_code=400)
 
             # Execute deployment workflow
             deployment_result = await self._execute_deployment_workflow(
                 agent, target_path, file_path, session_token
             )
 
-            return JSONResponse(
-                deployment_result["response"], status_code=deployment_result["status"]
-            )
+            status_code = deployment_result.get("status", 200)
+            return JSONResponse(deployment_result["response"], status_code=status_code)
 
         except Exception as e:
             logger.error(f"Deployment failed: {e}")
@@ -285,9 +281,10 @@ class OrchestratorAPI:
 
             # Validate session and deployment ID
             validation_result = self._validate_rollback_request(request, data)
-            if validation_result.get("error"):
+            error = validation_result.get("error")
+            if error:
                 status_code = validation_result.get("status", 400)
-                return JSONResponse(validation_result, status_code=status_code)
+                return JSONResponse({"error": error}, status_code=status_code)
 
             session_token = validation_result["session_token"]
             deployment_id = validation_result["deployment_id"]
@@ -299,8 +296,8 @@ class OrchestratorAPI:
 
             if success:
                 return JSONResponse({"success": True, "message": message})
-            else:
-                return JSONResponse({"error": message}, status_code=400)
+
+            return JSONResponse({"error": message}, status_code=400)
 
         except Exception as e:
             logger.error(f"Rollback failed: {e}")
@@ -309,11 +306,9 @@ class OrchestratorAPI:
     def _validate_deployment_request(self, request: Request, data: dict) -> dict:
         """Validate deployment request and return validation result"""
         # Validate authentication
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
+        session_token = self._extract_session_token(request)
+        if not session_token:
             return {"error": "Authentication required", "status": 401}
-
-        session_token = auth_header[7:]
 
         # Validate required parameters
         agent_id = data.get("agent_id")
@@ -329,29 +324,13 @@ class OrchestratorAPI:
 
         return {"session_token": session_token, "agent": agent, "target_path": target_path}
 
-    async def _validate_full_deployment_request(self, request: Request, data: dict) -> dict:
-        """Validate full deployment request parameters"""
-        # First validate basic deployment parameters
-        basic_validation = await self._validate_deployment_request(request, data)
-        if basic_validation.get("error"):
-            return basic_validation
-
-        # Validate additional required parameter
-        file_path = data.get("file_path")
-        if not file_path:
-            return {"error": "file_path required", "status": 400}
-
-        basic_validation["file_path"] = file_path
-        return basic_validation
-
     def _validate_rollback_request(self, request: Request, data: dict) -> dict:
         """Validate rollback request and return validation result"""
         # Validate authentication
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
+        session_token = self._extract_session_token(request)
+        if not session_token:
             return {"error": "Authentication required", "status": 401}
 
-        session_token = auth_header[7:]
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
             return {"error": "Invalid or expired session", "status": 401}
@@ -363,7 +342,7 @@ class OrchestratorAPI:
 
         return {"session_token": session_token, "deployment_id": deployment_id, "session": session}
 
-    def _execute_deployment_workflow(
+    async def _execute_deployment_workflow(
         self, agent, target_path: str, file_path: str, session_token: str
     ) -> dict:
         """Execute deployment workflow and return result"""
@@ -380,10 +359,9 @@ class OrchestratorAPI:
 
         # Check coverage requirement
         if not deployment_info.get("coverage_ok", False):
+            coverage_percent = deployment_info.get("coverage_percent", 0)
             return {
-                "response": {
-                    "error": f"Coverage requirement not met: {deployment_info.get('coverage_percent', 0)}%"
-                },
+                "response": {"error": f"Coverage requirement not met: {coverage_percent}%"},
                 "status": 400,
             }
 
@@ -411,18 +389,17 @@ class OrchestratorAPI:
                 },
                 "status": 200,
             }
-        else:
-            return {"response": {"error": message}, "status": 400}
+
+        return {"response": {"error": message}, "status": 400}
 
     async def get_deployment_history(self, request: Request) -> JSONResponse:
         """Get deployment history"""
         try:
             # Validate session
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
+            session_token = self._extract_session_token(request)
+            if not session_token:
                 return JSONResponse({"error": "Authentication required"}, status_code=401)
 
-            session_token = auth_header[7:]
             valid, session = self.security_manager.validate_session(session_token)
             if not valid:
                 return JSONResponse({"error": "Invalid or expired session"}, status_code=401)

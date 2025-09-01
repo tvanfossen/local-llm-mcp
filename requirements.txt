@@ -1,2 +1,11 @@
-# Runtime dependencies only (dev deps in pyproject.toml)
-# See pyproject.toml for full dependency list
+pydantic>=2.0.0
+starlette>=0.27.0
+uvicorn[standard]>=0.20.0
+fastapi>=0.100.0
+python-multipart>=0.0.6
+httpx>=0.24.0
+websockets>=11.0.0
+invoke
+cryptography>=41.0.0
+pytest>=7.4.0
+pytest-cov>=4.1.0

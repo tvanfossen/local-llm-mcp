@@ -36,6 +36,14 @@ def get_key_directory() -> Path:
 class MCPKeyManager:
     """Manages MCP RSA keys with secure storage"""
 
+    def __init__(self):
+        self.key_dir = get_key_directory()
+        self.key_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        self.private_key_file = self.key_dir / "id_rsa_mcp"
+        self.public_key_file = self.key_dir / "id_rsa_mcp.pub"
+        self.config_file = self.key_dir / "config.json"
+
     def init(self, server_url: str = "http://localhost:8000", name: str | None = None):
         """Initialize MCP key storage"""
         if self.private_key_file.exists():
@@ -124,37 +132,43 @@ class MCPKeyManager:
             print(f"❌ Error reading private key: {e}")
             return None
 
-    def copy_to_clipboard(self):
-        """Copy private key to clipboard"""
+    def copy_to_clipboard(self) -> bool:
+        """Copy private key to clipboard - simplified to reduce returns"""
         private_key = self.get_private_key()
         if not private_key:
             print("❌ No private key found")
             return False
 
+        # Determine copy method based on OS
+        copy_result = self._copy_by_os(private_key)
+
+        if copy_result["success"]:
+            print(f"✅ Private key copied to clipboard ({copy_result['method']})")
+            print("📋 You can now paste it in the orchestrator")
+        else:
+            print(f"❌ {copy_result['error']}")
+            print("💡 You can manually copy from: mcp-keys show --private")
+
+        return copy_result["success"]
+
+    def _copy_by_os(self, private_key: str) -> dict:
+        """Copy to clipboard by OS - consolidated to reduce complexity"""
         system = platform.system()
 
         try:
             if system == "Darwin":  # macOS
                 subprocess.run("pbcopy", input=private_key.encode(), check=True)
-                print("✅ Private key copied to clipboard (macOS)")
+                return {"success": True, "method": "macOS"}
             elif system == "Linux":
-                success = self._copy_to_linux_clipboard(private_key)
-                if not success:
-                    return False
+                return self._copy_to_linux_clipboard(private_key)
             elif system == "Windows":
                 subprocess.run("clip", input=private_key.encode(), check=True)
-                print("✅ Private key copied to clipboard (Windows)")
+                return {"success": True, "method": "Windows"}
             else:
-                print(f"❌ Clipboard not supported on {system}")
-                return False
-
-            print("📋 You can now paste it in the orchestrator")
-            return True
+                return {"success": False, "error": f"Clipboard not supported on {system}"}
 
         except Exception as e:
-            print(f"❌ Failed to copy to clipboard: {e}")
-            print("💡 You can manually copy from: mcp-keys show --private")
-            return False
+            return {"success": False, "error": f"Failed to copy to clipboard: {e}"}
 
     def export(self, output_file: str | None = None, format: str = "pem"):
         """Export keys to file"""
@@ -280,8 +294,8 @@ class MCPKeyManager:
             print(f"❌ Backup failed: {e}")
             return False
 
-    def authenticate(self, server_url: str | None = None):
-        """Test authentication with server"""
+    def authenticate(self, server_url: str | None = None) -> bool:
+        """Test authentication with server - simplified to reduce returns"""
         if not server_url:
             config = self._load_config()
             server_url = config.get("server", "http://localhost:8000")
@@ -291,6 +305,21 @@ class MCPKeyManager:
             print("❌ No private key found")
             return False
 
+        # Perform authentication request
+        auth_result = self._perform_auth_request(server_url, private_key)
+
+        if auth_result["success"]:
+            data = auth_result["data"]
+            print("✅ Authentication successful!")
+            print(f"🎫 Session token: {data['session_token'][:20]}...")
+            print(f"⏱️  Expires in: {data['expires_in']} seconds")
+        else:
+            print(f"❌ Authentication failed: {auth_result['error']}")
+
+        return auth_result["success"]
+
+    def _perform_auth_request(self, server_url: str, private_key: str) -> dict:
+        """Perform authentication request"""
         try:
             import requests
 
@@ -301,18 +330,12 @@ class MCPKeyManager:
             )
 
             if response.status_code == 200:
-                data = response.json()
-                print("✅ Authentication successful!")
-                print(f"🎫 Session token: {data['session_token'][:20]}...")
-                print(f"⏱️  Expires in: {data['expires_in']} seconds")
-                return True
+                return {"success": True, "data": response.json()}
             else:
-                print(f"❌ Authentication failed: {response.status_code}")
-                return False
+                return {"success": False, "error": f"HTTP {response.status_code}"}
 
         except Exception as e:
-            print(f"❌ Connection failed: {e}")
-            return False
+            return {"success": False, "error": f"Connection failed: {e}"}
 
     def _save_keys(self, private_key: str, public_key: str):
         """Save keys with proper permissions"""
@@ -377,7 +400,7 @@ class MCPKeyManager:
             print(f"❌ Server error: {response.status_code}")
             return False
 
-    def _copy_to_linux_clipboard(self, private_key: str) -> bool:
+    def _copy_to_linux_clipboard(self, private_key: str) -> dict:
         """Copy to Linux clipboard using available tools"""
         try:
             # Try xclip first, then xsel
@@ -385,17 +408,14 @@ class MCPKeyManager:
                 subprocess.run(
                     ["xclip", "-selection", "clipboard"], input=private_key.encode(), check=True
                 )
-                print("✅ Private key copied to clipboard (Linux/xclip)")
-                return True
+                return {"success": True, "method": "Linux/xclip"}
             except Exception:
                 subprocess.run(
                     ["xsel", "--clipboard", "--input"], input=private_key.encode(), check=True
                 )
-                print("✅ Private key copied to clipboard (Linux/xsel)")
-                return True
+                return {"success": True, "method": "Linux/xsel"}
         except Exception as e:
-            print(f"❌ Linux clipboard error: {e}")
-            return False
+            return {"success": False, "error": f"Linux clipboard error: {e}"}
 
 
 def main():

@@ -23,11 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketHandler:
-    """Manages WebSocket connections for real-time agent interactions
-
-    Provides real-time streaming communication with agents,
-    connection management, and broadcast capabilities.
-    """
+    """Manages WebSocket connections for real-time agent interactions"""
 
     def __init__(self, agent_registry: AgentRegistry, llm_manager: LLMManager):
         self.agent_registry = agent_registry
@@ -45,20 +41,10 @@ class WebSocketHandler:
 
         try:
             # Send connection confirmation
-            await websocket.send_json(
-                {
-                    "type": "connection_established",
-                    "connection_id": connection_id,
-                    "message": "Connected to Standardized Agent LLM Server",
-                    "features": ["real_time_chat", "streaming_responses", "agent_management"],
-                    "agents_available": len(self.agent_registry.agents),
-                }
-            )
+            await self._send_connection_established(websocket, connection_id)
 
-            # Handle messages
-            while True:
-                data = await websocket.receive_json()
-                await self._handle_websocket_message(websocket, connection_id, data)
+            # Handle messages in main loop
+            await self._message_loop(websocket, connection_id)
 
         except WebSocketDisconnect:
             logger.info(f"WebSocket disconnected: {connection_id}")
@@ -68,31 +54,48 @@ class WebSocketHandler:
         finally:
             await self._cleanup_connection(connection_id)
 
+    async def _send_connection_established(self, websocket: WebSocket, connection_id: str):
+        """Send connection established message"""
+        await websocket.send_json(
+            {
+                "type": "connection_established",
+                "connection_id": connection_id,
+                "message": "Connected to Standardized Agent LLM Server",
+                "features": ["real_time_chat", "streaming_responses", "agent_management"],
+                "agents_available": len(self.agent_registry.agents),
+            }
+        )
+
+    async def _message_loop(self, websocket: WebSocket, connection_id: str):
+        """Main message handling loop"""
+        while True:
+            data = await websocket.receive_json()
+            await self._handle_websocket_message(websocket, connection_id, data)
+
     async def _handle_websocket_message(
         self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
     ):
-        """Handle incoming WebSocket message"""
+        """Handle incoming WebSocket message - simplified dispatch"""
         message_type = data.get("type", "unknown")
 
+        # Use dictionary dispatch to reduce complexity
+        message_handlers = {
+            "ping": self._handle_ping,
+            "list_agents": self._ws_list_agents,
+            "get_agent_info": self._ws_get_agent_info,
+            "chat_agent": self._ws_chat_agent,
+            "stream_chat_agent": self._ws_stream_chat_agent,
+            "create_agent": self._ws_create_agent,
+        }
+
+        handler = message_handlers.get(message_type)
+
         try:
-            if message_type == "ping":
-                await websocket.send_json({"type": "pong", "timestamp": data.get("timestamp")})
-
-            elif message_type == "list_agents":
-                await self._ws_list_agents(websocket)
-
-            elif message_type == "get_agent_info":
-                await self._ws_get_agent_info(websocket, data)
-
-            elif message_type == "chat_agent":
-                await self._ws_chat_agent(websocket, connection_id, data)
-
-            elif message_type == "stream_chat_agent":
-                await self._ws_stream_chat_agent(websocket, connection_id, data)
-
-            elif message_type == "create_agent":
-                await self._ws_create_agent(websocket, data)
-
+            if handler:
+                if message_type == "ping":
+                    await handler(websocket, data)
+                else:
+                    await handler(websocket, connection_id, data)
             else:
                 await self._send_error(websocket, f"Unknown message type: {message_type}")
 
@@ -100,23 +103,15 @@ class WebSocketHandler:
             logger.error(f"Error handling WebSocket message {message_type}: {e}")
             await self._send_error(websocket, f"Message handling error: {e!s}")
 
-    async def _ws_list_agents(self, websocket: WebSocket):
+    async def _handle_ping(self, websocket: WebSocket, data: dict[str, Any]):
+        """Handle ping message"""
+        await websocket.send_json({"type": "pong", "timestamp": data.get("timestamp")})
+
+    async def _ws_list_agents(self, websocket: WebSocket, connection_id: str, data: dict[str, Any]):
         """List agents via WebSocket"""
         try:
             agents = self.agent_registry.list_agents()
-            agents_data = []
-
-            for agent in agents:
-                agents_data.append(
-                    {
-                        "id": agent.state.agent_id,
-                        "name": agent.state.name,
-                        "description": agent.state.description,
-                        "managed_file": agent.state.managed_file,
-                        "last_activity": agent.state.last_activity,
-                        "total_interactions": agent.state.total_interactions,
-                    }
-                )
+            agents_data = self._build_agents_data(agents)
 
             await websocket.send_json(
                 {
@@ -129,14 +124,32 @@ class WebSocketHandler:
         except Exception as e:
             await self._send_error(websocket, f"Failed to list agents: {e!s}")
 
-    async def _ws_get_agent_info(self, websocket: WebSocket, data: dict[str, Any]):
-        """Get agent info via WebSocket"""
-        try:
-            agent_id = data.get("agent_id")
-            if not agent_id:
-                await self._send_error(websocket, "Missing agent_id")
-                return
+    def _build_agents_data(self, agents) -> list[dict]:
+        """Build agents data for list response"""
+        agents_data = []
+        for agent in agents:
+            agents_data.append(
+                {
+                    "id": agent.state.agent_id,
+                    "name": agent.state.name,
+                    "description": agent.state.description,
+                    "managed_file": agent.state.managed_file,
+                    "last_activity": agent.state.last_activity,
+                    "total_interactions": agent.state.total_interactions,
+                }
+            )
+        return agents_data
 
+    async def _ws_get_agent_info(
+        self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
+    ):
+        """Get agent info via WebSocket"""
+        agent_id = data.get("agent_id")
+        if not agent_id:
+            await self._send_error(websocket, "Missing agent_id")
+            return
+
+        try:
             agent = self.agent_registry.get_agent(agent_id)
             if not agent:
                 await self._send_error(websocket, f"Agent {agent_id} not found")
@@ -158,175 +171,201 @@ class WebSocketHandler:
     async def _ws_chat_agent(self, websocket: WebSocket, connection_id: str, data: dict[str, Any]):
         """Non-streaming chat with agent via WebSocket"""
         try:
-            agent_id = data.get("agent_id")
-            message = data.get("message")
-
-            if not agent_id or not message:
-                await self._send_error(websocket, "Missing agent_id or message")
+            # Validate inputs
+            validation_result = self._validate_chat_inputs(data)
+            if validation_result["error"]:
+                await self._send_error(websocket, validation_result["error"])
                 return
 
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                await self._send_error(websocket, f"Agent {agent_id} not found")
-                return
+            agent = validation_result["agent"]
 
-            if not self.llm_manager.model_loaded:
-                await self._send_error(websocket, "Model not loaded")
-                return
-
-            # Create request
-            agent_request = create_standard_request(
-                task_type=TaskType(data.get("task_type", "update")),
-                instruction=message,
-                context=data.get("context"),
-                parameters=data.get("parameters", {}),
-            )
-
-            # Generate response
-            prompt = agent.build_context_prompt(agent_request)
-            agent_response, metrics = self.llm_manager.generate_response(prompt)
-
-            if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
-                try:
-                    if agent_response.file_content.filename == agent.state.managed_file:
-                        success = agent.write_managed_file(agent_response.file_content.content)
-                        if success:
-                            logger.info(
-                                f"✅ WebSocket: Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}"
-                            )
-                            agent_response.changes_made.append("File written to disk")
-                        else:
-                            logger.error(
-                                f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file"
-                            )
-                            agent_response.warnings.append(
-                                "File content generated but disk write failed"
-                            )
-                    else:
-                        agent_response.warnings.append(
-                            f"Filename mismatch: generated {agent_response.file_content.filename}, manages {agent.state.managed_file}"
-                        )
-                except Exception as e:
-                    logger.error(
-                        f"WebSocket file writing error for agent {agent.state.agent_id}: {e}"
-                    )
-                    agent_response.warnings.append(f"File write failed: {e!s}")
-
-            # Update agent
-            agent.update_activity(agent_request.task_type)
-            agent.update_success_rate(agent_response.status.value == "success")
-            agent.add_conversation(agent_request, agent_response)
-
-            # Save state
-            self.agent_registry.save_registry()
+            # Process chat
+            chat_result = await self._process_agent_chat(agent, data)
 
             # Send response
-            await websocket.send_json(
-                {
-                    "type": "chat_response",
-                    "agent_id": agent_id,
-                    "agent_name": agent.state.name,
-                    "response": agent_response.model_dump(),
-                    "performance": metrics,
-                }
-            )
+            await websocket.send_json(chat_result)
 
         except Exception as e:
             await self._send_error(websocket, f"Chat failed: {e!s}")
+
+    def _validate_chat_inputs(self, data: dict[str, Any]) -> dict:
+        """Validate chat inputs and return validation result"""
+        agent_id = data.get("agent_id")
+        message = data.get("message")
+
+        if not agent_id or not message:
+            return {"error": "Missing agent_id or message", "agent": None}
+
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": f"Agent {agent_id} not found", "agent": None}
+
+        if not self.llm_manager.model_loaded:
+            return {"error": "Model not loaded", "agent": None}
+
+        return {"error": None, "agent": agent}
+
+    async def _process_agent_chat(self, agent, data: dict[str, Any]) -> dict:
+        """Process agent chat and return formatted result"""
+        # Create standardized request
+        agent_request = create_standard_request(
+            task_type=TaskType(data.get("task_type", "update")),
+            instruction=data["message"],
+            context=data.get("context"),
+            parameters=data.get("parameters", {}),
+        )
+
+        # Generate response
+        prompt = agent.build_context_prompt(agent_request)
+        agent_response, metrics = self.llm_manager.generate_response(prompt)
+
+        # Handle file content if present
+        self._handle_agent_file_content(agent, agent_response)
+
+        # Update agent state
+        self._update_agent_state(agent, agent_request, agent_response)
+
+        return {
+            "type": "chat_response",
+            "agent_id": agent.state.agent_id,
+            "agent_name": agent.state.name,
+            "response": agent_response.model_dump(),
+            "performance": metrics,
+        }
+
+    def _handle_agent_file_content(self, agent, agent_response):
+        """Handle file content processing for agent"""
+        if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
+            try:
+                if agent_response.file_content.filename == agent.state.managed_file:
+                    success = agent.write_managed_file(agent_response.file_content.content)
+                    if success:
+                        logger.info(
+                            f"✅ WebSocket: Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}"
+                        )
+                        agent_response.changes_made.append("File written to disk")
+                    else:
+                        logger.error(
+                            f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file"
+                        )
+                        agent_response.warnings.append(
+                            "File content generated but disk write failed"
+                        )
+                else:
+                    filename_mismatch_msg = (
+                        f"Filename mismatch: generated {agent_response.file_content.filename}, "
+                        f"manages {agent.state.managed_file}"
+                    )
+                    agent_response.warnings.append(filename_mismatch_msg)
+            except Exception as e:
+                logger.error(f"WebSocket file writing error for agent {agent.state.agent_id}: {e}")
+                agent_response.warnings.append(f"File write failed: {e!s}")
+
+    def _update_agent_state(self, agent, agent_request, agent_response):
+        """Update agent state after processing"""
+        agent.update_activity(agent_request.task_type)
+        agent.update_success_rate(agent_response.status.value == "success")
+        agent.add_conversation(agent_request, agent_response)
+        self.agent_registry.save_registry()
 
     async def _ws_stream_chat_agent(
         self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
     ):
         """Streaming chat with agent via WebSocket"""
         try:
-            agent_id = data.get("agent_id")
-            message = data.get("message")
-
-            if not agent_id or not message:
-                await self._send_error(websocket, "Missing agent_id or message")
+            # Validate inputs
+            validation_result = self._validate_chat_inputs(data)
+            if validation_result["error"]:
+                await self._send_error(websocket, validation_result["error"])
                 return
 
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                await self._send_error(websocket, f"Agent {agent_id} not found")
-                return
-
-            if not self.llm_manager.model_loaded:
-                await self._send_error(websocket, "Model not loaded")
-                return
+            agent = validation_result["agent"]
 
             # Store agent association for this connection
-            self.connection_agents[connection_id] = agent_id
+            self.connection_agents[connection_id] = agent.state.agent_id
 
-            # Create request
-            agent_request = create_standard_request(
-                task_type=TaskType(data.get("task_type", "update")),
-                instruction=message,
-                context=data.get("context"),
-                parameters=data.get("parameters", {}),
-            )
-
-            # Send start notification
-            await websocket.send_json(
-                {
-                    "type": "stream_start",
-                    "agent_id": agent_id,
-                    "agent_name": agent.state.name,
-                    "task_type": agent_request.task_type.value,
-                }
-            )
-
-            # Build prompt
-            prompt = agent.build_context_prompt(agent_request)
-
-            # Stream response
-            async for stream_data in self.llm_manager.generate_streaming_response(
-                prompt,
-                temperature=data.get("temperature"),
-                max_tokens=data.get("max_tokens"),
-            ):
-                if stream_data["type"] == "chunk":
-                    await websocket.send_json(
-                        {
-                            "type": "stream_chunk",
-                            "agent_id": agent_id,
-                            "content": stream_data["content"],
-                            "tokens_so_far": stream_data.get("tokens_so_far", 0),
-                        }
-                    )
-
-                elif stream_data["type"] == "complete":
-                    agent_response = stream_data["response"]
-                    metrics = stream_data["metrics"]
-
-                    # Update agent
-                    agent.update_activity(agent_request.task_type)
-                    agent.update_success_rate(agent_response.status.value == "success")
-                    agent.add_conversation(agent_request, agent_response)
-
-                    # Save state
-                    self.agent_registry.save_registry()
-
-                    await websocket.send_json(
-                        {
-                            "type": "stream_complete",
-                            "agent_id": agent_id,
-                            "response": agent_response.model_dump(),
-                            "performance": metrics,
-                        }
-                    )
-                    break
-
-                elif stream_data["type"] == "error":
-                    await self._send_error(websocket, stream_data["message"])
-                    break
+            # Process streaming chat
+            await self._process_streaming_chat(websocket, agent, data)
 
         except Exception as e:
             await self._send_error(websocket, f"Streaming chat failed: {e!s}")
 
-    async def _ws_create_agent(self, websocket: WebSocket, data: dict[str, Any]):
+    async def _process_streaming_chat(self, websocket: WebSocket, agent, data: dict[str, Any]):
+        """Process streaming chat with agent"""
+        # Create request
+        agent_request = create_standard_request(
+            task_type=TaskType(data.get("task_type", "update")),
+            instruction=data["message"],
+            context=data.get("context"),
+            parameters=data.get("parameters", {}),
+        )
+
+        # Send start notification
+        await websocket.send_json(
+            {
+                "type": "stream_start",
+                "agent_id": agent.state.agent_id,
+                "agent_name": agent.state.name,
+                "task_type": agent_request.task_type.value,
+            }
+        )
+
+        # Build prompt
+        prompt = agent.build_context_prompt(agent_request)
+
+        # Stream response
+        await self._handle_streaming_response(websocket, agent, agent_request, prompt, data)
+
+    async def _handle_streaming_response(
+        self, websocket: WebSocket, agent, agent_request, prompt: str, data: dict[str, Any]
+    ):
+        """Handle the streaming response from LLM"""
+        async for stream_data in self.llm_manager.generate_streaming_response(
+            prompt,
+            temperature=data.get("temperature"),
+            max_tokens=data.get("max_tokens"),
+        ):
+            await self._process_stream_chunk(websocket, agent, agent_request, stream_data)
+
+    async def _process_stream_chunk(
+        self, websocket: WebSocket, agent, agent_request, stream_data: dict
+    ):
+        """Process individual stream chunk"""
+        if stream_data["type"] == "chunk":
+            await websocket.send_json(
+                {
+                    "type": "stream_chunk",
+                    "agent_id": agent.state.agent_id,
+                    "content": stream_data["content"],
+                    "tokens_so_far": stream_data.get("tokens_so_far", 0),
+                }
+            )
+
+        elif stream_data["type"] == "complete":
+            agent_response = stream_data["response"]
+            metrics = stream_data["metrics"]
+
+            # Update agent
+            self._update_agent_state(agent, agent_request, agent_response)
+
+            await websocket.send_json(
+                {
+                    "type": "stream_complete",
+                    "agent_id": agent.state.agent_id,
+                    "response": agent_response.model_dump(),
+                    "performance": metrics,
+                }
+            )
+
+        elif stream_data["type"] == "error":
+            await self._send_error(websocket, stream_data["message"])
+
+    async def _ws_create_agent(
+        self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
+    ):
         """Create agent via WebSocket"""
         try:
+            # Validate required fields
             required_fields = ["name", "description", "system_prompt", "managed_file"]
             for field in required_fields:
                 if field not in data:

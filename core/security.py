@@ -159,25 +159,22 @@ class SecurityManager:
     def authenticate_with_private_key(
         self, private_key_pem: str
     ) -> tuple[bool, str | None, str | None]:
-        """Authenticate using a private key
-
-        Returns:
-            Tuple of (success, session_token, error_message)
-        """
+        """Authenticate using a private key - simplified error handling"""
         try:
-            # Load and validate private key
-            auth_result = self._validate_private_key_auth(private_key_pem)
-            if auth_result.get("error"):
-                return False, None, auth_result["error"]
+            # Validate and process private key
+            validation_result = self._validate_and_process_private_key(private_key_pem)
+            if validation_result.get("error"):
+                return False, None, validation_result["error"]
 
-            private_key = auth_result["private_key"]
-            public_pem = auth_result["public_pem"]
-            fingerprint = auth_result["fingerprint"]
+            # Extract validated components
+            private_key = validation_result["private_key"]
+            public_pem = validation_result["public_pem"]
+            fingerprint = validation_result["fingerprint"]
 
             # Perform challenge-response authentication
-            challenge_result = self._perform_challenge_response(private_key, public_pem)
-            if challenge_result.get("error"):
-                return False, None, challenge_result["error"]
+            auth_result = self._perform_authentication_challenge(private_key, public_pem)
+            if auth_result.get("error"):
+                return False, None, auth_result["error"]
 
             # Create session and update key usage
             session_token = self._create_authenticated_session(fingerprint)
@@ -192,7 +189,7 @@ class SecurityManager:
             logger.error(f"Authentication failed: {e}")
             return False, None, str(e)
 
-    def _validate_private_key_auth(self, private_key_pem: str) -> dict:
+    def _validate_and_process_private_key(self, private_key_pem: str) -> dict:
         """Validate private key and check authorization"""
         try:
             # Load private key
@@ -223,7 +220,7 @@ class SecurityManager:
         except Exception as e:
             return {"error": f"Key validation failed: {e!s}"}
 
-    def _perform_challenge_response(self, private_key, public_pem: str) -> dict:
+    def _perform_authentication_challenge(self, private_key, public_pem: str) -> dict:
         """Perform challenge-response authentication"""
         try:
             # Create challenge to verify key ownership
@@ -303,11 +300,7 @@ class SecurityManager:
         source_path: Path,
         target_path: Path,
     ) -> tuple[bool, str | None]:
-        """Authorize a file deployment
-
-        Returns:
-            Tuple of (authorized, error_message)
-        """
+        """Authorize a file deployment"""
         # Validate session
         valid, session = self.validate_session(session_token)
         if not valid:
@@ -364,16 +357,24 @@ class SecurityManager:
         except Exception as e:
             logger.error(f"Failed to save authorized keys: {e}")
 
-    def _log_deployment(self, entry: DeploymentLogEntry):
+    def _log_deployment(
+        self,
+        client: str,
+        agent_id: str,
+        source: str,
+        target: str,
+        authorized: bool,
+        error: str = None,
+    ):
         """Log deployment attempt for audit"""
         log_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "client": entry.client,
-            "agent_id": entry.agent_id,
-            "source": entry.source,
-            "target": entry.target,
-            "authorized": entry.authorized,
-            "error": entry.error,
+            "client": client,
+            "agent_id": agent_id,
+            "source": source,
+            "target": target,
+            "authorized": authorized,
+            "error": error,
         }
 
         try:

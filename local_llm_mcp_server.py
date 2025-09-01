@@ -56,18 +56,22 @@ class ServerOrchestrator:
         self.shutdown_event = asyncio.Event()
 
     async def initialize(self) -> bool:
-        """Initialize all system components"""
+        """Initialize all system components - simplified error handling"""
         try:
-            # Load and validate configuration
-            if not self._initialize_config():
-                return False
+            # Initialize components in sequence
+            initialization_steps = [
+                ("config", self._initialize_config),
+                ("LLM", self._initialize_llm),
+                ("agent registry", self._initialize_agent_registry),
+            ]
 
-            # Initialize and load LLM
-            if not await self._initialize_llm():
-                return False
-
-            # Initialize agent registry
-            self._initialize_agent_registry()
+            for step_name, step_func in initialization_steps:
+                success = (
+                    await step_func() if asyncio.iscoroutinefunction(step_func) else step_func()
+                )
+                if not success:
+                    logger.error(f"Failed to initialize {step_name}")
+                    return False
 
             logger.info("✅ All components initialized successfully")
             return True
@@ -98,23 +102,7 @@ class ServerOrchestrator:
             self.server = uvicorn.Server(config)
 
             # Log startup info
-            logger.info(
-                f"🚀 Starting server on {self.config_manager.server.host}:{self.config_manager.server.port}"
-            )
-            logger.info("📡 MCP endpoint: POST /mcp (for Claude Code)")
-            logger.info("🔧 HTTP API: /api/* (for testing/debugging)")
-            logger.info("❤️ Health check: GET /health")
-            logger.info("📊 System info: GET /")
-
-            # Model and agent info
-            model_info = self.config_manager.get_model_info()
-            logger.info(f"🤖 Model: {model_info['model_path']}")
-            logger.info(f"⚡ GPU Layers: {model_info['gpu_layers']}")
-            logger.info(f"🧠 Context: {model_info['context_size']} tokens")
-
-            agent_stats = self.agent_registry.get_registry_stats()
-            logger.info(f"👥 Active Agents: {agent_stats['total_agents']}")
-            logger.info(f"📂 Managed Files: {agent_stats['managed_files']}")
+            self._log_startup_info()
 
             # Start server
             await self.server.serve()
@@ -122,6 +110,26 @@ class ServerOrchestrator:
         except Exception as e:
             logger.error(f"Server startup failed: {e}")
             raise
+
+    def _log_startup_info(self):
+        """Log server startup information"""
+        logger.info(
+            f"🚀 Starting server on {self.config_manager.server.host}:{self.config_manager.server.port}"
+        )
+        logger.info("📡 MCP endpoint: POST /mcp (for Claude Code)")
+        logger.info("🔧 HTTP API: /api/* (for testing/debugging)")
+        logger.info("❤️ Health check: GET /health")
+        logger.info("📊 System info: GET /")
+
+        # Model and agent info
+        model_info = self.config_manager.get_model_info()
+        logger.info(f"🤖 Model: {model_info['model_path']}")
+        logger.info(f"⚡ GPU Layers: {model_info['gpu_layers']}")
+        logger.info(f"🧠 Context: {model_info['context_size']} tokens")
+
+        agent_stats = self.agent_registry.get_registry_stats()
+        logger.info(f"👥 Active Agents: {agent_stats['total_agents']}")
+        logger.info(f"📂 Managed Files: {agent_stats['managed_files']}")
 
     async def shutdown(self):
         """Graceful shutdown"""
@@ -190,6 +198,7 @@ class ServerOrchestrator:
         """Initialize agent registry"""
         logger.info("Initializing agent registry...")
         self.agent_registry = AgentRegistry(self.config_manager.system)
+        return True
 
 
 async def main():

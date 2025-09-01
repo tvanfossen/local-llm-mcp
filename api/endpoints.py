@@ -233,8 +233,8 @@ class APIEndpoints:
             agent_id = request.path_params["agent_id"]
             agent = self.agent_registry.get_agent(agent_id)
 
-            # Validate agent existence and model status
-            error_response = self._validate_agent_and_model(agent_id, agent)
+            # Validate agent and model - consolidated error handling
+            error_response = self._validate_chat_prerequisites(agent_id, agent)
             if error_response:
                 return error_response
 
@@ -255,8 +255,8 @@ class APIEndpoints:
                 status_code=500,
             )
 
-    def _validate_agent_and_model(self, agent_id: str, agent) -> JSONResponse | None:
-        """Validate agent existence and model status"""
+    def _validate_chat_prerequisites(self, agent_id: str, agent) -> JSONResponse | None:
+        """Validate agent existence and model status - consolidated validation"""
         if not agent:
             return JSONResponse(
                 {"error": f"Agent {agent_id} not found"},
