@@ -6,7 +6,7 @@
     <title>LLM Agent Orchestrator - Secure Deployment</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+
         body {
             font-family: 'SF Mono', Monaco, monospace;
             background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
@@ -14,12 +14,12 @@
             min-height: 100vh;
             padding: 20px;
         }
-        
+
         .container {
             max-width: 1400px;
             margin: 0 auto;
         }
-        
+
         .header {
             background: rgba(26, 31, 58, 0.8);
             border: 1px solid #2d3561;
@@ -28,7 +28,7 @@
             margin-bottom: 30px;
             backdrop-filter: blur(10px);
         }
-        
+
         .header h1 {
             font-size: 2em;
             background: linear-gradient(90deg, #00d4ff, #7b2ff7);
@@ -36,7 +36,7 @@
             -webkit-text-fill-color: transparent;
             margin-bottom: 10px;
         }
-        
+
         .auth-section {
             background: rgba(26, 31, 58, 0.6);
             border: 1px solid #2d3561;
@@ -44,14 +44,14 @@
             padding: 20px;
             margin-bottom: 30px;
         }
-        
+
         .auth-status {
             display: flex;
             align-items: center;
             gap: 15px;
             margin-bottom: 20px;
         }
-        
+
         .status-indicator {
             width: 12px;
             height: 12px;
@@ -59,11 +59,11 @@
             background: #ff5555;
             box-shadow: 0 0 10px currentColor;
         }
-        
+
         .status-indicator.authenticated {
             background: #50fa7b;
         }
-        
+
         .key-input {
             width: 100%;
             padding: 12px;
@@ -74,7 +74,7 @@
             font-family: monospace;
             margin-bottom: 15px;
         }
-        
+
         .btn {
             padding: 10px 20px;
             background: linear-gradient(90deg, #00d4ff, #7b2ff7);
@@ -85,31 +85,31 @@
             cursor: pointer;
             transition: all 0.3s;
         }
-        
+
         .btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0, 212, 255, 0.4);
         }
-        
+
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
-        
+
         .main-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 30px;
             margin-bottom: 30px;
         }
-        
+
         .agents-panel, .deployment-panel {
             background: rgba(26, 31, 58, 0.6);
             border: 1px solid #2d3561;
             border-radius: 8px;
             padding: 20px;
         }
-        
+
         .panel-header {
             display: flex;
             justify-content: space-between;
@@ -118,7 +118,7 @@
             padding-bottom: 15px;
             border-bottom: 1px solid #2d3561;
         }
-        
+
         .agent-card {
             background: rgba(10, 14, 39, 0.6);
             border: 1px solid #2d3561;
@@ -127,41 +127,41 @@
             margin-bottom: 15px;
             transition: all 0.3s;
         }
-        
+
         .agent-card:hover {
             border-color: #00d4ff;
             box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
         }
-        
+
         .agent-card.selected {
             border-color: #7b2ff7;
             background: rgba(123, 47, 247, 0.1);
         }
-        
+
         .agent-name {
             font-weight: bold;
             color: #00d4ff;
             margin-bottom: 5px;
         }
-        
+
         .agent-file {
             color: #8892b0;
             font-size: 0.9em;
             margin-bottom: 10px;
         }
-        
+
         .agent-stats {
             display: flex;
             gap: 20px;
             font-size: 0.85em;
         }
-        
+
         .stat {
             display: flex;
             align-items: center;
             gap: 5px;
         }
-        
+
         .coverage-bar {
             width: 100%;
             height: 6px;
@@ -170,13 +170,13 @@
             overflow: hidden;
             margin-top: 10px;
         }
-        
+
         .coverage-fill {
             height: 100%;
             background: linear-gradient(90deg, #ff5555, #ffb86c, #50fa7b);
             transition: width 0.5s;
         }
-        
+
         .deployment-queue {
             background: rgba(10, 14, 39, 0.6);
             border: 1px solid #2d3561;
@@ -185,7 +185,7 @@
             min-height: 200px;
             margin-bottom: 20px;
         }
-        
+
         .queue-item {
             background: rgba(26, 31, 58, 0.8);
             border: 1px solid #2d3561;
@@ -196,23 +196,23 @@
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .queue-item.pending {
             border-left: 3px solid #ffb86c;
         }
-        
+
         .queue-item.testing {
             border-left: 3px solid #00d4ff;
         }
-        
+
         .queue-item.ready {
             border-left: 3px solid #50fa7b;
         }
-        
+
         .queue-item.failed {
             border-left: 3px solid #ff5555;
         }
-        
+
         .terminal {
             background: #0a0e27;
             border: 1px solid #2d3561;
@@ -223,39 +223,39 @@
             height: 300px;
             overflow-y: auto;
         }
-        
+
         .terminal-line {
             margin-bottom: 5px;
             opacity: 0;
             animation: fadeIn 0.3s forwards;
         }
-        
+
         @keyframes fadeIn {
             to { opacity: 1; }
         }
-        
+
         .terminal-line.error {
             color: #ff5555;
         }
-        
+
         .terminal-line.success {
             color: #50fa7b;
         }
-        
+
         .terminal-line.info {
             color: #00d4ff;
         }
-        
+
         .terminal-line.warning {
             color: #ffb86c;
         }
-        
+
         .controls {
             display: flex;
             gap: 15px;
             margin-top: 20px;
         }
-        
+
         .repo-config {
             background: rgba(10, 14, 39, 0.6);
             border: 1px solid #2d3561;
@@ -263,7 +263,7 @@
             padding: 15px;
             margin-bottom: 20px;
         }
-        
+
         .repo-input {
             width: 100%;
             padding: 10px;
@@ -273,7 +273,7 @@
             color: #e0e6ed;
             margin-top: 10px;
         }
-        
+
         .modal {
             display: none;
             position: fixed;
@@ -286,11 +286,11 @@
             justify-content: center;
             align-items: center;
         }
-        
+
         .modal.active {
             display: flex;
         }
-        
+
         .modal-content {
             background: #1a1f3a;
             border: 1px solid #2d3561;
@@ -299,7 +299,7 @@
             max-width: 600px;
             width: 90%;
         }
-        
+
         .diff-viewer {
             background: #0a0e27;
             border: 1px solid #2d3561;
@@ -311,22 +311,22 @@
             font-family: monospace;
             font-size: 0.85em;
         }
-        
+
         .diff-line {
             margin: 2px 0;
             padding: 2px 5px;
         }
-        
+
         .diff-line.added {
             background: rgba(80, 250, 123, 0.1);
             color: #50fa7b;
         }
-        
+
         .diff-line.removed {
             background: rgba(255, 85, 85, 0.1);
             color: #ff5555;
         }
-        
+
         .websocket-status {
             position: fixed;
             bottom: 20px;
@@ -371,7 +371,7 @@
                     <h3>🚀 Deployment Pipeline</h3>
                     <span id="deploymentStatus">Ready</span>
                 </div>
-                
+
                 <div class="repo-config">
                     <label>Target Repository Path:</label>
                     <input type="text" class="repo-input" id="repoPath" placeholder="/home/user/my-project">
@@ -416,27 +416,28 @@
         let selectedAgents = new Set();
         let deploymentQueue = [];
         let privateKeyData = null;
+        let sessionToken = null;
 
         // Initialize WebSocket connection
         function initWebSocket() {
             ws = new WebSocket('ws://localhost:8000/ws');
-            
+
             ws.onopen = () => {
                 updateWSStatus('Connected', true);
                 addTerminalLine('WebSocket connected', 'success');
             };
-            
+
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 handleWSMessage(data);
             };
-            
+
             ws.onclose = () => {
                 updateWSStatus('Disconnected', false);
                 addTerminalLine('WebSocket disconnected', 'error');
                 setTimeout(initWebSocket, 3000);
             };
-            
+
             ws.onerror = (error) => {
                 addTerminalLine(`WebSocket error: ${error}`, 'error');
             };
@@ -463,17 +464,26 @@
                 });
 
                 if (response.ok) {
+                    const data = await response.json();
                     authenticated = true;
-                    privateKeyData = keyInput;
+
+                    // CRITICAL FIX: Store the session token, not the private key!
+                    sessionToken = data.session_token;
+
                     document.getElementById('authIndicator').classList.add('authenticated');
                     document.getElementById('authStatusText').textContent = 'Authenticated';
                     document.getElementById('runTestsBtn').disabled = false;
                     document.getElementById('deployBtn').disabled = false;
                     addTerminalLine('Authentication successful', 'success');
+                    addTerminalLine(`Session expires in ${data.expires_in} seconds`, 'info');
+
+                    // Clear the private key from the input for security
+                    document.getElementById('privateKey').value = '';
+
                     refreshAgents();
                 } else {
                     const error = await response.json();
-                    addTerminalLine(`Authentication failed: ${error.message}`, 'error');
+                    addTerminalLine(`Authentication failed: ${error.error || error.message}`, 'error');
                 }
             } catch (error) {
                 addTerminalLine(`Authentication error: ${error}`, 'error');
@@ -514,7 +524,7 @@
                         <div class="coverage-fill" style="width: 0%"></div>
                     </div>
                 `;
-                
+
                 card.onclick = () => toggleAgentSelection(agent, card);
                 container.appendChild(card);
             });
@@ -551,7 +561,7 @@
 
         function updateQueueDisplay() {
             const container = document.getElementById('deploymentQueue');
-            
+
             if (deploymentQueue.length === 0) {
                 container.innerHTML = '<p style="opacity: 0.5; text-align: center;">No files in deployment queue</p>';
                 return;
@@ -571,7 +581,7 @@
         }
 
         async function runTests() {
-            if (!authenticated) {
+            if (!authenticated || !sessionToken) {
                 addTerminalLine('Authentication required', 'error');
                 return;
             }
@@ -586,18 +596,18 @@
             for (let item of deploymentQueue) {
                 item.status = 'testing';
                 updateQueueDisplay();
-                
+
                 try {
                     const response = await fetch(`/api/orchestrator/test/${item.id}`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${privateKeyData}`
+                            'Authorization': `Bearer ${sessionToken}`  // FIX: Use sessionToken
                         }
                     });
 
                     const result = await response.json();
-                    
+
                     if (result.coverage === 100) {
                         item.status = 'ready';
                         item.coverage = 100;
@@ -611,17 +621,17 @@
                     item.status = 'failed';
                     addTerminalLine(`Test failed for ${item.name}: ${error}`, 'error');
                 }
-                
+
                 updateQueueDisplay();
             }
 
             const readyCount = deploymentQueue.filter(item => item.status === 'ready').length;
-            addTerminalLine(`Testing complete: ${readyCount}/${deploymentQueue.length} files ready for deployment`, 
-                           readyCount === deploymentQueue.length ? 'success' : 'warning');
+            addTerminalLine(`Testing complete: ${readyCount}/${deploymentQueue.length} files ready for deployment`,
+                        readyCount === deploymentQueue.length ? 'success' : 'warning');
         }
 
         async function deploySelected() {
-            if (!authenticated) {
+            if (!authenticated || !sessionToken) {
                 addTerminalLine('Authentication required', 'error');
                 return;
             }
@@ -646,7 +656,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${privateKeyData}`
+                            'Authorization': `Bearer ${sessionToken}`  // FIX: Use sessionToken
                         },
                         body: JSON.stringify({
                             agent_id: item.id,

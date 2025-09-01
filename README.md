@@ -58,7 +58,7 @@ Agent-based MCP server that connects Claude Code to a local CUDA-accelerated LLM
 2. **Configure MCP connection:**
    ```bash
    mkdir -p ~/.config/claude-code
-   
+
    cat > ~/.config/claude-code/mcp.json << 'EOF'
    {
      "mcpServers": {

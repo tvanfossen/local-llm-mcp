@@ -1,6 +1,5 @@
 # File: ~/Projects/local-llm-mcp/core/agent.py
-"""
-Agent Class and State Management
+"""Agent Class and State Management
 
 Responsibilities:
 - Individual agent state and behavior
@@ -12,58 +11,65 @@ Responsibilities:
 
 import json
 import logging
-from pathlib import Path
-from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from schemas.agent_schemas import (
-    AgentState, AgentRequest, AgentResponse, ConversationEntry,
-    TaskType, create_standard_request
+    AgentRequest,
+    AgentResponse,
+    AgentState,
+    ConversationEntry,
+    TaskType,
 )
 
 logger = logging.getLogger(__name__)
 
+
 class Agent:
-    """
-    Individual agent with standardized JSON schema communication
-    
+    """Individual agent with standardized JSON schema communication
+
     Each agent manages exactly one file and maintains its own context,
     conversation history, and workspace state.
     """
-    
+
     def __init__(self, state: AgentState, workspace_dir: Path):
         self.state = state
         self.workspace_dir = workspace_dir
-        self.conversation_history: List[ConversationEntry] = []
-        
+        self.conversation_history: list[ConversationEntry] = []
+
         # Create workspace structure
         self.context_dir = workspace_dir / "context"
         self.files_dir = workspace_dir / "files"
-        
+
         for directory in [self.context_dir, self.files_dir]:
             directory.mkdir(parents=True, exist_ok=True)
-        
+
         # Set up agent-specific logging
         self.logger = self._setup_logging()
-    
+
     def _setup_logging(self) -> logging.Logger:
         """Set up agent-specific logging"""
         agent_logger = logging.getLogger(f"agent.{self.state.agent_id}")
-        
+
         # Avoid duplicate handlers
         if not agent_logger.handlers:
-            log_file = self.workspace_dir.parent.parent / "logs" / f"agent_{self.state.agent_id}.log"
+            log_file = (
+                self.workspace_dir.parent.parent / "logs" / f"agent_{self.state.agent_id}.log"
+            )
             log_file.parent.mkdir(parents=True, exist_ok=True)
-            
+
             handler = logging.FileHandler(log_file)
-            handler.setFormatter(logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            ))
+            handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                )
+            )
             agent_logger.addHandler(handler)
             agent_logger.setLevel(logging.INFO)
-        
+
         return agent_logger
-    
+
     @classmethod
     def create(
         cls,
@@ -73,8 +79,8 @@ class Agent:
         system_prompt: str,
         managed_file: str,
         workspace_dir: Path,
-        initial_context: str = ""
-    ) -> 'Agent':
+        initial_context: str = "",
+    ) -> "Agent":
         """Factory method to create a new agent"""
         state = AgentState(
             agent_id=agent_id,
@@ -84,37 +90,37 @@ class Agent:
             managed_file=managed_file,
             context=initial_context,
             total_interactions=0,
-            success_rate=1.0
+            success_rate=1.0,
         )
-        
+
         agent = cls(state, workspace_dir)
         agent.save_context()
-        
+
         agent.logger.info(f"Created new agent: {name} -> {managed_file}")
         return agent
-    
+
     @classmethod
-    def from_json(cls, data: Dict[str, Any], workspace_dir: Path) -> 'Agent':
+    def from_json(cls, data: dict[str, Any], workspace_dir: Path) -> "Agent":
         """Load agent from JSON data"""
         state = AgentState.model_validate(data)
         agent = cls(state, workspace_dir)
         agent.load_conversation_history()
         return agent
-    
-    def to_json(self) -> Dict[str, Any]:
+
+    def to_json(self) -> dict[str, Any]:
         """Convert agent to JSON format"""
         return self.state.model_dump()
-    
-    def update_activity(self, task_type: Optional[TaskType] = None):
+
+    def update_activity(self, task_type: TaskType | None = None):
         """Update agent activity with standardized format"""
         self.state.last_activity = datetime.now(timezone.utc).isoformat()
         self.state.total_interactions += 1
-        
+
         if task_type:
             self.state.last_task = task_type
-        
+
         self.logger.info(f"Activity updated - Total interactions: {self.state.total_interactions}")
-    
+
     def update_success_rate(self, success: bool):
         """Update agent's success rate based on task outcome"""
         if self.state.total_interactions == 0:
@@ -123,30 +129,32 @@ class Agent:
             # Simple moving average
             current_rate = self.state.success_rate
             weight = 0.1  # How much the new result affects the rate
-            self.state.success_rate = current_rate * (1 - weight) + (1.0 if success else 0.0) * weight
-    
+            self.state.success_rate = (
+                current_rate * (1 - weight) + (1.0 if success else 0.0) * weight
+            )
+
     def add_conversation(self, request: AgentRequest, response: AgentResponse):
         """Add conversation entry in standardized format"""
         entry = ConversationEntry(
             request=request,
             response=response,
-            timestamp=datetime.now(timezone.utc).isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
-        
+
         self.conversation_history.append(entry)
-        
+
         # Trim history if too long (keep last 100 entries)
         if len(self.conversation_history) > 100:
             self.conversation_history = self.conversation_history[-100:]
-        
+
         self.logger.info(f"Added conversation entry - Task: {request.task_type.value}")
-    
+
     def update_context(self, new_context: str):
         """Update agent's current context"""
         self.state.context = new_context
         self.save_context()
         self.logger.info("Context updated")
-    
+
     def save_context(self):
         """Save agent context as JSON"""
         context_file = self.context_dir / "agent_context.json"
@@ -156,61 +164,60 @@ class Agent:
                 "workspace_path": str(self.workspace_dir),
                 "managed_file_path": str(self.files_dir / self.state.managed_file),
                 "managed_file_exists": (self.files_dir / self.state.managed_file).exists(),
-                "file_size": self._get_managed_file_size()
+                "file_size": self._get_managed_file_size(),
             },
             "metadata": {
                 "last_updated": datetime.now(timezone.utc).isoformat(),
                 "conversation_entries": len(self.conversation_history),
-                "context_length": len(self.state.context)
-            }
+                "context_length": len(self.state.context),
+            },
         }
-        
+
         try:
-            with open(context_file, 'w') as f:
+            with open(context_file, "w") as f:
                 json.dump(context_data, f, indent=2)
         except Exception as e:
             self.logger.error(f"Failed to save context: {e}")
-    
+
     def load_conversation_history(self):
         """Load conversation history from JSON Lines"""
         history_file = self.workspace_dir / "history.jsonl"
         if not history_file.exists():
             return
-        
+
         try:
-            with open(history_file, 'r') as f:
+            with open(history_file) as f:
                 for line in f:
                     if line.strip():
                         entry_data = json.loads(line.strip())
                         entry = ConversationEntry.model_validate(entry_data)
                         self.conversation_history.append(entry)
-            
+
             self.logger.info(f"Loaded {len(self.conversation_history)} conversation entries")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to load conversation history: {e}")
-    
+
     def save_conversation_history(self):
         """Save conversation history as JSON Lines"""
         history_file = self.workspace_dir / "history.jsonl"
-        
+
         try:
-            with open(history_file, 'w') as f:
+            with open(history_file, "w") as f:
                 for entry in self.conversation_history:
-                    f.write(entry.model_dump_json() + '\n')
+                    f.write(entry.model_dump_json() + "\n")
         except Exception as e:
             self.logger.error(f"Failed to save conversation history: {e}")
-    
+
     def build_context_prompt(self, request: AgentRequest) -> str:
         """Build context prompt with simple file content approach"""
-        
         # Read current file content if it exists
         current_content = self.read_managed_file()
         current_file_info = ""
-        
+
         if current_content:
             file_size = len(current_content)
-            line_count = len(current_content.split('\n'))
+            line_count = len(current_content.split("\n"))
             current_file_info = f"""
 CURRENT FILE ({self.state.managed_file}):
 ```
@@ -223,24 +230,20 @@ File has {line_count} lines, {file_size} characters.
 CURRENT FILE STATUS:
 - File: {self.state.managed_file} (does not exist yet)
 """
-        
+
         context_parts = [
             f"<|im_start|>system\n{self.state.system_prompt}\n\n",
-            
             # Agent identity
-            f"AGENT IDENTITY:\n",
+            "AGENT IDENTITY:\n",
             f"- Name: {self.state.name}\n",
             f"- Role: {self.state.description}\n",
             f"- Managed File: {self.state.managed_file}\n\n",
-            
             # Current context and file
             f"CURRENT CONTEXT:\n{self.state.context}\n\n" if self.state.context else "",
             current_file_info,
-            
             # SIMPLE JSON FORMAT - no nested objects, no quotes in content
-            f"🚨 RESPONSE FORMAT (REQUIRED) 🚨\n",
-            f"Respond with valid JSON. Use SIMPLE format - no nested objects:\n\n",
-            
+            "🚨 RESPONSE FORMAT (REQUIRED) 🚨\n",
+            "Respond with valid JSON. Use SIMPLE format - no nested objects:\n\n",
             "{\n",
             '  "status": "success",\n',
             '  "message": "Brief description of what you did",\n',
@@ -248,85 +251,89 @@ CURRENT FILE STATUS:
             '  "changes_summary": "Added multiply function with docstring",\n',
             '  "warnings": "any warnings or empty string"\n',
             "}\n\n",
-            
-            f"CRITICAL RULES:\n",
-            f"1. Always provide COMPLETE file content in 'full_file_content'\n",
-            f"2. Escape newlines as \\n in the JSON string\n",
-            f"3. Escape quotes as \" in the JSON string\n",
-            f"4. No nested objects - keep it flat and simple\n",
-            f"5. If file doesn't exist, create complete new content\n\n",
-            
+            "CRITICAL RULES:\n",
+            "1. Always provide COMPLETE file content in 'full_file_content'\n",
+            "2. Escape newlines as \\n in the JSON string\n",
+            '3. Escape quotes as " in the JSON string\n',
+            "4. No nested objects - keep it flat and simple\n",
+            "5. If file doesn't exist, create complete new content\n\n",
             "<|im_end|>\n",
-            
-            # User request  
-            f"<|im_start|>user\n{request.instruction}"
+            # User request
+            f"<|im_start|>user\n{request.instruction}",
         ]
-        
+
         # Add additional context if provided
         if request.context:
             context_parts.append(f"\n\nAdditional Context: {request.context}")
-        
-        context_parts.extend([
-            f"\n\n🚨 REMINDER: Provide COMPLETE file content. Use simple JSON format.",
-            "<|im_end|>\n<|im_start|>assistant\n"
-        ])
-        
+
+        context_parts.extend(
+            [
+                "\n\n🚨 REMINDER: Provide COMPLETE file content. Use simple JSON format.",
+                "<|im_end|>\n<|im_start|>assistant\n",
+            ]
+        )
+
         return "".join(filter(None, context_parts))
 
     def _get_file_language(self) -> str:
         """Get syntax highlighting language for current file"""
-        ext = self.state.managed_file.split('.')[-1].lower()
+        ext = self.state.managed_file.split(".")[-1].lower()
         lang_map = {
-            'py': 'python', 'js': 'javascript', 'ts': 'typescript',
-            'html': 'html', 'css': 'css', 'sql': 'sql', 'md': 'markdown'
+            "py": "python",
+            "js": "javascript",
+            "ts": "typescript",
+            "html": "html",
+            "css": "css",
+            "sql": "sql",
+            "md": "markdown",
         }
-        return lang_map.get(ext, 'text')
-    
+        return lang_map.get(ext, "text")
+
     def get_managed_file_path(self) -> Path:
         """Get the full path to the managed file"""
         return self.files_dir / self.state.managed_file
-    
-    def read_managed_file(self) -> Optional[str]:
+
+    def read_managed_file(self) -> str | None:
         """Read the content of the managed file"""
         file_path = self.get_managed_file_path()
-        
+
         if not file_path.exists():
             return None
-        
+
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
             self.logger.error(f"Failed to read managed file: {e}")
             return None
-    
+
     def write_managed_file(self, content: str) -> bool:
         """Write content to the managed file"""
         file_path = self.get_managed_file_path()
-        
+
         try:
             # Create parent directories if they don't exist
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(file_path, 'w', encoding='utf-8') as f:
+
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            
+
             self.logger.info(f"Updated managed file: {self.state.managed_file}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to write managed file: {e}")
             return False
-        
-    def _get_managed_file_size(self) -> Optional[int]:
+
+    def _get_managed_file_size(self) -> int | None:
         """Get the size of the managed file in bytes"""
         file_path = self.get_managed_file_path()
-        
+
         if file_path.exists():
             return file_path.stat().st_size
         return None
-    
-    def get_summary(self) -> Dict[str, Any]:
+
+    def get_summary(self) -> dict[str, Any]:
         """Get a summary of the agent's current state"""
         return {
             "agent_id": self.state.agent_id,
@@ -339,5 +346,5 @@ CURRENT FILE STATUS:
             "total_interactions": self.state.total_interactions,
             "success_rate": self.state.success_rate,
             "conversation_entries": len(self.conversation_history),
-            "context_length": len(self.state.context)
+            "context_length": len(self.state.context),
         }

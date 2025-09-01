@@ -68,7 +68,7 @@ check_keys() {
 generate_keys() {
     echo "🔐 Generating new MCP keys..."
     read -p "Enter your name: " name
-    
+
     # Use mcp_keys.py if available
     if [ -f "mcp_keys.py" ]; then
         python3 mcp_keys.py init --server "${MCP_SERVER}" --name "${name}"
@@ -77,11 +77,11 @@ generate_keys() {
         response=$(curl -s -X POST "${MCP_SERVER}/api/orchestrator/generate-keys" \
             -H "Content-Type: application/json" \
             -d "{\"client_name\": \"${name}\"}")
-        
+
         if [ $? -eq 0 ]; then
             mkdir -p "${MCP_KEY_DIR}"
             chmod 700 "${MCP_KEY_DIR}"
-            
+
             echo "$response" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -92,7 +92,7 @@ with open('${MCP_KEY_FILE}.pub', 'w') as f:
 "
             chmod 600 "${MCP_KEY_FILE}"
             chmod 644 "${MCP_KEY_FILE}.pub"
-            
+
             echo -e "${GREEN}✓ Keys generated successfully${NC}"
         else
             echo -e "${RED}✗ Failed to generate keys${NC}"
@@ -103,19 +103,19 @@ with open('${MCP_KEY_FILE}.pub', 'w') as f:
 
 test_auth() {
     echo -n "🎫 Testing authentication... "
-    
+
     if [ ! -f "${MCP_KEY_FILE}" ]; then
         echo -e "${RED}✗ No key found${NC}"
         return 1
     fi
-    
+
     # Read key and escape for JSON
     private_key=$(cat "${MCP_KEY_FILE}" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))")
-    
+
     response=$(curl -s -X POST "${MCP_SERVER}/api/orchestrator/authenticate" \
         -H "Content-Type: application/json" \
         -d "{\"private_key\": ${private_key}}")
-    
+
     if echo "$response" | grep -q "session_token"; then
         echo -e "${GREEN}✓${NC}"
         session_token=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin)['session_token'])")
@@ -130,12 +130,12 @@ test_auth() {
 
 copy_key_to_clipboard() {
     echo -n "📋 Copying private key to clipboard... "
-    
+
     if [ ! -f "${MCP_KEY_FILE}" ]; then
         echo -e "${RED}✗ No key found${NC}"
         return 1
     fi
-    
+
     # Detect OS and copy accordingly
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
@@ -162,14 +162,14 @@ copy_key_to_clipboard() {
         echo -e "${YELLOW}✗ Unsupported OS${NC}"
         return 1
     fi
-    
+
     echo -e "   ${GREEN}Ready to paste in the orchestrator!${NC}"
 }
 
 open_browser() {
     url="${MCP_SERVER}/orchestrator"
     echo -n "🌐 Opening orchestrator at ${url}... "
-    
+
     # Try different methods to open browser
     if [ -n "$BROWSER" ]; then
         $BROWSER "$url" 2>/dev/null &
@@ -223,7 +223,7 @@ show_menu() {
     echo "   6) Exit"
     echo
     read -p "Select option (1-6): " choice
-    
+
     case $choice in
         1)
             copy_key_to_clipboard
@@ -265,28 +265,28 @@ show_menu() {
 # Main execution
 main() {
     print_header
-    
+
     # Run checks
     if ! check_server; then
         exit 1
     fi
-    
+
     if ! check_keys; then
         echo -e "${RED}Cannot proceed without keys${NC}"
         exit 1
     fi
-    
+
     if ! test_auth; then
         echo -e "${YELLOW}⚠️  Authentication test failed, but continuing...${NC}"
     fi
-    
+
     # Copy key and open browser
     copy_key_to_clipboard
     open_browser
-    
+
     # Show instructions
     show_instructions
-    
+
     # Interactive menu
     show_menu
 }
