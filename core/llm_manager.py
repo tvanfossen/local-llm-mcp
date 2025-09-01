@@ -162,21 +162,16 @@ class LLMManager:
             return error_response, {"error": str(e)}
 
     def _parse_agent_response(self, response_text: str) -> AgentResponse:
-        """Parse agent response - Handle unescaped quotes in JSON strings"""
+        """Parse agent response - simplified to reduce complexity"""
         try:
             logger.info(f"Attempting to parse response: {response_text[:200]!r}")
 
             # Clean the response - find JSON boundaries
             cleaned_text = response_text.strip()
+            json_bounds = self._find_json_boundaries(cleaned_text)
 
-            # Find first { and last }
-            first_brace = cleaned_text.find("{")
-            last_brace = cleaned_text.rfind("}")
-
-            if first_brace >= 0 and last_brace > first_brace:
-                json_text = cleaned_text[first_brace : last_brace + 1]
-
-                # Try parsing with progressive fixes
+            if json_bounds:
+                json_text = cleaned_text[json_bounds[0] : json_bounds[1] + 1]
                 return self._try_parse_json_response(json_text)
             else:
                 logger.error("No JSON boundaries found")
@@ -187,6 +182,16 @@ class LLMManager:
             return create_success_response(
                 message=response_text[:300] + "..." if len(response_text) > 300 else response_text,
             )
+
+    def _find_json_boundaries(self, text: str) -> tuple[int, int] | None:
+        """Find JSON boundaries in text"""
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+
+        if first_brace >= 0 and last_brace > first_brace:
+            return (first_brace, last_brace)
+
+        return None
 
     def _try_parse_json_response(self, json_text: str) -> AgentResponse:
         """Try parsing JSON with progressive fixes"""
@@ -276,37 +281,15 @@ class LLMManager:
             logger.info("Attempting manual extraction")
 
             # Extract key fields manually using regex
-            status_match = re.search(r'"status"\s*:\s*"([^"]*)"', json_text)
-            message_match = re.search(r'"message"\s*:\s*"([^"]*)"', json_text)
+            extractions = self._extract_response_fields(json_text)
 
-            # For file content, extract everything between the quotes (more complex)
-            content_match = re.search(
-                r'"full_file_content"\s*:\s*"(.*?)"(?=\s*,\s*"|\s*})', json_text, re.DOTALL
-            )
-
-            status = status_match.group(1) if status_match else "success"
-            message = message_match.group(1) if message_match else "Manual extraction"
-
-            file_content = None
-            if content_match:
-                # Unescape the content
-                content = content_match.group(1)
-                content = content.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
-
-                from schemas.agent_schemas import FileContent
-
-                file_content = FileContent(
-                    filename="temp_filename",
-                    content=content,
-                    language="python",
-                    line_count=len(content.split("\n")),
-                )
+            file_content = self._extract_file_content(json_text, extractions)
 
             logger.info("✅ Manual extraction succeeded")
 
             return AgentResponse(
-                status=ResponseStatus(status),
-                message=message,
+                status=ResponseStatus(extractions["status"]),
+                message=extractions["message"],
                 file_content=file_content,
                 changes_made=["Manual extraction applied"],
                 warnings=["Used manual extraction due to JSON parsing issues"],
@@ -314,6 +297,45 @@ class LLMManager:
 
         except Exception as e:
             logger.error(f"Manual extraction also failed: {e}")
+
+    def _extract_response_fields(self, json_text: str) -> dict:
+        """Extract response fields using regex"""
+        import re
+
+        # Extract key fields manually using regex
+        status_match = re.search(r'"status"\s*:\s*"([^"]*)"', json_text)
+        message_match = re.search(r'"message"\s*:\s*"([^"]*)"', json_text)
+
+        return {
+            "status": status_match.group(1) if status_match else "success",
+            "message": message_match.group(1) if message_match else "Manual extraction",
+        }
+
+    def _extract_file_content(self, json_text: str, extractions: dict):
+        """Extract file content from JSON text"""
+        import re
+
+        # For file content, extract everything between the quotes (more complex)
+        content_match = re.search(
+            r'"full_file_content"\s*:\s*"(.*?)"(?=\s*,\s*"|\s*})', json_text, re.DOTALL
+        )
+
+        file_content = None
+        if content_match:
+            # Unescape the content
+            content = content_match.group(1)
+            content = content.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+
+            from schemas.agent_schemas import FileContent
+
+            file_content = FileContent(
+                filename="temp_filename",
+                content=content,
+                language="python",
+                line_count=len(content.split("\n")),
+            )
+
+        return file_content
 
     async def generate_streaming_response(
         self,

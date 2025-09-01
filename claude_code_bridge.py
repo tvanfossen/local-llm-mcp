@@ -81,7 +81,7 @@ class ClaudeCodeMCPBridge:
     def _handle_http_response(
         self, response: httpx.Response, method: str, request_id: Any
     ) -> dict[str, Any] | None:
-        """Handle HTTP response based on status code - consolidated returns"""
+        """Handle HTTP response based on status code - fixed to single return"""
         # Handle success cases
         if response.status_code == 200:
             response_data = response.json()
@@ -94,11 +94,12 @@ class ClaudeCodeMCPBridge:
         if response.status_code == 204:
             return None  # No content for notifications
 
-        # Handle all error cases
+        # Handle all error cases in single path
         logger.error(f"HTTP error {response.status_code}: {response.text}")
 
+        # Create error response if request ID is present, otherwise return None
         if request_id is not None:
-            return {
+            error_response = {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "error": {
@@ -107,6 +108,7 @@ class ClaudeCodeMCPBridge:
                     "data": response.text,
                 },
             }
+            return error_response
 
         return None
 
@@ -154,7 +156,7 @@ class ClaudeCodeMCPBridge:
             logger.info("Bridge shutdown complete")
 
     async def _main_loop(self):
-        """Main processing loop"""
+        """Main processing loop - simplified to reduce cognitive complexity"""
         while True:
             # Read line from stdin
             line = sys.stdin.readline()
@@ -166,6 +168,7 @@ class ClaudeCodeMCPBridge:
             if not line:
                 continue
 
+            # Process the input line
             try:
                 await self._process_input_line(line)
             except json.JSONDecodeError as e:
@@ -174,7 +177,7 @@ class ClaudeCodeMCPBridge:
                 logger.error(f"Request handling error: {e}")
 
     async def _process_input_line(self, line: str):
-        """Process a single input line"""
+        """Process a single input line - extracted to reduce complexity"""
         # Parse JSON-RPC request
         request = json.loads(line)
         logger.info(f"Received: {request.get('method', 'unknown')}")

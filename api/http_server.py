@@ -282,9 +282,9 @@ def _create_core_components(agent_registry, llm_manager, config):
 
 
 def _create_route_handlers(components, agent_registry, llm_manager):
-    """Create handler wrappers - consolidated return structure"""
+    """Create handler wrappers - fixed to use single return"""
 
-    # Create all handler wrappers at once and return immediately
+    # Create all handler wrappers
     async def root_handler(request: Request) -> JSONResponse:
         return await _root_handler(request, llm_manager, agent_registry)
 
@@ -300,7 +300,7 @@ def _create_route_handlers(components, agent_registry, llm_manager):
     async def websocket_endpoint(websocket):
         await components["websocket_handler"].handle_connection(websocket)
 
-    # Single return point
+    # Single return point with all components
     return RouteHandlers(
         root_handler=root_handler,
         health_handler=health_handler,

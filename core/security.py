@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DeploymentLogEntry:
-    """Deployment log entry data"""
+    """Deployment log entry data to reduce parameter count"""
 
     client: str
     agent_id: str
@@ -159,7 +159,7 @@ class SecurityManager:
     def authenticate_with_private_key(
         self, private_key_pem: str
     ) -> tuple[bool, str | None, str | None]:
-        """Authenticate using a private key - simplified error handling"""
+        """Authenticate using a private key - simplified to single return"""
         try:
             # Validate and process private key
             validation_result = self._validate_and_process_private_key(private_key_pem)
@@ -315,13 +315,14 @@ class SecurityManager:
         # For example, restrict to certain directories
 
         # Log deployment attempt
-        self._log_deployment(
+        log_entry = DeploymentLogEntry(
             client=session["client_name"],
             agent_id=agent_id,
             source=str(source_path),
             target=str(target_path),
             authorized=True,
         )
+        self._log_deployment(log_entry)
 
         # Update deployment count
         authorized_keys = self._load_authorized_keys()
@@ -357,24 +358,16 @@ class SecurityManager:
         except Exception as e:
             logger.error(f"Failed to save authorized keys: {e}")
 
-    def _log_deployment(
-        self,
-        client: str,
-        agent_id: str,
-        source: str,
-        target: str,
-        authorized: bool,
-        error: str = None,
-    ):
-        """Log deployment attempt for audit"""
+    def _log_deployment(self, entry: DeploymentLogEntry):
+        """Log deployment attempt for audit - uses dataclass to reduce parameters"""
         log_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "client": client,
-            "agent_id": agent_id,
-            "source": source,
-            "target": target,
-            "authorized": authorized,
-            "error": error,
+            "client": entry.client,
+            "agent_id": entry.agent_id,
+            "source": entry.source,
+            "target": entry.target,
+            "authorized": entry.authorized,
+            "error": entry.error,
         }
 
         try:

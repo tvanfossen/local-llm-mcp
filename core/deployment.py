@@ -14,6 +14,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,24 @@ from core.agent import Agent
 from core.security import SecurityManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DeploymentInfo:
+    """Container for deployment information to reduce parameter count"""
+
+    agent_id: str
+    agent_name: str
+    managed_file: str
+    source_path: str
+    target_path: str
+    target_repo: str
+    has_changes: bool
+    diff_text: str
+    coverage_percent: float
+    coverage_ok: bool
+    coverage_report: str
+    staged_by: str
 
 
 class DeploymentManager:
@@ -40,9 +59,9 @@ class DeploymentManager:
     def validate_test_coverage(self, agent: Agent) -> tuple[bool, float, str]:
         """Validate test coverage for agent's file - simplified error handling"""
         # Validate prerequisites
-        validation_result = self._validate_coverage_prerequisites(agent)
-        if validation_result:
-            return validation_result
+        validation_error = self._validate_coverage_prerequisites(agent)
+        if validation_error:
+            return validation_error
 
         test_file = self._get_test_file_path(agent)
         main_file = agent.get_managed_file_path()
@@ -63,30 +82,16 @@ class DeploymentManager:
         return None  # No validation errors
 
     def _execute_coverage_test(self, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
-        """Execute the actual coverage test"""
+        """Execute the actual coverage test - simplified complexity"""
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
 
                 # Copy files to temp directory
-                shutil.copy(main_file, temp_path / main_file.name)
-                shutil.copy(test_file, temp_path / test_file.name)
+                self._copy_test_files(test_file, main_file, temp_path)
 
                 # Run pytest with coverage
-                result = subprocess.run(
-                    [
-                        "pytest",
-                        str(test_file.name),
-                        f"--cov={main_file.stem}",
-                        "--cov-report=json",
-                        "--cov-report=term",
-                        "-v",
-                    ],
-                    check=False,
-                    cwd=temp_path,
-                    capture_output=True,
-                    text=True,
-                )
+                result = self._run_pytest_coverage(test_file, temp_path)
 
                 # Parse coverage results
                 return self._parse_coverage_results(temp_path, result)
@@ -94,6 +99,28 @@ class DeploymentManager:
         except Exception as e:
             logger.error(f"Coverage validation failed: {e}")
             return False, 0.0, f"Error: {e!s}"
+
+    def _copy_test_files(self, test_file: Path, main_file: Path, temp_path: Path):
+        """Copy test files to temporary directory"""
+        shutil.copy(main_file, temp_path / main_file.name)
+        shutil.copy(test_file, temp_path / test_file.name)
+
+    def _run_pytest_coverage(self, test_file: Path, temp_path: Path):
+        """Run pytest with coverage"""
+        return subprocess.run(
+            [
+                "pytest",
+                str(test_file.name),
+                f"--cov={test_file.stem.replace('test_', '')}",
+                "--cov-report=json",
+                "--cov-report=term",
+                "-v",
+            ],
+            check=False,
+            cwd=temp_path,
+            capture_output=True,
+            text=True,
+        )
 
     def _parse_coverage_results(self, temp_path: Path, result) -> tuple[bool, float, str]:
         """Parse coverage test results"""
@@ -220,58 +247,51 @@ class DeploymentManager:
             has_changes, diff_text, target_path = self.generate_diff(agent, target_repo)
 
             # Create deployment record
-            deployment_info = self._create_deployment_record(
-                agent,
-                target_path,
-                str(target_repo),
-                session,
-                has_changes,
-                diff_text,
-                coverage_percent,
-                coverage_ok,
-                coverage_report,
+            deployment_info = DeploymentInfo(
+                agent_id=agent.state.agent_id,
+                agent_name=agent.state.name,
+                managed_file=agent.state.managed_file,
+                source_path=str(agent.get_managed_file_path()),
+                target_path=target_path,
+                target_repo=str(target_repo),
+                has_changes=has_changes,
+                diff_text=diff_text,
+                coverage_percent=coverage_percent,
+                coverage_ok=coverage_ok,
+                coverage_report=coverage_report,
+                staged_by=session["client_name"],
             )
 
-            deployment_id = deployment_info["deployment_id"]
-            self.pending_deployments[deployment_id] = deployment_info
+            deployment_record = self._create_deployment_record(deployment_info)
+            deployment_id = deployment_record["deployment_id"]
+            self.pending_deployments[deployment_id] = deployment_record
 
-            return True, deployment_id, deployment_info
+            return True, deployment_id, deployment_record
 
         except Exception as e:
             logger.error(f"Staging failed: {e}")
             return False, "", {"error": str(e)}
 
-    def _create_deployment_record(
-        self,
-        agent: Agent,
-        target_path: str,
-        target_repo: str,
-        session: dict,
-        has_changes: bool,
-        diff_text: str,
-        coverage_percent: float,
-        coverage_ok: bool,
-        coverage_report: str,
-    ) -> dict[str, Any]:
-        """Create deployment record"""
-        deployment_id = f"{agent.state.agent_id}_{datetime.now().timestamp()}"
+    def _create_deployment_record(self, info: DeploymentInfo) -> dict[str, Any]:
+        """Create deployment record - fixed to use dataclass"""
+        deployment_id = f"{info.agent_id}_{datetime.now().timestamp()}"
 
         return {
             "deployment_id": deployment_id,
-            "agent_id": agent.state.agent_id,
-            "agent_name": agent.state.name,
-            "managed_file": agent.state.managed_file,
-            "source_path": str(agent.get_managed_file_path()),
-            "target_path": target_path,
-            "target_repo": target_repo,
-            "has_changes": has_changes,
-            "diff": diff_text,
-            "coverage_percent": coverage_percent,
-            "coverage_ok": coverage_ok,
-            "coverage_report": coverage_report,
-            "staged_by": session["client_name"],
+            "agent_id": info.agent_id,
+            "agent_name": info.agent_name,
+            "managed_file": info.managed_file,
+            "source_path": info.source_path,
+            "target_path": info.target_path,
+            "target_repo": info.target_repo,
+            "has_changes": info.has_changes,
+            "diff": info.diff_text,
+            "coverage_percent": info.coverage_percent,
+            "coverage_ok": info.coverage_ok,
+            "coverage_report": info.coverage_report,
+            "staged_by": info.staged_by,
             "staged_at": datetime.now(timezone.utc).isoformat(),
-            "status": "staged" if coverage_ok else "failed_coverage",
+            "status": "staged" if info.coverage_ok else "failed_coverage",
         }
 
     def execute_deployment(
@@ -282,8 +302,8 @@ class DeploymentManager:
         """Execute a staged deployment - simplified error handling"""
         # Validate prerequisites
         validation_result = self._validate_deployment_prerequisites(deployment_id, session_token)
-        if validation_result.get("error"):
-            return False, validation_result["error"]
+        if validation_result["error"]:
+            return False, validation_result["message"]
 
         deployment = validation_result["deployment"]
         session = validation_result["session"]
@@ -294,23 +314,26 @@ class DeploymentManager:
         return workflow_result["success"], workflow_result["message"]
 
     def _validate_deployment_prerequisites(self, deployment_id: str, session_token: str) -> dict:
-        """Validate deployment prerequisites"""
-        # Validate session
+        """Validate deployment prerequisites - simplified to single return"""
+        # Check session validity
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
-            return {"error": "Invalid session"}
+            return {"error": True, "message": "Invalid session"}
 
-        # Get deployment info
+        # Check deployment exists
         if deployment_id not in self.pending_deployments:
-            return {"error": "Deployment not found"}
+            return {"error": True, "message": "Deployment not found"}
 
         deployment = self.pending_deployments[deployment_id]
 
-        # Verify coverage is still OK
+        # Check coverage requirement
         if not deployment["coverage_ok"]:
-            return {"error": f"Coverage requirement not met: {deployment['coverage_percent']}%"}
+            return {
+                "error": True,
+                "message": f"Coverage requirement not met: {deployment['coverage_percent']}%",
+            }
 
-        return {"deployment": deployment, "session": session}
+        return {"error": False, "deployment": deployment, "session": session}
 
     def _execute_deployment_workflow(
         self, deployment: dict, session: dict, session_token: str
@@ -384,24 +407,37 @@ class DeploymentManager:
         deployment_id: str,
         session_token: str,
     ) -> tuple[bool, str]:
-        """Rollback a deployment - simplified error handling"""
+        """Rollback a deployment - simplified to single return"""
         # Validate session
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
             return False, "Invalid session"
 
+        # Find and validate deployment
+        rollback_validation = self._validate_rollback_deployment(deployment_id)
+        if rollback_validation["error"]:
+            return False, rollback_validation["message"]
+
+        # Execute the rollback
+        deployment = rollback_validation["deployment"]
+        return self._execute_rollback(deployment, session)
+
+    def _validate_rollback_deployment(self, deployment_id: str) -> dict:
+        """Validate deployment for rollback"""
         # Find deployment in history
         deployment = self._find_deployment_in_history(deployment_id)
         if not deployment:
-            return False, "Deployment not found in history"
+            return {"error": True, "message": "Deployment not found in history"}
 
-        # Validate rollback eligibility
-        validation_error = self._validate_rollback_eligibility(deployment)
-        if validation_error:
-            return False, validation_error
+        # Check eligibility
+        if deployment.get("status") != "deployed":
+            return {"error": True, "message": "Deployment was not successfully deployed"}
 
-        # Execute the rollback
-        return self._execute_rollback(deployment, session)
+        backup_path = deployment.get("backup_path")
+        if not backup_path or not Path(backup_path).exists():
+            return {"error": True, "message": "No backup available for rollback"}
+
+        return {"error": False, "deployment": deployment}
 
     def _find_deployment_in_history(self, deployment_id: str) -> dict | None:
         """Find deployment in history"""
@@ -410,17 +446,6 @@ class DeploymentManager:
             if entry.get("deployment_id") == deployment_id:
                 return entry
         return None
-
-    def _validate_rollback_eligibility(self, deployment: dict) -> str | None:
-        """Validate if deployment can be rolled back"""
-        if deployment.get("status") != "deployed":
-            return "Deployment was not successfully deployed"
-
-        backup_path = deployment.get("backup_path")
-        if not backup_path or not Path(backup_path).exists():
-            return "No backup available for rollback"
-
-        return None  # No validation error
 
     def _execute_rollback(self, deployment: dict, session: dict) -> tuple[bool, str]:
         """Execute the actual rollback"""
@@ -501,7 +526,7 @@ class DeploymentManager:
         }
 
     def validate_code_quality(self, agent: Agent) -> tuple[bool, dict[str, Any], str]:
-        """Run pre-commit quality gates on agent's file"""
+        """Run pre-commit quality gates on agent's file - simplified complexity"""
         try:
             file_path = agent.get_managed_file_path()
             if not file_path.exists():
@@ -511,36 +536,14 @@ class DeploymentManager:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
 
-                # Initialize git repo (pre-commit needs git)
-                self._initialize_temp_git_repo(temp_path)
-
-                # Copy file to temp repo
-                target_file = temp_path / file_path.name
-                shutil.copy(file_path, target_file)
-
-                # Copy pre-commit config
-                self._copy_precommit_config(temp_path)
-
-                # Stage the file
-                subprocess.run(["git", "add", "."], cwd=temp_path, check=True, capture_output=True)
-
-                # Run pre-commit hooks
-                result = subprocess.run(
-                    ["pre-commit", "run", "--all-files", "--verbose"],
-                    check=False,
-                    cwd=temp_path,
-                    capture_output=True,
-                    text=True,
-                )
-
-                # Parse results
-                quality_results = self._parse_precommit_output(result.stdout, result.stderr)
+                # Setup temporary repo and run checks
+                quality_results = self._run_quality_checks(file_path, temp_path)
 
                 # Build detailed report
                 report = self._build_quality_report(quality_results)
 
                 # Determine if all checks passed
-                all_passed = result.returncode == 0
+                all_passed = quality_results.get("returncode", 1) == 0
 
                 return all_passed, quality_results, report
 
@@ -548,8 +551,26 @@ class DeploymentManager:
             logger.error(f"Quality validation failed: {e}")
             return False, {"error": str(e)}, f"Error running quality checks: {e!s}"
 
-    def _initialize_temp_git_repo(self, temp_path: Path):
-        """Initialize temporary git repository"""
+    def _run_quality_checks(self, file_path: Path, temp_path: Path) -> dict[str, Any]:
+        """Run quality checks in temporary repo - simplified"""
+        # Initialize git repo
+        self._setup_temp_git_repo(temp_path, file_path)
+
+        # Run pre-commit hooks
+        result = subprocess.run(
+            ["pre-commit", "run", "--all-files", "--verbose"],
+            check=False,
+            cwd=temp_path,
+            capture_output=True,
+            text=True,
+        )
+
+        # Parse results
+        return self._parse_precommit_output(result.stdout, result.stderr, result.returncode)
+
+    def _setup_temp_git_repo(self, temp_path: Path, file_path: Path):
+        """Setup temporary git repository - extracted to reduce complexity"""
+        # Initialize git repo
         subprocess.run(["git", "init"], cwd=temp_path, check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
@@ -564,22 +585,47 @@ class DeploymentManager:
             capture_output=True,
         )
 
-    def _copy_precommit_config(self, temp_path: Path):
-        """Copy pre-commit configuration if it exists"""
+        # Copy file to temp repo
+        target_file = temp_path / file_path.name
+        shutil.copy(file_path, target_file)
+
+        # Copy pre-commit config
         precommit_config = Path(__file__).parent.parent / ".pre-commit-config.yaml"
         if precommit_config.exists():
             shutil.copy(precommit_config, temp_path / ".pre-commit-config.yaml")
 
-    def _parse_precommit_output(self, stdout: str, stderr: str) -> dict[str, Any]:
-        """Parse pre-commit output into structured results"""
+        # Stage the file
+        subprocess.run(["git", "add", "."], cwd=temp_path, check=True, capture_output=True)
+
+    def _parse_precommit_output(self, stdout: str, stderr: str, returncode: int) -> dict[str, Any]:
+        """Parse pre-commit output into structured results - simplified"""
         results = {
             "checks_run": [],
             "passed": [],
             "failed": [],
             "skipped": [],
             "details": {},
+            "returncode": returncode,
         }
 
+        # Parse hook results from output
+        self._extract_hook_results(stdout, results)
+
+        # Add summary
+        results["summary"] = {
+            "total": len(results["checks_run"]),
+            "passed": len(results["passed"]),
+            "failed": len(results["failed"]),
+            "skipped": len(results["skipped"]),
+            "pass_rate": (
+                len(results["passed"]) / len(results["checks_run"]) if results["checks_run"] else 0
+            ),
+        }
+
+        return results
+
+    def _extract_hook_results(self, stdout: str, results: dict):
+        """Extract hook results from stdout - simplified parsing"""
         lines = stdout.split("\n")
         for line in lines:
             if "......................." in line:
@@ -601,19 +647,6 @@ class DeploymentManager:
                         )
                     elif "Skipped" in status:
                         results["skipped"].append(hook_name)
-
-        # Add summary
-        results["summary"] = {
-            "total": len(results["checks_run"]),
-            "passed": len(results["passed"]),
-            "failed": len(results["failed"]),
-            "skipped": len(results["skipped"]),
-            "pass_rate": (
-                len(results["passed"]) / len(results["checks_run"]) if results["checks_run"] else 0
-            ),
-        }
-
-        return results
 
     def _extract_failure_details(self, output: str, hook_name: str) -> dict[str, Any]:
         """Extract detailed failure information for a specific hook"""
@@ -656,7 +689,7 @@ class DeploymentManager:
         return details
 
     def _build_quality_report(self, results: dict[str, Any]) -> str:
-        """Build human-readable quality report"""
+        """Build human-readable quality report - simplified"""
         report = []
         report.append("=" * 60)
         report.append("CODE QUALITY VALIDATION REPORT")
@@ -671,6 +704,19 @@ class DeploymentManager:
         report.append(f"  ⏭️  Skipped: {summary.get('skipped', 0)}")
         report.append(f"  📈 Pass Rate: {summary.get('pass_rate', 0):.1%}")
 
+        # Add passed/failed sections
+        self._add_quality_report_sections(results, report)
+
+        # Add recommendations
+        if results.get("failed"):
+            report.append("\n💡 Recommendations:")
+            self._add_quality_recommendations(results, report)
+
+        report.append("\n" + "=" * 60)
+        return "\n".join(report)
+
+    def _add_quality_report_sections(self, results: dict, report: list[str]):
+        """Add quality report sections for passed/failed checks"""
         # Passed checks
         if results.get("passed"):
             report.append("\n✅ Passed Checks:")
@@ -688,14 +734,6 @@ class DeploymentManager:
                         report.append(f"    → {issue}")
                     if len(details["issues"]) > 5:
                         report.append(f"    ... and {len(details['issues']) - 5} more issues")
-
-        # Recommendations
-        if results.get("failed"):
-            report.append("\n💡 Recommendations:")
-            self._add_quality_recommendations(results, report)
-
-        report.append("\n" + "=" * 60)
-        return "\n".join(report)
 
     def _add_quality_recommendations(self, results: dict, report: list[str]):
         """Add quality recommendations to report"""

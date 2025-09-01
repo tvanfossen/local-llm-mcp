@@ -75,33 +75,39 @@ class WebSocketHandler:
     async def _handle_websocket_message(
         self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
     ):
-        """Handle incoming WebSocket message - simplified dispatch"""
+        """Handle incoming WebSocket message - simplified dispatch with reduced complexity"""
         message_type = data.get("type", "unknown")
 
-        # Use dictionary dispatch to reduce complexity
-        message_handlers = {
-            "ping": self._handle_ping,
-            "list_agents": self._ws_list_agents,
-            "get_agent_info": self._ws_get_agent_info,
-            "chat_agent": self._ws_chat_agent,
-            "stream_chat_agent": self._ws_stream_chat_agent,
-            "create_agent": self._ws_create_agent,
-        }
-
-        handler = message_handlers.get(message_type)
-
         try:
+            # Use dictionary dispatch for known message types
+            message_handlers = {
+                "ping": self._handle_ping,
+                "list_agents": self._ws_list_agents,
+                "get_agent_info": self._ws_get_agent_info,
+                "chat_agent": self._ws_chat_agent,
+                "stream_chat_agent": self._ws_stream_chat_agent,
+                "create_agent": self._ws_create_agent,
+            }
+
+            handler = message_handlers.get(message_type)
+
             if handler:
-                if message_type == "ping":
-                    await handler(websocket, data)
-                else:
-                    await handler(websocket, connection_id, data)
+                await self._execute_message_handler(
+                    handler, websocket, connection_id, data, message_type
+                )
             else:
                 await self._send_error(websocket, f"Unknown message type: {message_type}")
 
         except Exception as e:
             logger.error(f"Error handling WebSocket message {message_type}: {e}")
             await self._send_error(websocket, f"Message handling error: {e!s}")
+
+    async def _execute_message_handler(self, handler, websocket, connection_id, data, message_type):
+        """Execute message handler with appropriate parameters"""
+        if message_type == "ping":
+            await handler(websocket, data)
+        else:
+            await handler(websocket, connection_id, data)
 
     async def _handle_ping(self, websocket: WebSocket, data: dict[str, Any]):
         """Handle ping message"""

@@ -297,7 +297,10 @@ class OrchestratorAPI:
             return {"response": {"error": "file_path required"}, "status": 400}
 
         # Execute deployment workflow
-        return await self._execute_deployment_workflow(agent, target_path, file_path, session_token)
+        workflow_result = await self._execute_deployment_workflow(
+            agent, target_path, file_path, session_token
+        )
+        return workflow_result
 
     async def rollback(self, request: Request) -> JSONResponse:
         """Rollback a deployment - consolidated validation"""
@@ -398,7 +401,7 @@ class OrchestratorAPI:
     async def _execute_deployment_workflow(
         self, agent, target_path: str, file_path: str, session_token: str
     ) -> dict:
-        """Execute deployment workflow and return result - consolidated flow"""
+        """Execute deployment workflow and return result - fixed to single return"""
         # Stage deployment first
         success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
             agent, Path(target_path), session_token
@@ -410,7 +413,7 @@ class OrchestratorAPI:
                 "status": 400,
             }
 
-        # Check coverage requirement and execute deployment
+        # Check coverage requirement
         if not deployment_info.get("coverage_ok", False):
             coverage_percent = deployment_info.get("coverage_percent", 0)
             return {
@@ -418,9 +421,10 @@ class OrchestratorAPI:
                 "status": 400,
             }
 
-        # Execute deployment and handle result
+        # Execute deployment
         success, message = self.deployment_manager.execute_deployment(deployment_id, session_token)
 
+        # Build final response based on deployment result
         if success:
             # Broadcast success
             asyncio.create_task(
@@ -434,7 +438,7 @@ class OrchestratorAPI:
                 )
             )
 
-            return {
+            response_data = {
                 "response": {
                     "success": True,
                     "message": message,
@@ -442,8 +446,10 @@ class OrchestratorAPI:
                 },
                 "status": 200,
             }
+        else:
+            response_data = {"response": {"error": message}, "status": 400}
 
-        return {"response": {"error": message}, "status": 400}
+        return response_data
 
     async def get_deployment_history(self, request: Request) -> JSONResponse:
         """Get deployment history - consolidated validation"""
