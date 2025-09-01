@@ -36,19 +36,6 @@ def get_key_directory() -> Path:
 class MCPKeyManager:
     """Manages MCP RSA keys with secure storage"""
 
-    def __init__(self):
-        self.key_dir = get_key_directory()
-        self.key_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-
-        # Key file paths (following SSH naming convention)
-        self.private_key_file = self.key_dir / "id_rsa_mcp"
-        self.public_key_file = self.key_dir / "id_rsa_mcp.pub"
-        self.config_file = self.key_dir / "config.json"
-
-        # Additional security files
-        self.known_hosts_file = self.key_dir / "known_hosts"
-        self.authorized_servers = self.key_dir / "authorized_servers.json"
-
     def init(self, server_url: str = "http://localhost:8000", name: str | None = None):
         """Initialize MCP key storage"""
         if self.private_key_file.exists():
@@ -74,31 +61,7 @@ class MCPKeyManager:
                 timeout=10,
             )
 
-            if response.status_code == 200:
-                data = response.json()
-
-                # Save keys with proper permissions
-                self._save_keys(data["private_key"], data["public_key"])
-
-                # Save configuration
-                config = {
-                    "name": name,
-                    "server": server_url,
-                    "created": datetime.now().isoformat(),
-                    "fingerprint": self._calculate_fingerprint(data["public_key"]),
-                }
-                self._save_config(config)
-
-                print("\n✅ Keys successfully initialized!")
-                print(f"📁 Location: {self.key_dir}")
-                print(f"🔐 Private key: {self.private_key_file}")
-                print(f"🔓 Public key: {self.public_key_file}")
-                print("\n🛡️  Your keys are ready for use with MCP orchestrator")
-
-                return True
-
-            print(f"❌ Server error: {response.status_code}")
-            return False
+            return self._process_key_generation_response(response, name, server_url)
 
         except Exception as e:
             print(f"❌ Failed to generate keys: {e}")
@@ -111,7 +74,16 @@ class MCPKeyManager:
             return
 
         config = self._load_config()
+        self._print_key_info(config)
+        self._show_public_key()
 
+        if private:
+            self._show_private_key()
+        else:
+            print("\n💡 Tip: Use --private flag to show private key")
+
+    def _print_key_info(self, config: dict):
+        """Print basic key information"""
         print("\n🔑 MCP Key Information")
         print("=" * 50)
         print(f"Name: {config.get('name', 'Unknown')}")
@@ -120,7 +92,8 @@ class MCPKeyManager:
         print(f"Fingerprint: {config.get('fingerprint', 'Unknown')[:16]}...")
         print(f"\nKey Location: {self.key_dir}")
 
-        # Show public key
+    def _show_public_key(self):
+        """Display public key if it exists"""
         if self.public_key_file.exists():
             with open(self.public_key_file) as f:
                 public_key = f.read()
@@ -128,18 +101,16 @@ class MCPKeyManager:
             print("-" * 50)
             print(public_key[:200] + "..." if len(public_key) > 200 else public_key)
 
-        # Show private key only if explicitly requested
-        if private:
-            print("\n⚠️  WARNING: Displaying private key!")
-            confirm = input("Are you sure? (yes/no): ")
-            if confirm.lower() == "yes":
-                with open(self.private_key_file) as f:
-                    private_key = f.read()
-                print("\n🔐 Private Key:")
-                print("-" * 50)
-                print(private_key)
-        else:
-            print("\n💡 Tip: Use --private flag to show private key")
+    def _show_private_key(self):
+        """Show private key with confirmation"""
+        print("\n⚠️  WARNING: Displaying private key!")
+        confirm = input("Are you sure? (yes/no): ")
+        if confirm.lower() == "yes":
+            with open(self.private_key_file) as f:
+                private_key = f.read()
+            print("\n🔐 Private Key:")
+            print("-" * 50)
+            print(private_key)
 
     def get_private_key(self) -> str | None:
         """Retrieve private key for authentication"""
@@ -167,17 +138,9 @@ class MCPKeyManager:
                 subprocess.run("pbcopy", input=private_key.encode(), check=True)
                 print("✅ Private key copied to clipboard (macOS)")
             elif system == "Linux":
-                # Try xclip first, then xsel
-                try:
-                    subprocess.run(
-                        ["xclip", "-selection", "clipboard"], input=private_key.encode(), check=True
-                    )
-                    print("✅ Private key copied to clipboard (Linux/xclip)")
-                except Exception:
-                    subprocess.run(
-                        ["xsel", "--clipboard", "--input"], input=private_key.encode(), check=True
-                    )
-                    print("✅ Private key copied to clipboard (Linux/xsel)")
+                success = self._copy_to_linux_clipboard(private_key)
+                if not success:
+                    return False
             elif system == "Windows":
                 subprocess.run("clip", input=private_key.encode(), check=True)
                 print("✅ Private key copied to clipboard (Windows)")
@@ -343,8 +306,9 @@ class MCPKeyManager:
                 print(f"🎫 Session token: {data['session_token'][:20]}...")
                 print(f"⏱️  Expires in: {data['expires_in']} seconds")
                 return True
-            print(f"❌ Authentication failed: {response.status_code}")
-            return False
+            else:
+                print(f"❌ Authentication failed: {response.status_code}")
+                return False
 
         except Exception as e:
             print(f"❌ Connection failed: {e}")
@@ -385,8 +349,68 @@ class MCPKeyManager:
 
         return hashlib.sha256(public_key.encode()).hexdigest()
 
+    def _process_key_generation_response(self, response, name: str, server_url: str) -> bool:
+        """Process the key generation response"""
+        if response.status_code == 200:
+            data = response.json()
+
+            # Save keys with proper permissions
+            self._save_keys(data["private_key"], data["public_key"])
+
+            # Save configuration
+            config = {
+                "name": name,
+                "server": server_url,
+                "created": datetime.now().isoformat(),
+                "fingerprint": self._calculate_fingerprint(data["public_key"]),
+            }
+            self._save_config(config)
+
+            print("\n✅ Keys successfully initialized!")
+            print(f"📁 Location: {self.key_dir}")
+            print(f"🔐 Private key: {self.private_key_file}")
+            print(f"🔓 Public key: {self.public_key_file}")
+            print("\n🛡️  Your keys are ready for use with MCP orchestrator")
+
+            return True
+        else:
+            print(f"❌ Server error: {response.status_code}")
+            return False
+
+    def _copy_to_linux_clipboard(self, private_key: str) -> bool:
+        """Copy to Linux clipboard using available tools"""
+        try:
+            # Try xclip first, then xsel
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"], input=private_key.encode(), check=True
+                )
+                print("✅ Private key copied to clipboard (Linux/xclip)")
+                return True
+            except Exception:
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"], input=private_key.encode(), check=True
+                )
+                print("✅ Private key copied to clipboard (Linux/xsel)")
+                return True
+        except Exception as e:
+            print(f"❌ Linux clipboard error: {e}")
+            return False
+
 
 def main():
+    parser = _create_argument_parser()
+    args = parser.parse_args()
+
+    # Initialize manager
+    manager = MCPKeyManager()
+
+    # Execute command
+    _execute_command(manager, args, parser)
+
+
+def _create_argument_parser():
+    """Create and configure argument parser"""
     parser = argparse.ArgumentParser(
         description="MCP Key Manager - Manage RSA keys for MCP orchestrator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -402,7 +426,12 @@ Examples:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Commands")
+    _add_subcommands(subparsers)
+    return parser
 
+
+def _add_subcommands(subparsers):
+    """Add all subcommands to parser"""
     # Init command
     init_parser = subparsers.add_parser("init", help="Initialize new key pair")
     init_parser.add_argument("--server", default="http://localhost:8000", help="MCP server URL")
@@ -413,7 +442,7 @@ Examples:
     show_parser.add_argument("--private", action="store_true", help="Also show private key")
 
     # Copy command
-    copy_parser = subparsers.add_parser("copy", help="Copy private key to clipboard")
+    subparsers.add_parser("copy", help="Copy private key to clipboard")
 
     # Export command
     export_parser = subparsers.add_parser("export", help="Export keys to file")
@@ -427,32 +456,28 @@ Examples:
     import_parser.add_argument("file", help="Input file")
 
     # Backup command
-    backup_parser = subparsers.add_parser("backup", help="Create encrypted backup")
+    subparsers.add_parser("backup", help="Create encrypted backup")
 
     # Auth command
     auth_parser = subparsers.add_parser("auth", help="Test authentication")
     auth_parser.add_argument("--server", help="MCP server URL")
 
-    args = parser.parse_args()
 
-    # Initialize manager
-    manager = MCPKeyManager()
+def _execute_command(manager, args, parser):
+    """Execute the specified command"""
+    command_map = {
+        "init": lambda: manager.init(args.server, args.name),
+        "show": lambda: manager.show(args.private),
+        "copy": manager.copy_to_clipboard,
+        "export": lambda: manager.export(args.output, args.format),
+        "import": lambda: manager.import_keys(args.file),
+        "backup": manager.backup,
+        "auth": lambda: manager.authenticate(args.server),
+    }
 
-    # Execute command
-    if args.command == "init":
-        manager.init(args.server, args.name)
-    elif args.command == "show":
-        manager.show(args.private)
-    elif args.command == "copy":
-        manager.copy_to_clipboard()
-    elif args.command == "export":
-        manager.export(args.output, args.format)
-    elif args.command == "import":
-        manager.import_keys(args.file)
-    elif args.command == "backup":
-        manager.backup()
-    elif args.command == "auth":
-        manager.authenticate(args.server)
+    command_func = command_map.get(args.command)
+    if command_func:
+        command_func()
     else:
         parser.print_help()
 

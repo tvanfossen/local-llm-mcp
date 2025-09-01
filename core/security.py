@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,18 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DeploymentLogEntry:
+    """Deployment log entry data"""
+
+    client: str
+    agent_id: str
+    source: str
+    target: str
+    authorized: bool
+    error: str | None = None
 
 
 class SecurityManager:
@@ -152,11 +165,39 @@ class SecurityManager:
             Tuple of (success, session_token, error_message)
         """
         try:
+            # Load and validate private key
+            auth_result = self._validate_private_key_auth(private_key_pem)
+            if auth_result.get("error"):
+                return False, None, auth_result["error"]
+
+            private_key = auth_result["private_key"]
+            public_pem = auth_result["public_pem"]
+            fingerprint = auth_result["fingerprint"]
+
+            # Perform challenge-response authentication
+            challenge_result = self._perform_challenge_response(private_key, public_pem)
+            if challenge_result.get("error"):
+                return False, None, challenge_result["error"]
+
+            # Create session and update key usage
+            session_token = self._create_authenticated_session(fingerprint)
+
+            authorized_keys = self._load_authorized_keys()
+            client_name = authorized_keys[fingerprint]["name"]
+            logger.info(f"Authentication successful for {client_name}")
+
+            return True, session_token, None
+
+        except Exception as e:
+            logger.error(f"Authentication failed: {e}")
+            return False, None, str(e)
+
+    def _validate_private_key_auth(self, private_key_pem: str) -> dict:
+        """Validate private key and check authorization"""
+        try:
             # Load private key
             private_key = serialization.load_pem_private_key(
-                private_key_pem.encode(),
-                password=None,
-                backend=default_backend(),
+                private_key_pem.encode(), password=None, backend=default_backend()
             )
 
             # Get public key from private key
@@ -171,8 +212,20 @@ class SecurityManager:
             authorized_keys = self._load_authorized_keys()
 
             if fingerprint not in authorized_keys:
-                return False, None, "Key not authorized"
+                return {"error": "Key not authorized"}
 
+            return {
+                "private_key": private_key,
+                "public_pem": public_pem,
+                "fingerprint": fingerprint,
+            }
+
+        except Exception as e:
+            return {"error": f"Key validation failed: {e!s}"}
+
+    def _perform_challenge_response(self, private_key, public_pem: str) -> dict:
+        """Perform challenge-response authentication"""
+        try:
             # Create challenge to verify key ownership
             challenge = secrets.token_bytes(32)
 
@@ -187,40 +240,46 @@ class SecurityManager:
             )
 
             # Verify signature with public key
-            try:
-                public_key.verify(
-                    signature,
-                    challenge,
-                    padding.PSS(
-                        mgf=padding.MGF1(hashes.SHA256()),
-                        salt_length=padding.PSS.MAX_LENGTH,
-                    ),
-                    hashes.SHA256(),
-                )
-            except InvalidSignature:
-                return False, None, "Invalid key signature"
+            public_key = serialization.load_pem_public_key(
+                public_pem.encode(), backend=default_backend()
+            )
 
-            # Generate session token
-            session_token = secrets.token_urlsafe(32)
+            public_key.verify(
+                signature,
+                challenge,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH,
+                ),
+                hashes.SHA256(),
+            )
 
-            # Create session
-            self.active_sessions[session_token] = {
-                "fingerprint": fingerprint,
-                "client_name": authorized_keys[fingerprint]["name"],
-                "authenticated_at": datetime.now(timezone.utc).isoformat(),
-                "expires_at": (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat(),
-            }
+            return {"success": True}
 
-            # Update last used time
-            authorized_keys[fingerprint]["last_used"] = datetime.now(timezone.utc).isoformat()
-            self._save_authorized_keys(authorized_keys)
-
-            logger.info(f"Authentication successful for {authorized_keys[fingerprint]['name']}")
-            return True, session_token, None
-
+        except InvalidSignature:
+            return {"error": "Invalid key signature"}
         except Exception as e:
-            logger.error(f"Authentication failed: {e}")
-            return False, None, str(e)
+            return {"error": f"Challenge-response failed: {e!s}"}
+
+    def _create_authenticated_session(self, fingerprint: str) -> str:
+        """Create authenticated session and update key usage"""
+        # Generate session token
+        session_token = secrets.token_urlsafe(32)
+
+        # Create session
+        self.active_sessions[session_token] = {
+            "fingerprint": fingerprint,
+            "client_name": self._load_authorized_keys()[fingerprint]["name"],
+            "authenticated_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat(),
+        }
+
+        # Update last used time
+        authorized_keys = self._load_authorized_keys()
+        authorized_keys[fingerprint]["last_used"] = datetime.now(timezone.utc).isoformat()
+        self._save_authorized_keys(authorized_keys)
+
+        return session_token
 
     def validate_session(self, session_token: str) -> tuple[bool, dict[str, Any] | None]:
         """Validate a session token"""
@@ -305,29 +364,21 @@ class SecurityManager:
         except Exception as e:
             logger.error(f"Failed to save authorized keys: {e}")
 
-    def _log_deployment(
-        self,
-        client: str,
-        agent_id: str,
-        source: str,
-        target: str,
-        authorized: bool,
-        error: str | None = None,
-    ):
+    def _log_deployment(self, entry: DeploymentLogEntry):
         """Log deployment attempt for audit"""
-        log_entry = {
+        log_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "client": client,
-            "agent_id": agent_id,
-            "source": source,
-            "target": target,
-            "authorized": authorized,
-            "error": error,
+            "client": entry.client,
+            "agent_id": entry.agent_id,
+            "source": entry.source,
+            "target": entry.target,
+            "authorized": entry.authorized,
+            "error": entry.error,
         }
 
         try:
             with open(self.audit_log_path, "a") as f:
-                f.write(json.dumps(log_entry) + "\n")
+                f.write(json.dumps(log_data) + "\n")
         except Exception as e:
             logger.error(f"Failed to write audit log: {e}")
 

@@ -124,25 +124,35 @@ def main():
     )
 
     args = parser.parse_args()
+    exit_code = _process_files(args.files, args.max_complexity)
+    sys.exit(exit_code)
 
+
+def _process_files(files: list[str], max_complexity: int) -> int:
+    """Process files and return exit code"""
     exit_code = 0
 
-    for filename in args.files:
+    for filename in files:
         filepath = Path(filename)
         if not filepath.exists():
             continue
 
-        violations = check_file_complexity(filepath, args.max_complexity)
+        violations = check_file_complexity(filepath, max_complexity)
 
         if violations:
             exit_code = 1
-            print(f"Complexity violations in {filename}:")
-            for func_name, line_no, complexity in violations:
-                print(
-                    f"  Line {line_no}: {func_name}() has complexity {complexity} (max allowed: {args.max_complexity})"
-                )
+            _print_violations(filename, violations, max_complexity)
 
-    sys.exit(exit_code)
+    return exit_code
+
+
+def _print_violations(filename: str, violations: list, max_complexity: int):
+    """Print complexity violations for a file"""
+    print(f"Complexity violations in {filename}:")
+    for func_name, line_no, complexity in violations:
+        print(
+            f"  Line {line_no}: {func_name}() has complexity {complexity} (max allowed: {max_complexity})"
+        )
 
 
 if __name__ == "__main__":

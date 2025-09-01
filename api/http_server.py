@@ -10,7 +10,9 @@ Responsibilities:
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
@@ -29,6 +31,19 @@ from core.llm_manager import LLMManager
 from core.security import SecurityManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RouteHandlers:
+    """Container for route handlers"""
+
+    root_handler: callable
+    health_handler: callable
+    mcp_handler_wrapper: callable
+    legacy_handler_wrapper: callable
+    api_endpoints: Any
+    orchestrator_api: Any
+    websocket_endpoint: callable
 
 
 async def _root_handler(
@@ -251,36 +266,32 @@ def create_http_server(
     return app
 
 
-def _build_routes(
-    root_handler,
-    health_handler,
-    mcp_handler_wrapper,
-    legacy_handler_wrapper,
-    api_endpoints,
-    orchestrator_api,
-    websocket_endpoint,
-):
+def _build_routes(handlers: RouteHandlers):
     """Build the complete routes list"""
     routes = [
         # Core endpoints
-        Route("/", root_handler, methods=["GET"]),
-        Route("/health", health_handler, methods=["GET"]),
+        Route("/", handlers.root_handler, methods=["GET"]),
+        Route("/health", handlers.health_handler, methods=["GET"]),
         # MCP endpoints
-        Route("/mcp", mcp_handler_wrapper, methods=["POST", "GET"]),
-        Route("/mcp-legacy", legacy_handler_wrapper, methods=["POST"]),
+        Route("/mcp", handlers.mcp_handler_wrapper, methods=["POST", "GET"]),
+        Route("/mcp-legacy", handlers.legacy_handler_wrapper, methods=["POST"]),
         # API endpoints
-        Route("/api/agents", api_endpoints.list_agents, methods=["GET"]),
-        Route("/api/agents", api_endpoints.create_agent, methods=["POST"]),
-        Route("/api/agents/{agent_id}", api_endpoints.get_agent, methods=["GET"]),
-        Route("/api/agents/{agent_id}", api_endpoints.delete_agent, methods=["DELETE"]),
-        Route("/api/agents/{agent_id}/chat", api_endpoints.chat_with_agent, methods=["POST"]),
-        Route("/api/agents/{agent_id}/file", api_endpoints.get_agent_file, methods=["GET"]),
-        Route("/api/system/status", api_endpoints.system_status, methods=["GET"]),
-        WebSocketRoute("/ws", websocket_endpoint),
+        Route("/api/agents", handlers.api_endpoints.list_agents, methods=["GET"]),
+        Route("/api/agents", handlers.api_endpoints.create_agent, methods=["POST"]),
+        Route("/api/agents/{agent_id}", handlers.api_endpoints.get_agent, methods=["GET"]),
+        Route("/api/agents/{agent_id}", handlers.api_endpoints.delete_agent, methods=["DELETE"]),
+        Route(
+            "/api/agents/{agent_id}/chat", handlers.api_endpoints.chat_with_agent, methods=["POST"]
+        ),
+        Route(
+            "/api/agents/{agent_id}/file", handlers.api_endpoints.get_agent_file, methods=["GET"]
+        ),
+        Route("/api/system/status", handlers.api_endpoints.system_status, methods=["GET"]),
+        WebSocketRoute("/ws", handlers.websocket_endpoint),
     ]
 
     # Add orchestrator routes
-    for path, handler, methods in orchestrator_api.get_routes():
+    for path, handler, methods in handlers.orchestrator_api.get_routes():
         if "websocket" in methods:
             if path != "/ws":  # Avoid duplicate WebSocket routes
                 routes.append(WebSocketRoute(path, handler))

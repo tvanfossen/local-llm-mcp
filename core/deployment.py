@@ -622,3 +622,210 @@ class DeploymentManager:
 
         report.append("\n" + "=" * 60)
         return "\n".join(report)
+
+    def _validate_coverage_prerequisites(self, agent: Agent) -> tuple[bool, float, str] | None:
+        """Validate prerequisites for coverage testing"""
+        test_file = self._get_test_file_path(agent)
+        if not test_file.exists():
+            return False, 0.0, "No test file found"
+
+        main_file = agent.get_managed_file_path()
+        if not main_file.exists():
+            return False, 0.0, "Managed file not found"
+
+        return None  # No validation errors
+
+    def _execute_coverage_test(self, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
+        """Execute the actual coverage test"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Copy files to temp directory
+            shutil.copy(main_file, temp_path / main_file.name)
+            shutil.copy(test_file, temp_path / test_file.name)
+
+            # Run pytest with coverage
+            result = subprocess.run(
+                [
+                    "pytest",
+                    str(test_file.name),
+                    f"--cov={main_file.stem}",
+                    "--cov-report=json",
+                    "--cov-report=term",
+                    "-v",
+                ],
+                check=False,
+                cwd=temp_path,
+                capture_output=True,
+                text=True,
+            )
+
+            # Parse coverage results
+            return self._parse_coverage_results(temp_path, result)
+
+    def _parse_coverage_results(self, temp_path: Path, result) -> tuple[bool, float, str]:
+        """Parse coverage test results"""
+        coverage_json = temp_path / "coverage.json"
+        if coverage_json.exists():
+            with open(coverage_json) as f:
+                coverage_data = json.load(f)
+
+            totals = coverage_data.get("totals", {})
+            coverage_percent = totals.get("percent_covered", 0)
+
+            # Build detailed report
+            report = self._build_coverage_report(result.stdout, coverage_percent, coverage_data)
+
+            return coverage_percent == 100, coverage_percent, report
+
+        # Fallback: parse from stdout
+        coverage_percent = self._parse_coverage_from_output(result.stdout)
+        return coverage_percent == 100, coverage_percent, result.stdout
+
+    def _build_coverage_report(
+        self, stdout: str, coverage_percent: float, coverage_data: dict
+    ) -> str:
+        """Build detailed coverage report"""
+        report = f"Test Results:\n{stdout}\n\n"
+        report += f"Coverage: {coverage_percent:.1f}%\n"
+
+        if coverage_percent == 100:
+            report += "✅ 100% coverage achieved!"
+        else:
+            # Find uncovered lines
+            files = coverage_data.get("files", {})
+            for filename, file_data in files.items():
+                uncovered = file_data.get("missing_lines", [])
+                if uncovered:
+                    report += f"\nUncovered lines in {filename}: {uncovered}"
+
+        return report
+
+    def _validate_deployment_prerequisites(self, deployment_id: str, session_token: str) -> dict:
+        """Validate deployment prerequisites"""
+        # Validate session
+        valid, session = self.security_manager.validate_session(session_token)
+        if not valid:
+            return {"error": "Invalid session"}
+
+        # Get deployment info
+        if deployment_id not in self.pending_deployments:
+            return {"error": "Deployment not found"}
+
+        deployment = self.pending_deployments[deployment_id]
+
+        # Verify coverage is still OK
+        if not deployment["coverage_ok"]:
+            return {"error": f"Coverage requirement not met: {deployment['coverage_percent']}%"}
+
+        return {"deployment": deployment, "session": session}
+
+    def _execute_deployment_workflow(
+        self, deployment: dict, session: dict, session_token: str
+    ) -> dict:
+        """Execute the deployment workflow"""
+        try:
+            # Authorize with security manager
+            authorized, error = self.security_manager.authorize_deployment(
+                session_token,
+                deployment["agent_id"],
+                Path(deployment["source_path"]),
+                Path(deployment["target_path"]),
+            )
+
+            if not authorized:
+                return {"success": False, "message": f"Authorization failed: {error}"}
+
+            # Create backup and deploy
+            backup_path = self._create_backup_if_needed(deployment)
+            self._copy_deployment_file(deployment, backup_path)
+
+            # Update deployment record
+            self._update_deployment_record(deployment, session, backup_path)
+
+            # Save to history
+            self._save_deployment_history(deployment)
+
+            logger.info(
+                f"Deployment successful: {deployment['managed_file']} -> {deployment['target_path']}"
+            )
+            return {
+                "success": True,
+                "message": f"Successfully deployed {deployment['managed_file']}",
+            }
+
+        except Exception as e:
+            return {"success": False, "message": f"Deployment workflow failed: {e!s}"}
+
+    def _create_backup_if_needed(self, deployment: dict) -> Path | None:
+        """Create backup if target file exists"""
+        target_path = Path(deployment["target_path"])
+        if target_path.exists():
+            backup_path = (
+                self.deployments_dir / f"backup_{deployment['deployment_id']}_{target_path.name}"
+            )
+            shutil.copy2(target_path, backup_path)
+            logger.info(f"Created backup: {backup_path}")
+            return backup_path
+        return None
+
+    def _copy_deployment_file(self, deployment: dict, backup_path: Path | None):
+        """Copy the deployment file to target location"""
+        target_path = Path(deployment["target_path"])
+        source_path = Path(deployment["source_path"])
+
+        # Ensure target directory exists
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Copy file
+        shutil.copy2(source_path, target_path)
+
+    def _update_deployment_record(self, deployment: dict, session: dict, backup_path: Path | None):
+        """Update deployment record with execution details"""
+        deployment["status"] = "deployed"
+        deployment["deployed_at"] = datetime.now(timezone.utc).isoformat()
+        deployment["deployed_by"] = session["client_name"]
+        deployment["backup_path"] = str(backup_path) if backup_path else None
+
+    def _find_deployment_in_history(self, deployment_id: str) -> dict | None:
+        """Find deployment in history"""
+        history = self._load_deployment_history()
+        for entry in history:
+            if entry.get("deployment_id") == deployment_id:
+                return entry
+        return None
+
+    def _validate_rollback_eligibility(self, deployment: dict) -> str | None:
+        """Validate if deployment can be rolled back"""
+        if deployment.get("status") != "deployed":
+            return "Deployment was not successfully deployed"
+
+        backup_path = deployment.get("backup_path")
+        if not backup_path or not Path(backup_path).exists():
+            return "No backup available for rollback"
+
+        return None  # No validation error
+
+    def _execute_rollback(self, deployment: dict, session: dict) -> tuple[bool, str]:
+        """Execute the actual rollback"""
+        try:
+            backup_path = deployment["backup_path"]
+            target_path = Path(deployment["target_path"])
+
+            # Restore from backup
+            shutil.copy2(backup_path, target_path)
+
+            # Update deployment record
+            deployment["status"] = "rolled_back"
+            deployment["rolled_back_at"] = datetime.now(timezone.utc).isoformat()
+            deployment["rolled_back_by"] = session["client_name"]
+
+            # Save updated history
+            self._save_deployment_history(deployment)
+
+            logger.info(f"Rollback successful: {deployment['managed_file']}")
+            return True, f"Successfully rolled back {deployment['managed_file']}"
+
+        except Exception as e:
+            logger.error(f"Rollback execution failed: {e}")
+            return False, f"Rollback execution failed: {e!s}"

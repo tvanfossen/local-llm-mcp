@@ -402,7 +402,7 @@ class APIEndpoints:
                         "loaded": model_info["model_loaded"],
                         "path": model_info["model_path"],
                         "configuration": model_info["configuration"],
-                        "performance": model_info["performance"],
+                        "performance": performance,
                         "health": health,
                     },
                     "agents": {

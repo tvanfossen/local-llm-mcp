@@ -58,30 +58,16 @@ class ServerOrchestrator:
     async def initialize(self) -> bool:
         """Initialize all system components"""
         try:
-            # Load configuration
-            logger.info("Initializing configuration...")
-            self.config_manager = ConfigManager()
-
-            # Validate configuration
-            valid, errors = self.config_manager.validate_all()
-            if not valid:
-                logger.error(f"Configuration validation failed: {errors}")
+            # Load and validate configuration
+            if not self._initialize_config():
                 return False
 
-            # Initialize LLM manager
-            logger.info("Initializing LLM manager...")
-            self.llm_manager = LLMManager(self.config_manager.model)
-
-            # Load model
-            logger.info("Loading model...")
-            success, error = self.llm_manager.load_model()
-            if not success:
-                logger.error(f"Model loading failed: {error}")
+            # Initialize and load LLM
+            if not await self._initialize_llm():
                 return False
 
             # Initialize agent registry
-            logger.info("Initializing agent registry...")
-            self.agent_registry = AgentRegistry(self.config_manager.system)
+            self._initialize_agent_registry()
 
             logger.info("✅ All components initialized successfully")
             return True
@@ -172,6 +158,38 @@ class ServerOrchestrator:
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+
+    def _initialize_config(self) -> bool:
+        """Initialize and validate configuration"""
+        logger.info("Initializing configuration...")
+        self.config_manager = ConfigManager()
+
+        # Validate configuration
+        valid, errors = self.config_manager.validate_all()
+        if not valid:
+            logger.error(f"Configuration validation failed: {errors}")
+            return False
+
+        return True
+
+    async def _initialize_llm(self) -> bool:
+        """Initialize LLM manager and load model"""
+        logger.info("Initializing LLM manager...")
+        self.llm_manager = LLMManager(self.config_manager.model)
+
+        # Load model
+        logger.info("Loading model...")
+        success, error = self.llm_manager.load_model()
+        if not success:
+            logger.error(f"Model loading failed: {error}")
+            return False
+
+        return True
+
+    def _initialize_agent_registry(self):
+        """Initialize agent registry"""
+        logger.info("Initializing agent registry...")
+        self.agent_registry = AgentRegistry(self.config_manager.system)
 
 
 async def main():

@@ -9,8 +9,10 @@ Responsibilities:
 - Streaming response support
 """
 
+import json
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,17 @@ from schemas.agent_schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GenerationParams:
+    """Parameters for response generation"""
+
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+    repeat_penalty: float | None = None
+    stop_sequences: list | None = None
 
 
 class LLMManager:
@@ -113,40 +126,75 @@ class LLMManager:
     def generate_response(
         self,
         prompt: str,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        top_p: float | None = None,
-        repeat_penalty: float | None = None,
-        stop_sequences: list | None = None,
+        params: GenerationParams | None = None,
     ) -> tuple[AgentResponse, dict[str, Any]]:
         """Generate response from the model with performance tracking"""
+        if params is None:
+            params = GenerationParams()
+
         if not self.model_loaded:
             error_response = create_error_response("Model not loaded")
             return error_response, {"error": "model_not_loaded"}
 
-        # Prepare generation parameters
-        params = self._prepare_generation_params(
-            temperature, max_tokens, top_p, repeat_penalty, stop_sequences
-        )
+        # Use config defaults if not specified
+        temperature = params.temperature or self.config.temperature
+        max_tokens = params.max_tokens or self.config.max_tokens
+        top_p = params.top_p or self.config.top_p
+        repeat_penalty = params.repeat_penalty or self.config.repeat_penalty
+        stop_sequences = params.stop_sequences or ["</s>", "<|im_end|>", "<|endoftext|>"]
 
         try:
             start_time = time.time()
 
             response = self.llm(
                 prompt,
-                max_tokens=params["max_tokens"],
-                temperature=params["temperature"],
-                top_p=params["top_p"],
-                repeat_penalty=params["repeat_penalty"],
-                stop=params["stop_sequences"],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repeat_penalty=repeat_penalty,
+                stop=stop_sequences,
                 echo=False,
             )
 
             end_time = time.time()
             processing_time = end_time - start_time
 
-            # Process response
-            return self._process_llm_response(response, processing_time)
+            if not response or not response.get("choices"):
+                error_response = create_error_response("No response generated from model")
+                return error_response, {"error": "no_response"}
+
+            response_text = response["choices"][0]["text"].strip()
+            logger.info(f"🔍 RAW MODEL OUTPUT: {response_text!r}")
+            tokens_used = response["usage"]["total_tokens"] if "usage" in response else None
+
+            # Update performance tracking
+            self.inference_count += 1
+            self.total_inference_time += processing_time
+            if tokens_used:
+                self.total_tokens_generated += tokens_used
+                self.avg_tokens_per_second = (
+                    tokens_used / processing_time if processing_time > 0 else 0
+                )
+
+            self.last_inference_time = processing_time
+
+            # Parse agent response from LLM output
+            agent_response = self._parse_agent_response(response_text)
+
+            # Update tokens and timing
+            agent_response.tokens_used = tokens_used
+            agent_response.processing_time = processing_time
+
+            # Performance metrics
+            performance_metrics = {
+                "tokens_generated": tokens_used or 0,
+                "processing_time": processing_time,
+                "tokens_per_second": self.avg_tokens_per_second,
+                "inference_count": self.inference_count,
+                "model_efficiency": "high" if self.avg_tokens_per_second > 10 else "moderate",
+            }
+
+            return agent_response, performance_metrics
 
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
@@ -171,81 +219,93 @@ class LLMManager:
             if first_brace >= 0 and last_brace > first_brace:
                 json_text = cleaned_text[first_brace : last_brace + 1]
 
-                # FIX: Handle unescaped quotes inside JSON string values
-                def fix_unescaped_quotes_in_strings(text):
-                    """Fix unescaped quotes inside JSON string values"""
-
-                    # Pattern to find "key": "value with potential unescaped quotes"
-                    def fix_string_value(match):
-                        key_part = match.group(1)  # "key": "
-                        content = match.group(2)  # the string content
-                        end_quote = match.group(3)  # the closing "
-
-                        # Escape any unescaped quotes in the content
-                        # Replace """ with \"\"\" but be careful not to double-escape
-                        fixed_content = content.replace('"""', '\\"\\"\\"')
-                        fixed_content = fixed_content.replace('""', '\\"\\""')
-
-                        return key_part + fixed_content + end_quote
-
-                    # Match string values in JSON (handling multiline)
-                    pattern = r'("[\w_]+"\s*:\s*")((?:[^"\\]|\\.)*?)("(?:\s*[,}]))'
-                    result = re.sub(pattern, fix_string_value, text, flags=re.DOTALL | re.MULTILINE)
-                    return result
-
-                # Apply the fix
-                fixed_json_text = fix_unescaped_quotes_in_strings(json_text)
-
-                try:
-                    response_data = json.loads(fixed_json_text)
-                    logger.info("✅ JSON parsing succeeded after quote fixing")
-
-                    # Create FileContent from full_file_content field
-                    file_content = None
-                    if response_data.get("full_file_content"):
-                        from schemas.agent_schemas import FileContent
-
-                        content = response_data["full_file_content"]
-                        file_content = FileContent(
-                            filename="temp_filename",  # Will be set by the endpoint
-                            content=content,
-                            language="python",  # Will be inferred
-                            line_count=len(content.split("\n")) if content else 0,
-                        )
-
-                    return AgentResponse(
-                        status=ResponseStatus(response_data.get("status", "success")),
-                        message=response_data.get("message", "Task completed"),
-                        file_content=file_content,
-                        changes_made=(
-                            [response_data.get("changes_summary", "")]
-                            if response_data.get("changes_summary")
-                            else []
-                        ),
-                        warnings=(
-                            [response_data.get("warnings", "")]
-                            if response_data.get("warnings")
-                            else []
-                        ),
-                    )
-
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON parsing failed even after quote fixing: {e}")
-                    logger.error(f"Fixed JSON text was: {fixed_json_text[:500]!r}")
-
-                    # Last resort: Manual extraction
-                    return self._manual_extract_response(json_text)
+                # Try parsing with progressive fixes
+                return self._try_parse_json_response(json_text)
             else:
                 logger.error("No JSON boundaries found")
-                raise ValueError("No JSON found")
+                return self._create_fallback_response(response_text)
 
         except Exception as e:
             logger.warning(f"JSON parsing completely failed: {e}, falling back to text analysis")
-
-            # Fallback: Create simple response
             return create_success_response(
                 message=response_text[:300] + "..." if len(response_text) > 300 else response_text,
             )
+
+    def _try_parse_json_response(self, json_text: str) -> AgentResponse:
+        """Try parsing JSON with progressive fixes"""
+        # First, try parsing as-is
+        try:
+            response_data = json.loads(json_text)
+            logger.info("✅ JSON parsing succeeded without fixes")
+            return self._create_response_from_json(response_data)
+        except json.JSONDecodeError:
+            pass
+
+        # Try with quote fixing
+        try:
+            fixed_json_text = self._fix_unescaped_quotes(json_text)
+            response_data = json.loads(fixed_json_text)
+            logger.info("✅ JSON parsing succeeded after quote fixing")
+            return self._create_response_from_json(response_data)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed even after quote fixing: {e}")
+            logger.error(f"Fixed JSON text was: {fixed_json_text[:500]!r}")
+
+        # Manual extraction as last resort
+        return self._manual_extract_response(json_text)
+
+    def _fix_unescaped_quotes(self, text: str) -> str:
+        """Fix unescaped quotes inside JSON string values"""
+        import re
+
+        def fix_string_value(match):
+            key_part = match.group(1)  # "key": "
+            content = match.group(2)  # the string content
+            end_quote = match.group(3)  # the closing "
+
+            # Escape any unescaped quotes in the content
+            fixed_content = content.replace('"""', '\\"\\"\\"')
+            fixed_content = fixed_content.replace('""', '\\"\\""')
+
+            return key_part + fixed_content + end_quote
+
+        # Match string values in JSON (handling multiline)
+        pattern = r'("[\w_]+"\s*:\s*")((?:[^"\\]|\\.)*?)("(?:\s*[,}]))'
+        result = re.sub(pattern, fix_string_value, text, flags=re.DOTALL | re.MULTILINE)
+        return result
+
+    def _create_response_from_json(self, response_data: dict) -> AgentResponse:
+        """Create AgentResponse from parsed JSON data"""
+        # Create FileContent from full_file_content field
+        file_content = None
+        if response_data.get("full_file_content"):
+            from schemas.agent_schemas import FileContent
+
+            content = response_data["full_file_content"]
+            file_content = FileContent(
+                filename="temp_filename",  # Will be set by the endpoint
+                content=content,
+                language="python",  # Will be inferred
+                line_count=len(content.split("\n")) if content else 0,
+            )
+
+        return AgentResponse(
+            status=ResponseStatus(response_data.get("status", "success")),
+            message=response_data.get("message", "Task completed"),
+            file_content=file_content,
+            changes_made=(
+                [response_data.get("changes_summary", "")]
+                if response_data.get("changes_summary")
+                else []
+            ),
+            warnings=([response_data.get("warnings", "")] if response_data.get("warnings") else []),
+        )
+
+    def _create_fallback_response(self, response_text: str) -> AgentResponse:
+        """Create fallback response when no JSON found"""
+        return create_success_response(
+            message=response_text[:300] + "..." if len(response_text) > 300 else response_text,
+        )
 
     def _manual_extract_response(self, json_text: str) -> AgentResponse:
         """Manually extract response when JSON parsing fails"""

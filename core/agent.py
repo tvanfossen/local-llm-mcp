@@ -11,6 +11,7 @@ Responsibilities:
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,19 @@ from schemas.agent_schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AgentCreateParams:
+    """Parameters for creating an agent"""
+
+    agent_id: str
+    name: str
+    description: str
+    system_prompt: str
+    managed_file: str
+    workspace_dir: Path
+    initial_context: str = ""
 
 
 class Agent:
@@ -71,32 +85,23 @@ class Agent:
         return agent_logger
 
     @classmethod
-    def create(
-        cls,
-        agent_id: str,
-        name: str,
-        description: str,
-        system_prompt: str,
-        managed_file: str,
-        workspace_dir: Path,
-        initial_context: str = "",
-    ) -> "Agent":
+    def create(cls, params: AgentCreateParams) -> "Agent":
         """Factory method to create a new agent"""
         state = AgentState(
-            agent_id=agent_id,
-            name=name,
-            description=description,
-            system_prompt=system_prompt,
-            managed_file=managed_file,
-            context=initial_context,
+            agent_id=params.agent_id,
+            name=params.name,
+            description=params.description,
+            system_prompt=params.system_prompt,
+            managed_file=params.managed_file,
+            context=params.initial_context,
             total_interactions=0,
             success_rate=1.0,
         )
 
-        agent = cls(state, workspace_dir)
+        agent = cls(state, params.workspace_dir)
         agent.save_context()
 
-        agent.logger.info(f"Created new agent: {name} -> {managed_file}")
+        agent.logger.info(f"Created new agent: {params.name} -> {params.managed_file}")
         return agent
 
     @classmethod
