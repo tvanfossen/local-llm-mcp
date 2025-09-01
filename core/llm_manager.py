@@ -272,8 +272,6 @@ class LLMManager:
     def _manual_extract_response(self, json_text: str) -> AgentResponse:
         """Manually extract response when JSON parsing fails"""
         try:
-            import re
-
             logger.info("Attempting manual extraction")
 
             # Extract key fields manually using regex
