@@ -320,21 +320,10 @@ class MCPHandler:
             # Handle notifications (no response required)
             if request_id is None:
                 await self._handle_notification(method, params, session_id)
-                return None  # No response for notifications
+                return None
 
-            # Handle requests (response required)
-            if method == "initialize":
-                return await self._handle_initialize(request_id, params, session_id)
-            if method == "tools/list":
-                return await self._handle_tools_list(request_id, params, session_id)
-            if method == "tools/call":
-                return await self._handle_tools_call(request_id, params, session_id)
-            return self._create_error_response(
-                request_id,
-                -32601,
-                "Method not found",
-                f"Unknown method: {method}",
-            )
+            # Dispatch to appropriate handler
+            return await self._dispatch_request_method(method, request_id, params, session_id)
 
         except Exception as e:
             logger.error(f"JSON-RPC request handling failed: {e}")
@@ -344,6 +333,27 @@ class MCPHandler:
                 "Internal error",
                 str(e),
             )
+
+    async def _dispatch_request_method(
+        self, method: str, request_id: Any, params: dict[str, Any], session_id: str | None
+    ) -> dict[str, Any]:
+        """Dispatch request to appropriate method handler"""
+        method_handlers = {
+            "initialize": self._handle_initialize,
+            "tools/list": self._handle_tools_list,
+            "tools/call": self._handle_tools_call,
+        }
+
+        handler = method_handlers.get(method)
+        if handler:
+            return await handler(request_id, params, session_id)
+
+        return self._create_error_response(
+            request_id,
+            -32601,
+            "Method not found",
+            f"Unknown method: {method}",
+        )
 
     def _validate_jsonrpc_request(self, request: dict[str, Any]) -> bool:
         """Validate JSON-RPC 2.0 request format"""
@@ -445,16 +455,13 @@ class MCPHandler:
                     f"Session {session_id} not found",
                 )
 
+            # Validate required parameters
+            error_response = self._validate_tool_call_params(request_id, params)
+            if error_response:
+                return error_response
+
             tool_name = params.get("name")
             tool_args = params.get("arguments", {})
-
-            if not tool_name:
-                return self._create_error_response(
-                    request_id,
-                    -32602,
-                    "Invalid params",
-                    "Missing tool name",
-                )
 
             # Execute tool
             result = await self._execute_tool(tool_name, tool_args)
@@ -475,6 +482,20 @@ class MCPHandler:
                 str(e),
             )
 
+    def _validate_tool_call_params(
+        self, request_id: Any, params: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Validate tool call parameters"""
+        tool_name = params.get("name")
+        if not tool_name:
+            return self._create_error_response(
+                request_id,
+                -32602,
+                "Invalid params",
+                "Missing tool name",
+            )
+        return None
+
     async def _handle_notification(
         self, method: str, params: dict[str, Any], session_id: str | None
     ):
@@ -494,29 +515,26 @@ class MCPHandler:
 
     async def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Execute tool and return MCP-formatted result"""
-        if tool_name == "create_agent":
-            return await self._tool_create_agent(args)
-        if tool_name == "list_agents":
-            return await self._tool_list_agents()
-        if tool_name == "get_agent_info":
-            return await self._tool_get_agent_info(args)
-        if tool_name == "chat_with_agent":
-            return await self._tool_chat_with_agent(args)
-        if tool_name == "agent_update_file":
-            return await self._tool_agent_update_file(args)
-        if tool_name == "get_agent_file":
-            return await self._tool_get_agent_file(args)
-        if tool_name == "delete_agent":
-            return await self._tool_delete_agent(args)
-        if tool_name == "system_status":
-            return await self._tool_system_status()
-        if tool_name == "agent_write_file":
-            return await self._tool_agent_write_file(args)
-        if tool_name == "validate_agent_file":
-            return await self._tool_validate_agent_file(args)
-        if tool_name == "orchestrate_agents":
-            return await self._tool_orchestrate_agents(args)
+        # Use dictionary dispatch to eliminate multiple returns
+        tool_handlers = {
+            "create_agent": self._tool_create_agent,
+            "list_agents": lambda args: self._tool_list_agents(),
+            "get_agent_info": self._tool_get_agent_info,
+            "chat_with_agent": self._tool_chat_with_agent,
+            "agent_update_file": self._tool_agent_update_file,
+            "get_agent_file": self._tool_get_agent_file,
+            "delete_agent": self._tool_delete_agent,
+            "system_status": lambda args: self._tool_system_status(),
+            "agent_write_file": self._tool_agent_write_file,
+            "validate_agent_file": self._tool_validate_agent_file,
+            "orchestrate_agents": self._tool_orchestrate_agents,
+        }
 
+        handler = tool_handlers.get(tool_name)
+        if handler:
+            return await handler(args)
+
+        # Default error response for unknown tools
         return {
             "content": [
                 {

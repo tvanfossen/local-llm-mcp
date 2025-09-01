@@ -39,12 +39,13 @@ class APIEndpoints:
 
             # Validate required fields
             required_fields = ["name", "description", "system_prompt", "managed_file"]
-            for field in required_fields:
-                if field not in data:
-                    return JSONResponse(
-                        {"error": f"Missing required field: {field}"},
-                        status_code=400,
-                    )
+            missing_field = next((field for field in required_fields if field not in data), None)
+
+            if missing_field:
+                return JSONResponse(
+                    {"error": f"Missing required field: {missing_field}"},
+                    status_code=400,
+                )
 
             success, agent, error = self.agent_registry.create_agent(
                 name=data["name"],
@@ -55,23 +56,22 @@ class APIEndpoints:
             )
 
             if success:
-                return JSONResponse(
-                    {
-                        "success": True,
-                        "agent": {
-                            "id": agent.state.agent_id,
-                            "name": agent.state.name,
-                            "description": agent.state.description,
-                            "managed_file": agent.state.managed_file,
-                            "created_at": agent.state.created_at,
-                        },
+                response_data = {
+                    "success": True,
+                    "agent": {
+                        "id": agent.state.agent_id,
+                        "name": agent.state.name,
+                        "description": agent.state.description,
+                        "managed_file": agent.state.managed_file,
+                        "created_at": agent.state.created_at,
                     },
-                    status_code=201,
-                )
-            return JSONResponse(
-                {"error": error},
-                status_code=409 if "conflict" in error.lower() else 400,
-            )
+                }
+                status_code = 201
+            else:
+                response_data = {"error": error}
+                status_code = 409 if "conflict" in error.lower() else 400
+
+            return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
             logger.error(f"Create agent API error: {e}")
@@ -208,17 +208,17 @@ class APIEndpoints:
             success, error = self.agent_registry.delete_agent(agent_id)
 
             if success:
-                return JSONResponse(
-                    {
-                        "success": True,
-                        "message": f"Agent {agent_name} deleted successfully",
-                        "freed_file": managed_file,
-                    }
-                )
-            return JSONResponse(
-                {"error": error},
-                status_code=500,
-            )
+                response_data = {
+                    "success": True,
+                    "message": f"Agent {agent_name} deleted successfully",
+                    "freed_file": managed_file,
+                }
+                status_code = 200
+            else:
+                response_data = {"error": error}
+                status_code = 500
+
+            return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
             logger.error(f"Delete agent API error: {e}")
@@ -233,96 +233,20 @@ class APIEndpoints:
             agent_id = request.path_params["agent_id"]
             agent = self.agent_registry.get_agent(agent_id)
 
-            if not agent:
-                return JSONResponse(
-                    {"error": f"Agent {agent_id} not found"},
-                    status_code=404,
-                )
-
-            if not self.llm_manager.model_loaded:
-                return JSONResponse(
-                    {"error": "Model not loaded"},
-                    status_code=503,
-                )
+            # Validate agent existence and model status
+            error_response = self._validate_agent_and_model(agent_id, agent)
+            if error_response:
+                return error_response
 
             data = await request.json()
-
             if "message" not in data:
                 return JSONResponse(
                     {"error": "Missing required field: message"},
                     status_code=400,
                 )
 
-            # Create standardized request
-            agent_request = create_standard_request(
-                task_type=TaskType(data.get("task_type", "update")),
-                instruction=data["message"],
-                context=data.get("context"),
-                parameters=data.get("parameters", {}),
-            )
-
-            # Generate response
-            prompt = agent.build_context_prompt(agent_request)
-            agent_response, metrics = self.llm_manager.generate_response(
-                prompt,
-                temperature=data.get("temperature"),
-                max_tokens=data.get("max_tokens"),
-                top_p=data.get("top_p"),
-                repeat_penalty=data.get("repeat_penalty"),
-            )
-
-            if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
-                try:
-                    # Set the correct filename
-                    agent_response.file_content.filename = agent.state.managed_file
-
-                    # Write the complete file content
-                    success = agent.write_managed_file(agent_response.file_content.content)
-
-                    if success:
-                        logger.info(
-                            f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}"
-                        )
-                        agent_response.changes_made.append("File written to disk")
-
-                        # Log file stats for debugging
-                        content = agent_response.file_content.content
-                        logger.info(
-                            f"File written: {len(content)} chars, {len(content.split(chr(10)))} lines"
-                        )
-                    else:
-                        logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
-                        agent_response.warnings.append(
-                            "File content generated but disk write failed"
-                        )
-
-                except Exception as e:
-                    logger.error(f"File writing error for agent {agent.state.agent_id}: {e}")
-                    agent_response.warnings.append(f"File write failed: {e!s}")
-
-            # Update agent
-            agent.update_activity(agent_request.task_type)
-            agent.update_success_rate(agent_response.status.value == "success")
-            agent.add_conversation(agent_request, agent_response)
-
-            # Save state
-            self.agent_registry.save_registry()
-
-            return JSONResponse(
-                {
-                    "success": True,
-                    "agent": {
-                        "id": agent.state.agent_id,
-                        "name": agent.state.name,
-                    },
-                    "request": {
-                        "task_type": agent_request.task_type.value,
-                        "instruction": agent_request.instruction,
-                    },
-                    "response": agent_response.model_dump(),
-                    "performance": metrics,
-                }
-            )
+            # Process the chat request
+            return await self._process_chat_request(agent, data)
 
         except Exception as e:
             logger.error(f"Chat with agent API error: {e}")
@@ -330,6 +254,93 @@ class APIEndpoints:
                 {"error": f"Internal server error: {e!s}"},
                 status_code=500,
             )
+
+    def _validate_agent_and_model(self, agent_id: str, agent) -> JSONResponse | None:
+        """Validate agent existence and model status"""
+        if not agent:
+            return JSONResponse(
+                {"error": f"Agent {agent_id} not found"},
+                status_code=404,
+            )
+
+        if not self.llm_manager.model_loaded:
+            return JSONResponse(
+                {"error": "Model not loaded"},
+                status_code=503,
+            )
+
+        return None
+
+    async def _process_chat_request(self, agent, data: dict) -> JSONResponse:
+        """Process the actual chat request"""
+        # Create standardized request
+        agent_request = create_standard_request(
+            task_type=TaskType(data.get("task_type", "update")),
+            instruction=data["message"],
+            context=data.get("context"),
+            parameters=data.get("parameters", {}),
+        )
+
+        # Generate response
+        prompt = agent.build_context_prompt(agent_request)
+        agent_response, metrics = self.llm_manager.generate_response(
+            prompt,
+            temperature=data.get("temperature"),
+            max_tokens=data.get("max_tokens"),
+            top_p=data.get("top_p"),
+            repeat_penalty=data.get("repeat_penalty"),
+        )
+
+        # Handle file content if present
+        self._handle_file_content(agent, agent_response)
+
+        # Update agent
+        agent.update_activity(agent_request.task_type)
+        agent.update_success_rate(agent_response.status.value == "success")
+        agent.add_conversation(agent_request, agent_response)
+
+        # Save state
+        self.agent_registry.save_registry()
+
+        return JSONResponse(
+            {
+                "success": True,
+                "agent": {
+                    "id": agent.state.agent_id,
+                    "name": agent.state.name,
+                },
+                "request": {
+                    "task_type": agent_request.task_type.value,
+                    "instruction": agent_request.instruction,
+                },
+                "response": agent_response.model_dump(),
+                "performance": metrics,
+            }
+        )
+
+    def _handle_file_content(self, agent, agent_response):
+        """Handle file content writing if present"""
+        if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
+            try:
+                agent_response.file_content.filename = agent.state.managed_file
+                success = agent.write_managed_file(agent_response.file_content.content)
+
+                if success:
+                    logger.info(
+                        f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}"
+                    )
+                    agent_response.changes_made.append("File written to disk")
+                    content = agent_response.file_content.content
+                    logger.info(
+                        f"File written: {len(content)} chars, {len(content.split(chr(10)))} lines"
+                    )
+                else:
+                    logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
+                    agent_response.warnings.append("File content generated but disk write failed")
+
+            except Exception as e:
+                logger.error(f"File writing error for agent {agent.state.agent_id}: {e}")
+                agent_response.warnings.append(f"File write failed: {e!s}")
 
     async def get_agent_file(self, request: Request) -> JSONResponse:
         """Get agent's managed file content via HTTP API"""

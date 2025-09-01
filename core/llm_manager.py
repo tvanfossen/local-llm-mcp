@@ -47,25 +47,20 @@ class LLMManager:
         self.last_inference_time = 0.0
 
     def load_model(self) -> tuple[bool, str | None]:
-        """Load the model with optimized settings for RTX 1080ti + CUDA 12.9
-
-        Returns:
-            Tuple of (success: bool, error_message: Optional[str])
-        """
+        """Load the model with optimized settings for RTX 1080ti + CUDA 12.9"""
         try:
+            # Validate model file exists
             if not Path(self.config.model_path).exists():
                 error_msg = f"Model file not found: {self.config.model_path}"
                 logger.error(error_msg)
                 return False, error_msg
 
-            logger.info(f"Loading model: {self.config.model_path}")
-            logger.info("CUDA 12.9 optimization enabled")
-            logger.info(f"GPU layers: {self.config.n_gpu_layers}")
-            logger.info(f"Context size: {self.config.n_ctx}")
-            logger.info(f"Batch size: {self.config.n_batch}")
+            # Log initialization info
+            self._log_model_loading_info()
 
             start_time = time.time()
 
+            # Initialize the model
             self.llm = Llama(
                 model_path=self.config.model_path,
                 n_gpu_layers=self.config.n_gpu_layers,
@@ -75,7 +70,6 @@ class LLMManager:
                 use_mmap=self.config.use_mmap,
                 use_mlock=self.config.use_mlock,
                 verbose=self.config.verbose,
-                # CUDA 12.9 + RTX 1080ti optimizations
                 f16_kv=self.config.f16_kv,
                 logits_all=self.config.logits_all,
                 tensor_split=self.config.tensor_split,
@@ -84,15 +78,10 @@ class LLMManager:
 
             load_time = time.time() - start_time
             self.model_loaded = True
-
             logger.info(f"Model loaded successfully in {load_time:.2f} seconds!")
 
-            # Test generation to ensure everything works
-            test_success = self._test_generation()
-            if not test_success:
-                return False, "Model loaded but test generation failed"
-
-            return True, None
+            # Test generation and return result
+            return self._validate_model_loading()
 
         except Exception as e:
             error_msg = f"Failed to load model: {e!s}"
@@ -130,82 +119,34 @@ class LLMManager:
         repeat_penalty: float | None = None,
         stop_sequences: list | None = None,
     ) -> tuple[AgentResponse, dict[str, Any]]:
-        """Generate response from the model with performance tracking
-
-        Args:
-            prompt: Input prompt for generation
-            temperature: Sampling temperature (overrides config default)
-            max_tokens: Maximum tokens to generate (overrides config default)
-            top_p: Nucleus sampling parameter
-            repeat_penalty: Repetition penalty
-            stop_sequences: Stop sequences for generation
-
-        Returns:
-            Tuple of (AgentResponse, performance_metrics)
-        """
+        """Generate response from the model with performance tracking"""
         if not self.model_loaded:
             error_response = create_error_response("Model not loaded")
             return error_response, {"error": "model_not_loaded"}
 
-        # Use config defaults if not specified
-        temperature = temperature or self.config.temperature
-        max_tokens = max_tokens or self.config.max_tokens
-        top_p = top_p or self.config.top_p
-        repeat_penalty = repeat_penalty or self.config.repeat_penalty
-        stop_sequences = stop_sequences or ["</s>", "<|im_end|>", "<|endoftext|>"]
+        # Prepare generation parameters
+        params = self._prepare_generation_params(
+            temperature, max_tokens, top_p, repeat_penalty, stop_sequences
+        )
 
         try:
             start_time = time.time()
 
             response = self.llm(
                 prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                repeat_penalty=repeat_penalty,
-                stop=stop_sequences,
+                max_tokens=params["max_tokens"],
+                temperature=params["temperature"],
+                top_p=params["top_p"],
+                repeat_penalty=params["repeat_penalty"],
+                stop=params["stop_sequences"],
                 echo=False,
             )
 
             end_time = time.time()
             processing_time = end_time - start_time
 
-            if not response or not response.get("choices"):
-                error_response = create_error_response("No response generated from model")
-                return error_response, {"error": "no_response"}
-
-            response_text = response["choices"][0]["text"].strip()  # Fixed variable name
-            logger.info(f"🔍 RAW MODEL OUTPUT: {response_text!r}")
-            tokens_used = response["usage"]["total_tokens"] if "usage" in response else None
-
-            # Update performance tracking
-            self.inference_count += 1
-            self.total_inference_time += processing_time
-            if tokens_used:
-                self.total_tokens_generated += tokens_used
-                self.avg_tokens_per_second = (
-                    tokens_used / processing_time if processing_time > 0 else 0
-                )
-
-            self.last_inference_time = processing_time
-
-            # Parse agent response from LLM output
-            agent_response = self._parse_agent_response(response_text)
-
-            # Update tokens and timing
-            agent_response.tokens_used = tokens_used
-            agent_response.processing_time = processing_time
-
-            # Performance metrics
-            performance_metrics = {
-                "tokens_generated": tokens_used or 0,
-                "processing_time": processing_time,
-                "tokens_per_second": self.avg_tokens_per_second,
-                "inference_count": self.inference_count,
-                "model_efficiency": "high" if self.avg_tokens_per_second > 10 else "moderate",
-            }
-
-            return agent_response, performance_metrics
+            # Process response
+            return self._process_llm_response(response, processing_time)
 
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
@@ -542,17 +483,19 @@ class LLMManager:
             test_response = self.llm("Hello", max_tokens=1, temperature=0.1)
             test_time = time.time() - test_start
 
+            # Determine status based on response
             if test_response and test_response.get("choices"):
-                return {
-                    "status": "healthy",
-                    "message": "Model responding normally",
-                    "avg_performance": round(self.avg_tokens_per_second, 2),
-                    "last_test_time": round(test_time, 3),
-                }
+                status = "healthy"
+                message = "Model responding normally"
+            else:
+                status = "degraded"
+                message = "Model loaded but not responding properly"
+
             return {
-                "status": "degraded",
-                "message": "Model loaded but not responding properly",
+                "status": status,
+                "message": message,
                 "avg_performance": round(self.avg_tokens_per_second, 2),
+                "last_test_time": round(test_time, 3) if status == "healthy" else None,
             }
 
         except Exception as e:
@@ -575,3 +518,71 @@ class LLMManager:
                 logger.error(f"Error unloading model: {e}")
         else:
             logger.info("No model to unload")
+
+    def _log_model_loading_info(self):
+        """Log model loading information"""
+        logger.info(f"Loading model: {self.config.model_path}")
+        logger.info("CUDA 12.9 optimization enabled")
+        logger.info(f"GPU layers: {self.config.n_gpu_layers}")
+        logger.info(f"Context size: {self.config.n_ctx}")
+        logger.info(f"Batch size: {self.config.n_batch}")
+
+    def _validate_model_loading(self) -> tuple[bool, str | None]:
+        """Test generation to ensure model is working properly"""
+        test_success = self._test_generation()
+        if test_success:
+            return True, None
+        else:
+            return False, "Model loaded but test generation failed"
+
+    def _prepare_generation_params(
+        self, temperature, max_tokens, top_p, repeat_penalty, stop_sequences
+    ) -> dict:
+        """Prepare generation parameters with defaults"""
+        return {
+            "temperature": temperature or self.config.temperature,
+            "max_tokens": max_tokens or self.config.max_tokens,
+            "top_p": top_p or self.config.top_p,
+            "repeat_penalty": repeat_penalty or self.config.repeat_penalty,
+            "stop_sequences": stop_sequences or ["</s>", "<|im_end|>", "<|endoftext|>"],
+        }
+
+    def _process_llm_response(
+        self, response, processing_time
+    ) -> tuple[AgentResponse, dict[str, Any]]:
+        """Process the LLM response and update metrics"""
+        if not response or not response.get("choices"):
+            error_response = create_error_response("No response generated from model")
+            return error_response, {"error": "no_response"}
+
+        response_text = response["choices"][0]["text"].strip()
+        logger.info(f"🔍 RAW MODEL OUTPUT: {response_text!r}")
+        tokens_used = response["usage"]["total_tokens"] if "usage" in response else None
+
+        # Update performance tracking
+        self._update_performance_metrics(tokens_used, processing_time)
+
+        # Parse agent response from LLM output
+        agent_response = self._parse_agent_response(response_text)
+        agent_response.tokens_used = tokens_used
+        agent_response.processing_time = processing_time
+
+        # Build performance metrics
+        performance_metrics = {
+            "tokens_generated": tokens_used or 0,
+            "processing_time": processing_time,
+            "tokens_per_second": self.avg_tokens_per_second,
+            "inference_count": self.inference_count,
+            "model_efficiency": "high" if self.avg_tokens_per_second > 10 else "moderate",
+        }
+
+        return agent_response, performance_metrics
+
+    def _update_performance_metrics(self, tokens_used, processing_time):
+        """Update performance tracking metrics"""
+        self.inference_count += 1
+        self.total_inference_time += processing_time
+        if tokens_used:
+            self.total_tokens_generated += tokens_used
+            self.avg_tokens_per_second = tokens_used / processing_time if processing_time > 0 else 0
+        self.last_inference_time = processing_time

@@ -87,10 +87,7 @@ class OrchestratorAPI:
             private_key = data.get("private_key")
 
             if not private_key:
-                return JSONResponse(
-                    {"error": "Private key required"},
-                    status_code=400,
-                )
+                return self._create_auth_error("Private key required", 400)
 
             success, session_token, error = self.security_manager.authenticate_with_private_key(
                 private_key
@@ -104,29 +101,20 @@ class OrchestratorAPI:
                         "expires_in": 14400,  # 4 hours
                     }
                 )
-            return JSONResponse(
-                {"error": f"Authentication failed: {error}"},
-                status_code=401,
-            )
+            else:
+                return self._create_auth_error(f"Authentication failed: {error}", 401)
 
         except Exception as e:
             logger.error(f"Authentication error: {e}")
-            return JSONResponse(
-                {"error": f"Authentication error: {e!s}"},
-                status_code=500,
-            )
+            return self._create_auth_error(f"Authentication error: {e!s}", 500)
 
     async def validate_session(self, request: Request) -> JSONResponse:
         """Validate current session"""
         try:
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
-                return JSONResponse(
-                    {"error": "Invalid authorization header"},
-                    status_code=401,
-                )
+            session_token = self._extract_session_token(request)
+            if not session_token:
+                return self._create_auth_error("Invalid authorization header", 401)
 
-            session_token = auth_header[7:]  # Remove "Bearer " prefix
             valid, session = self.security_manager.validate_session(session_token)
 
             if valid:
@@ -138,46 +126,26 @@ class OrchestratorAPI:
                         "expires_at": session["expires_at"],
                     }
                 )
-            return JSONResponse(
-                {"valid": False},
-                status_code=401,
-            )
+            else:
+                return JSONResponse({"valid": False}, status_code=401)
 
         except Exception as e:
             logger.error(f"Session validation error: {e}")
-            return JSONResponse(
-                {"error": f"Validation error: {e!s}"},
-                status_code=500,
-            )
+            return self._create_auth_error(f"Validation error: {e!s}", 500)
 
     async def test_agent(self, request: Request) -> JSONResponse:
         """Run tests for an agent's file"""
         try:
             agent_id = request.path_params["agent_id"]
 
-            # Validate session
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
+            # Validate session and get agent
+            validation_result = await self._validate_session_and_agent(request, agent_id)
+            if validation_result.get("error"):
                 return JSONResponse(
-                    {"error": "Authentication required"},
-                    status_code=401,
+                    validation_result, status_code=validation_result.get("status", 400)
                 )
 
-            session_token = auth_header[7:]
-            valid, session = self.security_manager.validate_session(session_token)
-            if not valid:
-                return JSONResponse(
-                    {"error": "Invalid or expired session"},
-                    status_code=401,
-                )
-
-            # Get agent
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return JSONResponse(
-                    {"error": f"Agent {agent_id} not found"},
-                    status_code=404,
-                )
+            agent = validation_result["agent"]
 
             # Run test coverage validation
             logger.info(f"Running tests for agent {agent_id}")
@@ -209,49 +177,56 @@ class OrchestratorAPI:
 
         except Exception as e:
             logger.error(f"Test execution failed: {e}")
-            return JSONResponse(
-                {"error": f"Test failed: {e!s}"},
-                status_code=500,
-            )
+            return JSONResponse({"error": f"Test failed: {e!s}"}, status_code=500)
+
+    def _create_auth_error(self, message: str, status_code: int) -> JSONResponse:
+        """Create standardized authentication error response"""
+        return JSONResponse({"error": message}, status_code=status_code)
+
+    def _extract_session_token(self, request: Request) -> str | None:
+        """Extract session token from authorization header"""
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]  # Remove "Bearer " prefix
+        return None
+
+    async def _validate_session_and_agent(self, request: Request, agent_id: str) -> dict:
+        """Validate session and get agent - returns dict with error or agent"""
+        # Extract and validate session token
+        session_token = self._extract_session_token(request)
+        if not session_token:
+            return {"error": "Authentication required", "status": 401}
+
+        valid, session = self.security_manager.validate_session(session_token)
+        if not valid:
+            return {"error": "Invalid or expired session", "status": 401}
+
+        # Get and validate agent
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": f"Agent {agent_id} not found", "status": 404}
+
+        return {"agent": agent, "session": session}
 
     async def stage_deployment(self, request: Request) -> JSONResponse:
         """Stage a deployment for approval"""
         try:
             data = await request.json()
 
-            # Validate session
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
+            # Validate authentication and parameters
+            validation_result = await self._validate_deployment_request(request, data)
+            if validation_result.get("error"):
                 return JSONResponse(
-                    {"error": "Authentication required"},
-                    status_code=401,
+                    validation_result, status_code=validation_result.get("status", 400)
                 )
 
-            session_token = auth_header[7:]
-
-            # Get parameters
-            agent_id = data.get("agent_id")
-            target_path = data.get("target_path")
-
-            if not agent_id or not target_path:
-                return JSONResponse(
-                    {"error": "agent_id and target_path required"},
-                    status_code=400,
-                )
-
-            # Get agent
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return JSONResponse(
-                    {"error": f"Agent {agent_id} not found"},
-                    status_code=404,
-                )
+            session_token = validation_result["session_token"]
+            agent = validation_result["agent"]
+            target_path = validation_result["target_path"]
 
             # Stage deployment
             success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
-                agent,
-                Path(target_path),
-                session_token,
+                agent, Path(target_path), session_token
             )
 
             if success:
@@ -262,156 +237,176 @@ class OrchestratorAPI:
                         "deployment": deployment_info,
                     }
                 )
-            return JSONResponse(
-                {"error": deployment_info.get("error", "Staging failed")},
-                status_code=400,
-            )
+            else:
+                return JSONResponse(
+                    {"error": deployment_info.get("error", "Staging failed")}, status_code=400
+                )
 
         except Exception as e:
             logger.error(f"Staging failed: {e}")
-            return JSONResponse(
-                {"error": f"Staging failed: {e!s}"},
-                status_code=500,
-            )
+            return JSONResponse({"error": f"Staging failed: {e!s}"}, status_code=500)
 
     async def deploy(self, request: Request) -> JSONResponse:
         """Execute a deployment"""
         try:
             data = await request.json()
 
-            # Validate session
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
+            # Validate authentication and parameters
+            validation_result = await self._validate_full_deployment_request(request, data)
+            if validation_result.get("error"):
                 return JSONResponse(
-                    {"error": "Authentication required"},
-                    status_code=401,
+                    validation_result, status_code=validation_result.get("status", 400)
                 )
 
-            session_token = auth_header[7:]
+            session_token = validation_result["session_token"]
+            agent = validation_result["agent"]
+            target_path = validation_result["target_path"]
+            file_path = validation_result["file_path"]
 
-            # Get parameters
-            agent_id = data.get("agent_id")
-            target_path = data.get("target_path")
-            file_path = data.get("file_path")
-
-            if not all([agent_id, target_path, file_path]):
-                return JSONResponse(
-                    {"error": "agent_id, target_path, and file_path required"},
-                    status_code=400,
-                )
-
-            # Get agent
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return JSONResponse(
-                    {"error": f"Agent {agent_id} not found"},
-                    status_code=404,
-                )
-
-            # Stage deployment first
-            success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
-                agent,
-                Path(target_path),
-                session_token,
+            # Execute deployment workflow
+            deployment_result = await self._execute_deployment_workflow(
+                agent, target_path, file_path, session_token
             )
 
-            if not success:
-                return JSONResponse(
-                    {"error": deployment_info.get("error", "Staging failed")},
-                    status_code=400,
-                )
-
-            # Check coverage requirement
-            if not deployment_info.get("coverage_ok", False):
-                return JSONResponse(
-                    {
-                        "error": f"Coverage requirement not met: {deployment_info.get('coverage_percent', 0)}%"
-                    },
-                    status_code=400,
-                )
-
-            # Execute deployment
-            success, message = self.deployment_manager.execute_deployment(
-                deployment_id,
-                session_token,
-            )
-
-            if success:
-                # Broadcast success
-                await self._broadcast_ws(
-                    {
-                        "type": "deployment_complete",
-                        "agent_id": agent_id,
-                        "file": file_path,
-                        "status": "success",
-                    }
-                )
-
-                return JSONResponse(
-                    {
-                        "success": True,
-                        "message": message,
-                        "deployment_id": deployment_id,
-                    }
-                )
             return JSONResponse(
-                {"error": message},
-                status_code=400,
+                deployment_result["response"], status_code=deployment_result["status"]
             )
 
         except Exception as e:
             logger.error(f"Deployment failed: {e}")
-            return JSONResponse(
-                {"error": f"Deployment failed: {e!s}"},
-                status_code=500,
-            )
+            return JSONResponse({"error": f"Deployment failed: {e!s}"}, status_code=500)
 
     async def rollback(self, request: Request) -> JSONResponse:
         """Rollback a deployment"""
         try:
             data = await request.json()
 
-            # Validate session
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
+            # Validate session and deployment ID
+            validation_result = await self._validate_rollback_request(request, data)
+            if validation_result.get("error"):
                 return JSONResponse(
-                    {"error": "Authentication required"},
-                    status_code=401,
+                    validation_result, status_code=validation_result.get("status", 400)
                 )
 
-            session_token = auth_header[7:]
-            deployment_id = data.get("deployment_id")
-
-            if not deployment_id:
-                return JSONResponse(
-                    {"error": "deployment_id required"},
-                    status_code=400,
-                )
+            session_token = validation_result["session_token"]
+            deployment_id = validation_result["deployment_id"]
 
             # Execute rollback
             success, message = self.deployment_manager.rollback_deployment(
-                deployment_id,
-                session_token,
+                deployment_id, session_token
             )
 
             if success:
-                return JSONResponse(
-                    {
-                        "success": True,
-                        "message": message,
-                    }
-                )
-            return JSONResponse(
-                {"error": message},
-                status_code=400,
-            )
+                return JSONResponse({"success": True, "message": message})
+            else:
+                return JSONResponse({"error": message}, status_code=400)
 
         except Exception as e:
             logger.error(f"Rollback failed: {e}")
-            return JSONResponse(
-                {"error": f"Rollback failed: {e!s}"},
-                status_code=500,
+            return JSONResponse({"error": f"Rollback failed: {e!s}"}, status_code=500)
+
+    async def _validate_deployment_request(self, request: Request, data: dict) -> dict:
+        """Validate deployment request parameters"""
+        # Validate authentication
+        session_token = self._extract_session_token(request)
+        if not session_token:
+            return {"error": "Authentication required", "status": 401}
+
+        # Validate required parameters
+        agent_id = data.get("agent_id")
+        target_path = data.get("target_path")
+
+        if not agent_id or not target_path:
+            return {"error": "agent_id and target_path required", "status": 400}
+
+        # Get agent
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": f"Agent {agent_id} not found", "status": 404}
+
+        return {"session_token": session_token, "agent": agent, "target_path": target_path}
+
+    async def _validate_full_deployment_request(self, request: Request, data: dict) -> dict:
+        """Validate full deployment request parameters"""
+        # First validate basic deployment parameters
+        basic_validation = await self._validate_deployment_request(request, data)
+        if basic_validation.get("error"):
+            return basic_validation
+
+        # Validate additional required parameter
+        file_path = data.get("file_path")
+        if not file_path:
+            return {"error": "file_path required", "status": 400}
+
+        basic_validation["file_path"] = file_path
+        return basic_validation
+
+    async def _validate_rollback_request(self, request: Request, data: dict) -> dict:
+        """Validate rollback request parameters"""
+        # Validate authentication
+        session_token = self._extract_session_token(request)
+        if not session_token:
+            return {"error": "Authentication required", "status": 401}
+
+        valid, session = self.security_manager.validate_session(session_token)
+        if not valid:
+            return {"error": "Invalid or expired session", "status": 401}
+
+        # Validate deployment ID
+        deployment_id = data.get("deployment_id")
+        if not deployment_id:
+            return {"error": "deployment_id required", "status": 400}
+
+        return {"session_token": session_token, "deployment_id": deployment_id, "session": session}
+
+    async def _execute_deployment_workflow(
+        self, agent, target_path: str, file_path: str, session_token: str
+    ) -> dict:
+        """Execute the complete deployment workflow"""
+        # Stage deployment first
+        success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
+            agent, Path(target_path), session_token
+        )
+
+        if not success:
+            return {
+                "response": {"error": deployment_info.get("error", "Staging failed")},
+                "status": 400,
+            }
+
+        # Check coverage requirement
+        if not deployment_info.get("coverage_ok", False):
+            return {
+                "response": {
+                    "error": f"Coverage requirement not met: {deployment_info.get('coverage_percent', 0)}%"
+                },
+                "status": 400,
+            }
+
+        # Execute deployment
+        success, message = self.deployment_manager.execute_deployment(deployment_id, session_token)
+
+        if success:
+            # Broadcast success
+            await self._broadcast_ws(
+                {
+                    "type": "deployment_complete",
+                    "agent_id": agent.state.agent_id,
+                    "file": file_path,
+                    "status": "success",
+                }
             )
+
+            return {
+                "response": {
+                    "success": True,
+                    "message": message,
+                    "deployment_id": deployment_id,
+                },
+                "status": 200,
+            }
+        else:
+            return {"response": {"error": message}, "status": 400}
 
     async def get_deployment_history(self, request: Request) -> JSONResponse:
         """Get deployment history"""
