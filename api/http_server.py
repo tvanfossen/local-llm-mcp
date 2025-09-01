@@ -22,6 +22,9 @@ from starlette.requests import Request
 
 from api.mcp_handler import MCPHandler
 from api.endpoints import APIEndpoints
+from api.orchestrator import OrchestratorAPI
+from core.security import SecurityManager
+from core.deployment import DeploymentManager
 from core.agent_registry import AgentRegistry
 from core.llm_manager import LLMManager
 from core.config import ConfigManager
@@ -48,6 +51,10 @@ def create_http_server(
     # Initialize handlers
     mcp_handler = MCPHandler(agent_registry, llm_manager)
     api_endpoints = APIEndpoints(agent_registry, llm_manager)
+    security_manager = SecurityManager(config.system.state_dir)
+    deployment_manager = DeploymentManager(security_manager, config.system.workspaces_dir)
+    orchestrator_api = OrchestratorAPI(agent_registry, security_manager, deployment_manager)
+
     
     async def root_handler(request: Request) -> JSONResponse:
         """Root endpoint with server information"""
@@ -248,7 +255,11 @@ def create_http_server(
         Route("/api/agents/{agent_id}/file", api_endpoints.get_agent_file, methods=["GET"]),
         Route("/api/system/status", api_endpoints.system_status, methods=["GET"]),
     ]
-    
+    for path, handler, methods in orchestrator_api.get_routes():
+        if "websocket" in methods:
+            routes.append(Route(path, handler, methods=["GET"]))  # WebSocket
+        else:
+            routes.append(Route(path, handler, methods=methods))
     # Create Starlette application
     app = Starlette(routes=routes)
     

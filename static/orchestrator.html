@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Agent Orchestrator - Secure Deployment</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'SF Mono', Monaco, monospace;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e6ed;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: rgba(26, 31, 58, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header h1 {
+            font-size: 2em;
+            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        
+        .auth-section {
+            background: rgba(26, 31, 58, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff5555;
+            box-shadow: 0 0 10px currentColor;
+        }
+        
+        .status-indicator.authenticated {
+            background: #50fa7b;
+        }
+        
+        .key-input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(10, 14, 39, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            color: #e0e6ed;
+            font-family: monospace;
+            margin-bottom: 15px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 212, 255, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .agents-panel, .deployment-panel {
+            background: rgba(26, 31, 58, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #2d3561;
+        }
+        
+        .agent-card {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            transition: all 0.3s;
+        }
+        
+        .agent-card:hover {
+            border-color: #00d4ff;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+        }
+        
+        .agent-card.selected {
+            border-color: #7b2ff7;
+            background: rgba(123, 47, 247, 0.1);
+        }
+        
+        .agent-name {
+            font-weight: bold;
+            color: #00d4ff;
+            margin-bottom: 5px;
+        }
+        
+        .agent-file {
+            color: #8892b0;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+        
+        .agent-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 0.85em;
+        }
+        
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .coverage-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(10, 14, 39, 0.8);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .coverage-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff5555, #ffb86c, #50fa7b);
+            transition: width 0.5s;
+        }
+        
+        .deployment-queue {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            min-height: 200px;
+            margin-bottom: 20px;
+        }
+        
+        .queue-item {
+            background: rgba(26, 31, 58, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .queue-item.pending {
+            border-left: 3px solid #ffb86c;
+        }
+        
+        .queue-item.testing {
+            border-left: 3px solid #00d4ff;
+        }
+        
+        .queue-item.ready {
+            border-left: 3px solid #50fa7b;
+        }
+        
+        .queue-item.failed {
+            border-left: 3px solid #ff5555;
+        }
+        
+        .terminal {
+            background: #0a0e27;
+            border: 1px solid #2d3561;
+            border-radius: 8px;
+            padding: 20px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.9em;
+            height: 300px;
+            overflow-y: auto;
+        }
+        
+        .terminal-line {
+            margin-bottom: 5px;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+        }
+        
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+        
+        .terminal-line.error {
+            color: #ff5555;
+        }
+        
+        .terminal-line.success {
+            color: #50fa7b;
+        }
+        
+        .terminal-line.info {
+            color: #00d4ff;
+        }
+        
+        .terminal-line.warning {
+            color: #ffb86c;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .repo-config {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .repo-input {
+            width: 100%;
+            padding: 10px;
+            background: rgba(10, 14, 39, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 4px;
+            color: #e0e6ed;
+            margin-top: 10px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: #1a1f3a;
+            border: 1px solid #2d3561;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+        }
+        
+        .diff-viewer {
+            background: #0a0e27;
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+        
+        .diff-line {
+            margin: 2px 0;
+            padding: 2px 5px;
+        }
+        
+        .diff-line.added {
+            background: rgba(80, 250, 123, 0.1);
+            color: #50fa7b;
+        }
+        
+        .diff-line.removed {
+            background: rgba(255, 85, 85, 0.1);
+            color: #ff5555;
+        }
+        
+        .websocket-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            background: rgba(26, 31, 58, 0.9);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Agent Orchestrator</h1>
+            <p>Secure Test-Driven Deployment Pipeline</p>
+        </div>
+
+        <div class="auth-section">
+            <div class="auth-status">
+                <div class="status-indicator" id="authIndicator"></div>
+                <span id="authStatusText">Not Authenticated</span>
+            </div>
+            <textarea class="key-input" id="privateKey" placeholder="Paste your RSA private key here..." rows="4"></textarea>
+            <button class="btn" id="authBtn" onclick="authenticate()">Authenticate</button>
+        </div>
+
+        <div class="main-grid">
+            <div class="agents-panel">
+                <div class="panel-header">
+                    <h3>📦 Agent Workspace</h3>
+                    <button class="btn" onclick="refreshAgents()">Refresh</button>
+                </div>
+                <div id="agentsList"></div>
+            </div>
+
+            <div class="deployment-panel">
+                <div class="panel-header">
+                    <h3>🚀 Deployment Pipeline</h3>
+                    <span id="deploymentStatus">Ready</span>
+                </div>
+                
+                <div class="repo-config">
+                    <label>Target Repository Path:</label>
+                    <input type="text" class="repo-input" id="repoPath" placeholder="/home/user/my-project">
+                </div>
+
+                <div class="deployment-queue" id="deploymentQueue">
+                    <p style="opacity: 0.5; text-align: center;">No files in deployment queue</p>
+                </div>
+
+                <div class="controls">
+                    <button class="btn" onclick="runTests()" disabled id="runTestsBtn">Run Tests</button>
+                    <button class="btn" onclick="deploySelected()" disabled id="deployBtn">Deploy to Repo</button>
+                    <button class="btn" onclick="clearQueue()" style="background: #ff5555;">Clear Queue</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="terminal" id="terminal">
+            <div class="terminal-line info">System ready. Authenticate to begin.</div>
+        </div>
+    </div>
+
+    <div class="websocket-status">
+        <div class="status-indicator" id="wsIndicator"></div>
+        <span id="wsStatus">Disconnected</span>
+    </div>
+
+    <div class="modal" id="diffModal">
+        <div class="modal-content">
+            <h3>Review Changes</h3>
+            <div class="diff-viewer" id="diffViewer"></div>
+            <div class="controls">
+                <button class="btn" onclick="approveDiff()">Approve & Deploy</button>
+                <button class="btn" onclick="closeDiffModal()" style="background: #6272a4;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let authenticated = false;
+        let selectedAgents = new Set();
+        let deploymentQueue = [];
+        let privateKeyData = null;
+
+        // Initialize WebSocket connection
+        function initWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws');
+            
+            ws.onopen = () => {
+                updateWSStatus('Connected', true);
+                addTerminalLine('WebSocket connected', 'success');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWSMessage(data);
+            };
+            
+            ws.onclose = () => {
+                updateWSStatus('Disconnected', false);
+                addTerminalLine('WebSocket disconnected', 'error');
+                setTimeout(initWebSocket, 3000);
+            };
+            
+            ws.onerror = (error) => {
+                addTerminalLine(`WebSocket error: ${error}`, 'error');
+            };
+        }
+
+        function updateWSStatus(text, connected) {
+            document.getElementById('wsStatus').textContent = text;
+            document.getElementById('wsIndicator').style.background = connected ? '#50fa7b' : '#ff5555';
+        }
+
+        async function authenticate() {
+            const keyInput = document.getElementById('privateKey').value;
+            if (!keyInput) {
+                addTerminalLine('No private key provided', 'error');
+                return;
+            }
+
+            try {
+                // Send authentication request to server
+                const response = await fetch('/api/orchestrator/authenticate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({private_key: keyInput})
+                });
+
+                if (response.ok) {
+                    authenticated = true;
+                    privateKeyData = keyInput;
+                    document.getElementById('authIndicator').classList.add('authenticated');
+                    document.getElementById('authStatusText').textContent = 'Authenticated';
+                    document.getElementById('runTestsBtn').disabled = false;
+                    document.getElementById('deployBtn').disabled = false;
+                    addTerminalLine('Authentication successful', 'success');
+                    refreshAgents();
+                } else {
+                    const error = await response.json();
+                    addTerminalLine(`Authentication failed: ${error.message}`, 'error');
+                }
+            } catch (error) {
+                addTerminalLine(`Authentication error: ${error}`, 'error');
+            }
+        }
+
+        async function refreshAgents() {
+            if (!authenticated) {
+                addTerminalLine('Please authenticate first', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/agents');
+                const data = await response.json();
+                displayAgents(data.agents);
+                addTerminalLine(`Loaded ${data.agents.length} agents`, 'info');
+            } catch (error) {
+                addTerminalLine(`Failed to load agents: ${error}`, 'error');
+            }
+        }
+
+        function displayAgents(agents) {
+            const container = document.getElementById('agentsList');
+            container.innerHTML = '';
+
+            agents.forEach(agent => {
+                const card = document.createElement('div');
+                card.className = 'agent-card';
+                card.innerHTML = `
+                    <div class="agent-name">${agent.name}</div>
+                    <div class="agent-file">📄 ${agent.managed_file}</div>
+                    <div class="agent-stats">
+                        <span class="stat">📊 ${agent.total_interactions} interactions</span>
+                        <span class="stat">✅ ${(agent.success_rate * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="coverage-bar">
+                        <div class="coverage-fill" style="width: 0%"></div>
+                    </div>
+                `;
+                
+                card.onclick = () => toggleAgentSelection(agent, card);
+                container.appendChild(card);
+            });
+        }
+
+        function toggleAgentSelection(agent, card) {
+            if (selectedAgents.has(agent.id)) {
+                selectedAgents.delete(agent.id);
+                card.classList.remove('selected');
+                removeFromQueue(agent);
+            } else {
+                selectedAgents.add(agent.id);
+                card.classList.add('selected');
+                addToQueue(agent);
+            }
+            updateQueueDisplay();
+        }
+
+        function addToQueue(agent) {
+            if (!deploymentQueue.find(item => item.id === agent.id)) {
+                deploymentQueue.push({
+                    id: agent.id,
+                    name: agent.name,
+                    file: agent.managed_file,
+                    status: 'pending',
+                    coverage: 0
+                });
+            }
+        }
+
+        function removeFromQueue(agent) {
+            deploymentQueue = deploymentQueue.filter(item => item.id !== agent.id);
+        }
+
+        function updateQueueDisplay() {
+            const container = document.getElementById('deploymentQueue');
+            
+            if (deploymentQueue.length === 0) {
+                container.innerHTML = '<p style="opacity: 0.5; text-align: center;">No files in deployment queue</p>';
+                return;
+            }
+
+            container.innerHTML = deploymentQueue.map(item => `
+                <div class="queue-item ${item.status}">
+                    <div>
+                        <strong>${item.name}</strong>
+                        <span style="color: #8892b0; margin-left: 10px;">${item.file}</span>
+                    </div>
+                    <div>
+                        ${item.coverage}% coverage
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function runTests() {
+            if (!authenticated) {
+                addTerminalLine('Authentication required', 'error');
+                return;
+            }
+
+            if (deploymentQueue.length === 0) {
+                addTerminalLine('No files in deployment queue', 'warning');
+                return;
+            }
+
+            addTerminalLine('Starting test suite...', 'info');
+
+            for (let item of deploymentQueue) {
+                item.status = 'testing';
+                updateQueueDisplay();
+                
+                try {
+                    const response = await fetch(`/api/orchestrator/test/${item.id}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${privateKeyData}`
+                        }
+                    });
+
+                    const result = await response.json();
+                    
+                    if (result.coverage === 100) {
+                        item.status = 'ready';
+                        item.coverage = 100;
+                        addTerminalLine(`✅ ${item.name}: 100% coverage achieved`, 'success');
+                    } else {
+                        item.status = 'failed';
+                        item.coverage = result.coverage || 0;
+                        addTerminalLine(`❌ ${item.name}: Only ${item.coverage}% coverage`, 'error');
+                    }
+                } catch (error) {
+                    item.status = 'failed';
+                    addTerminalLine(`Test failed for ${item.name}: ${error}`, 'error');
+                }
+                
+                updateQueueDisplay();
+            }
+
+            const readyCount = deploymentQueue.filter(item => item.status === 'ready').length;
+            addTerminalLine(`Testing complete: ${readyCount}/${deploymentQueue.length} files ready for deployment`, 
+                           readyCount === deploymentQueue.length ? 'success' : 'warning');
+        }
+
+        async function deploySelected() {
+            if (!authenticated) {
+                addTerminalLine('Authentication required', 'error');
+                return;
+            }
+
+            const repoPath = document.getElementById('repoPath').value;
+            if (!repoPath) {
+                addTerminalLine('Please specify target repository path', 'error');
+                return;
+            }
+
+            const readyItems = deploymentQueue.filter(item => item.status === 'ready');
+            if (readyItems.length === 0) {
+                addTerminalLine('No files ready for deployment (require 100% test coverage)', 'warning');
+                return;
+            }
+
+            addTerminalLine(`Deploying ${readyItems.length} files to ${repoPath}...`, 'info');
+
+            for (let item of readyItems) {
+                try {
+                    const response = await fetch('/api/orchestrator/deploy', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${privateKeyData}`
+                        },
+                        body: JSON.stringify({
+                            agent_id: item.id,
+                            target_path: repoPath,
+                            file_path: item.file
+                        })
+                    });
+
+                    if (response.ok) {
+                        addTerminalLine(`✅ Deployed: ${item.file}`, 'success');
+                        removeFromQueue({id: item.id});
+                    } else {
+                        const error = await response.json();
+                        addTerminalLine(`❌ Failed to deploy ${item.file}: ${error.message}`, 'error');
+                    }
+                } catch (error) {
+                    addTerminalLine(`Deployment error for ${item.file}: ${error}`, 'error');
+                }
+            }
+
+            updateQueueDisplay();
+            addTerminalLine('Deployment process completed', 'info');
+        }
+
+        function clearQueue() {
+            deploymentQueue = [];
+            selectedAgents.clear();
+            updateQueueDisplay();
+            document.querySelectorAll('.agent-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            addTerminalLine('Deployment queue cleared', 'info');
+        }
+
+        function addTerminalLine(text, type = '') {
+            const terminal = document.getElementById('terminal');
+            const line = document.createElement('div');
+            line.className = `terminal-line ${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function handleWSMessage(data) {
+            if (data.type === 'coverage_update') {
+                const item = deploymentQueue.find(i => i.id === data.agent_id);
+                if (item) {
+                    item.coverage = data.coverage;
+                    updateQueueDisplay();
+                }
+            } else if (data.type === 'test_output') {
+                addTerminalLine(data.message, data.level || 'info');
+            }
+        }
+
+        function closeDiffModal() {
+            document.getElementById('diffModal').classList.remove('active');
+        }
+
+        // Initialize on load
+        window.onload = () => {
+            initWebSocket();
+            addTerminalLine('Orchestrator initialized', 'info');
+        };
+    </script>
+</body>
+</html>

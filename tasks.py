@@ -16,7 +16,7 @@ def build(ctx):
 
 
 @task
-def run(ctx, port=8000, models_path=None, state_path=None, workspaces_path=None):
+def run(ctx, port=8000, models_path=None, state_path=None, workspaces_path=None, project_path=None):
     """
     Run the local-llm-mcp container with persistent agent storage
     
@@ -53,6 +53,7 @@ def run(ctx, port=8000, models_path=None, state_path=None, workspaces_path=None)
            f"-v {models_path}:/app/models "
            f"-v {state_path}:/app/state "
            f"-v {workspaces_path}:/app/workspaces "
+           f"-v ~/{project_path}:/host/repo:rw "
            f"local-llm-mcp")
     
     ctx.run(cmd, pty=True)

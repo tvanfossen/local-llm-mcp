@@ -305,6 +305,9 @@ CURRENT FILE STATUS:
         file_path = self.get_managed_file_path()
         
         try:
+            # Create parent directories if they don't exist
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
@@ -314,7 +317,7 @@ CURRENT FILE STATUS:
         except Exception as e:
             self.logger.error(f"Failed to write managed file: {e}")
             return False
-    
+        
     def _get_managed_file_size(self) -> Optional[int]:
         """Get the size of the managed file in bytes"""
         file_path = self.get_managed_file_path()
