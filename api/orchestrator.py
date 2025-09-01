@@ -205,14 +205,21 @@ class OrchestratorAPI:
         if not session_token:
             return {"error": "Authentication required", "status": 401}
 
+        # Validate session and agent in single flow
+        validation_issues = []
+
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
-            return {"error": "Invalid or expired session", "status": 401}
+            validation_issues.append(("Invalid or expired session", 401))
 
-        # Get and validate agent
         agent = self.agent_registry.get_agent(agent_id)
         if not agent:
-            return {"error": f"Agent {agent_id} not found", "status": 404}
+            validation_issues.append((f"Agent {agent_id} not found", 404))
+
+        # Return first issue if any exist
+        if validation_issues:
+            error_msg, status = validation_issues[0]
+            return {"error": error_msg, "status": status}
 
         return {"agent": agent, "session": session}
 
@@ -338,17 +345,23 @@ class OrchestratorAPI:
         if not session_token:
             return {"error": "Authentication required", "status": 401}
 
-        # Validate required parameters
+        # Consolidate parameter and agent validation
+        validation_issues = []
+
         agent_id = data.get("agent_id")
         target_path = data.get("target_path")
 
         if not agent_id or not target_path:
-            return {"error": "agent_id and target_path required", "status": 400}
+            validation_issues.append(("agent_id and target_path required", 400))
 
-        # Get agent
-        agent = self.agent_registry.get_agent(agent_id)
-        if not agent:
-            return {"error": f"Agent {agent_id} not found", "status": 404}
+        agent = self.agent_registry.get_agent(agent_id) if agent_id else None
+        if agent_id and not agent:
+            validation_issues.append((f"Agent {agent_id} not found", 404))
+
+        # Return first issue if any exist
+        if validation_issues:
+            error_msg, status = validation_issues[0]
+            return {"error": error_msg, "status": status}
 
         return {"session_token": session_token, "agent": agent, "target_path": target_path}
 
@@ -364,14 +377,21 @@ class OrchestratorAPI:
         if not session_token:
             return {"error": "Authentication required", "status": 401}
 
+        # Consolidate session and deployment ID validation
+        validation_issues = []
+
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
-            return {"error": "Invalid or expired session", "status": 401}
+            validation_issues.append(("Invalid or expired session", 401))
 
-        # Validate deployment ID
         deployment_id = data.get("deployment_id")
         if not deployment_id:
-            return {"error": "deployment_id required", "status": 400}
+            validation_issues.append(("deployment_id required", 400))
+
+        # Return first issue if any exist
+        if validation_issues:
+            error_msg, status = validation_issues[0]
+            return {"error": error_msg, "status": status}
 
         return {"session_token": session_token, "deployment_id": deployment_id, "session": session}
 
@@ -390,7 +410,7 @@ class OrchestratorAPI:
                 "status": 400,
             }
 
-        # Check coverage requirement
+        # Check coverage requirement and execute deployment
         if not deployment_info.get("coverage_ok", False):
             coverage_percent = deployment_info.get("coverage_percent", 0)
             return {
@@ -398,7 +418,7 @@ class OrchestratorAPI:
                 "status": 400,
             }
 
-        # Execute deployment
+        # Execute deployment and handle result
         success, message = self.deployment_manager.execute_deployment(deployment_id, session_token)
 
         if success:

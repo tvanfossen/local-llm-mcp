@@ -81,7 +81,8 @@ class ClaudeCodeMCPBridge:
     def _handle_http_response(
         self, response: httpx.Response, method: str, request_id: Any
     ) -> dict[str, Any] | None:
-        """Handle HTTP response based on status code"""
+        """Handle HTTP response based on status code - consolidated returns"""
+        # Handle success cases
         if response.status_code == 200:
             response_data = response.json()
             # Handle initialization response
@@ -93,8 +94,9 @@ class ClaudeCodeMCPBridge:
         if response.status_code == 204:
             return None  # No content for notifications
 
-        # Handle error status codes
+        # Handle all error cases
         logger.error(f"HTTP error {response.status_code}: {response.text}")
+
         if request_id is not None:
             return {
                 "jsonrpc": "2.0",
@@ -105,6 +107,7 @@ class ClaudeCodeMCPBridge:
                     "data": response.text,
                 },
             }
+
         return None
 
     def _create_connection_error_response(

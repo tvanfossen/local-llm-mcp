@@ -174,7 +174,7 @@ class WebSocketHandler:
             # Validate inputs
             validation_result = self._validate_chat_inputs(data)
             if validation_result["error"]:
-                await self._send_error(websocket, validation_result["error"])
+                await self._send_error(websocket, validation_result["message"])
                 return
 
             agent = validation_result["agent"]
@@ -193,17 +193,25 @@ class WebSocketHandler:
         agent_id = data.get("agent_id")
         message = data.get("message")
 
+        # Consolidated validation checks
         if not agent_id or not message:
-            return {"error": "Missing agent_id or message", "agent": None}
+            return {"error": True, "message": "Missing agent_id or message", "agent": None}
+
+        # Check agent and model in single flow
+        validation_issues = []
 
         agent = self.agent_registry.get_agent(agent_id)
         if not agent:
-            return {"error": f"Agent {agent_id} not found", "agent": None}
+            validation_issues.append(f"Agent {agent_id} not found")
 
         if not self.llm_manager.model_loaded:
-            return {"error": "Model not loaded", "agent": None}
+            validation_issues.append("Model not loaded")
 
-        return {"error": None, "agent": agent}
+        # Return first issue if any exist
+        if validation_issues:
+            return {"error": True, "message": validation_issues[0], "agent": None}
+
+        return {"error": False, "message": None, "agent": agent}
 
     async def _process_agent_chat(self, agent, data: dict[str, Any]) -> dict:
         """Process agent chat and return formatted result"""
@@ -276,7 +284,7 @@ class WebSocketHandler:
             # Validate inputs
             validation_result = self._validate_chat_inputs(data)
             if validation_result["error"]:
-                await self._send_error(websocket, validation_result["error"])
+                await self._send_error(websocket, validation_result["message"])
                 return
 
             agent = validation_result["agent"]

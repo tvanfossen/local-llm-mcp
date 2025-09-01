@@ -139,7 +139,7 @@ class MCPKeyManager:
             print("❌ No private key found")
             return False
 
-        # Determine copy method based on OS
+        # Determine copy method based on OS and execute
         copy_result = self._copy_by_os(private_key)
 
         if copy_result["success"]:
@@ -156,14 +156,18 @@ class MCPKeyManager:
         system = platform.system()
 
         try:
-            if system == "Darwin":  # macOS
-                subprocess.run("pbcopy", input=private_key.encode(), check=True)
-                return {"success": True, "method": "macOS"}
+            # Handle different operating systems
+            copy_commands = {
+                "Darwin": ("pbcopy", "macOS"),  # macOS
+                "Windows": ("clip", "Windows"),
+            }
+
+            if system in copy_commands:
+                cmd, method = copy_commands[system]
+                subprocess.run(cmd, input=private_key.encode(), check=True)
+                return {"success": True, "method": method}
             elif system == "Linux":
                 return self._copy_to_linux_clipboard(private_key)
-            elif system == "Windows":
-                subprocess.run("clip", input=private_key.encode(), check=True)
-                return {"success": True, "method": "Windows"}
             else:
                 return {"success": False, "error": f"Clipboard not supported on {system}"}
 

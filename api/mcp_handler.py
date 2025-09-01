@@ -697,6 +697,7 @@ class MCPHandler:
         agent_id = args.get("agent_id")
         message = args.get("message")
 
+        # Consolidated validation checks
         if not agent_id or not message:
             return {"error": "Missing agent_id or message", "agent": None}
 
@@ -788,22 +789,33 @@ class MCPHandler:
 
     async def _tool_get_agent_info(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle get_agent_info tool call - consolidated returns"""
-        agent_id = args.get("agent_id")
-        if not agent_id:
-            return self._create_tool_error("Missing agent_id")
-
         try:
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return self._create_tool_error(f"Agent {agent_id} not found")
+            # Single validation and execution flow
+            info_result = self._get_agent_info_with_validation(args)
 
-            # Build info response
+            if info_result["error"]:
+                return self._create_tool_error(info_result["message"])
+
+            # Build and return success response
+            agent = info_result["agent"]
             summary = agent.get_summary()
             info_text = self._build_agent_info_text(agent, summary)
             return self._create_tool_success(info_text)
 
         except Exception as e:
             return self._create_tool_error(f"Failed to get agent info: {e!s}")
+
+    def _get_agent_info_with_validation(self, args: dict) -> dict:
+        """Get agent info with validation"""
+        agent_id = args.get("agent_id")
+        if not agent_id:
+            return {"error": True, "message": "Missing agent_id"}
+
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": True, "message": f"Agent {agent_id} not found"}
+
+        return {"error": False, "agent": agent}
 
     def _build_agent_info_text(self, agent, summary) -> str:
         """Build agent info text"""
@@ -828,19 +840,29 @@ class MCPHandler:
 
     async def _tool_get_agent_file(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle get_agent_file tool call - consolidated returns"""
-        agent_id = args.get("agent_id")
-        if not agent_id:
-            return self._create_tool_error("Missing agent_id")
-
         try:
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return self._create_tool_error(f"Agent {agent_id} not found")
+            # Single validation and execution flow
+            file_result = self._get_agent_file_with_validation(args)
 
-            return self._build_file_response(agent)
+            if file_result["error"]:
+                return self._create_tool_error(file_result["message"])
+
+            return self._build_file_response(file_result["agent"])
 
         except Exception as e:
             return self._create_tool_error(f"Failed to read file: {e!s}")
+
+    def _get_agent_file_with_validation(self, args: dict) -> dict:
+        """Get agent file with validation"""
+        agent_id = args.get("agent_id")
+        if not agent_id:
+            return {"error": True, "message": "Missing agent_id"}
+
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": True, "message": f"Agent {agent_id} not found"}
+
+        return {"error": False, "agent": agent}
 
     def _build_file_response(self, agent) -> dict[str, Any]:
         """Build file response for get_agent_file"""
@@ -883,30 +905,39 @@ class MCPHandler:
 
     async def _tool_delete_agent(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle delete_agent tool call - consolidated returns"""
-        agent_id = args.get("agent_id")
-        if not agent_id:
-            return self._create_tool_error("Missing agent_id")
-
         try:
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return self._create_tool_error(f"Agent {agent_id} not found")
+            # Single validation and execution flow
+            delete_result = self._delete_agent_with_validation(args)
 
-            # Gather info before deletion
-            agent_name = agent.state.name
-            managed_file = agent.state.managed_file
+            if delete_result["error"]:
+                return self._create_tool_error(delete_result["message"])
 
-            success, error = self.agent_registry.delete_agent(agent_id)
-
-            # Build response based on result
-            if success:
-                text = self._build_delete_success_text(agent_name, agent_id, managed_file)
-                return self._create_tool_success(text)
-
-            return self._create_tool_error(f"Deletion failed: {error}")
+            return self._create_tool_success(delete_result["success_text"])
 
         except Exception as e:
             return self._create_tool_error(str(e))
+
+    def _delete_agent_with_validation(self, args: dict) -> dict:
+        """Delete agent with validation"""
+        agent_id = args.get("agent_id")
+        if not agent_id:
+            return {"error": True, "message": "Missing agent_id"}
+
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": True, "message": f"Agent {agent_id} not found"}
+
+        # Gather info before deletion
+        agent_name = agent.state.name
+        managed_file = agent.state.managed_file
+
+        success, error = self.agent_registry.delete_agent(agent_id)
+
+        if success:
+            success_text = self._build_delete_success_text(agent_name, agent_id, managed_file)
+            return {"error": False, "success_text": success_text}
+
+        return {"error": True, "message": f"Deletion failed: {error}"}
 
     def _build_delete_success_text(self, agent_name: str, agent_id: str, managed_file: str) -> str:
         """Build delete success response text"""
@@ -965,33 +996,43 @@ class MCPHandler:
 
     async def _tool_agent_update_file(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle agent_update_file tool call - consolidated returns"""
+        try:
+            # Single validation and execution flow
+            update_result = await self._validate_and_execute_file_update(args)
+
+            if update_result["error"]:
+                return self._create_tool_error(update_result["message"])
+
+            return update_result["chat_result"]
+
+        except Exception as e:
+            return self._create_tool_error(f"File update failed: {e!s}")
+
+    async def _validate_and_execute_file_update(self, args: dict) -> dict:
+        """Validate and execute file update"""
         agent_id = args.get("agent_id")
         instruction = args.get("instruction")
 
         if not agent_id or not instruction:
-            return self._create_tool_error("Missing agent_id or instruction")
+            return {"error": True, "message": "Missing agent_id or instruction"}
 
-        try:
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return self._create_tool_error(f"Agent {agent_id} not found")
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": True, "message": f"Agent {agent_id} not found"}
 
-            # Build file update instruction and use chat functionality
-            file_update_message = self._build_file_update_message(agent, instruction, args)
+        # Build file update instruction and use chat functionality
+        file_update_message = self._build_file_update_message(agent, instruction, args)
 
-            chat_result = await self._tool_chat_with_agent(
-                {
-                    "agent_id": agent_id,
-                    "message": file_update_message,
-                    "task_type": "update",
-                    "parameters": {"file_operation": "update"},
-                }
-            )
+        chat_result = await self._tool_chat_with_agent(
+            {
+                "agent_id": agent_id,
+                "message": file_update_message,
+                "task_type": "update",
+                "parameters": {"file_operation": "update"},
+            }
+        )
 
-            return chat_result
-
-        except Exception as e:
-            return self._create_tool_error(f"File update failed: {e!s}")
+        return {"error": False, "chat_result": chat_result}
 
     def _build_file_update_message(self, agent, instruction: str, args: dict) -> str:
         """Build file update message"""
@@ -1010,32 +1051,40 @@ class MCPHandler:
 
     async def _tool_agent_write_file(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle agent_write_file tool call - consolidated validation and execution"""
+        try:
+            # Single validation and execution flow
+            write_result = self._validate_and_execute_file_write(args)
+
+            if write_result["error"]:
+                return self._create_tool_error(write_result["message"])
+
+            return self._create_tool_success(write_result["result_text"])
+
+        except Exception as e:
+            return self._create_tool_error(str(e))
+
+    def _validate_and_execute_file_write(self, args: dict) -> dict:
+        """Validate and execute file write"""
         # Single validation point
         validation_result = self._validate_write_file_request(args)
         if validation_result["error"]:
-            return self._create_tool_error(validation_result["message"])
+            return {"error": True, "message": validation_result["message"]}
 
         agent_id = validation_result["agent_id"]
         content = validation_result["content"]
         validation_required = validation_result["validation_required"]
 
-        try:
-            agent = self.agent_registry.get_agent(agent_id)
-            if not agent:
-                return self._create_tool_error(f"Agent {agent_id} not found")
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": True, "message": f"Agent {agent_id} not found"}
 
-            # Write the content and build response
-            success = agent.write_managed_file(content)
-            if not success:
-                return self._create_tool_error(f"File write failed for agent {agent.state.name}")
+        # Write the content and build response
+        success = agent.write_managed_file(content)
+        if not success:
+            return {"error": True, "message": f"File write failed for agent {agent.state.name}"}
 
-            result_text = self._build_write_file_response(
-                agent, agent_id, content, validation_required
-            )
-            return self._create_tool_success(result_text)
-
-        except Exception as e:
-            return self._create_tool_error(str(e))
+        result_text = self._build_write_file_response(agent, agent_id, content, validation_required)
+        return {"error": False, "result_text": result_text}
 
     def _validate_write_file_request(self, args: dict) -> dict:
         """Validate agent_write_file request"""
@@ -1076,27 +1125,47 @@ class MCPHandler:
 
     async def _tool_validate_agent_file(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle validate_agent_file tool call - consolidated validation"""
-        agent_id = args.get("agent_id")
-        if not agent_id:
-            return self._create_tool_error("Missing agent_id")
-
         try:
             # Single validation and execution flow
-            validation_result = await self._execute_file_validation(agent_id, args)
+            validation_execution = await self._execute_file_validation(args.get("agent_id"), args)
 
-            if validation_result["success"]:
-                result_text = validation_result["result_text"]
-                is_error = validation_result["validation_result"]["status"] == "failed"
-                return (
-                    self._create_tool_error(result_text)
-                    if is_error
-                    else self._create_tool_success(result_text)
-                )
+            if not validation_execution["success"]:
+                return self._create_tool_error(validation_execution["error"])
 
-            return self._create_tool_error(validation_result["error"])
+            result_text = validation_execution["result_text"]
+            validation_result = validation_execution["validation_result"]
+            is_error = validation_result["status"] == "failed"
+
+            return (
+                self._create_tool_error(result_text)
+                if is_error
+                else self._create_tool_success(result_text)
+            )
 
         except Exception as e:
             return self._create_tool_error(f"Validation error: {e!s}")
+
+    async def _execute_file_validation(self, agent_id: str, args: dict) -> dict:
+        """Execute file validation and return consolidated result"""
+        if not agent_id:
+            return {"success": False, "error": "Missing agent_id"}
+
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"success": False, "error": f"Agent {agent_id} not found"}
+
+        file_content = agent.read_managed_file()
+        if not file_content:
+            return {"success": False, "error": f"File not found: `{agent.state.managed_file}`"}
+
+        validation_type = args.get("validation_type", "syntax")
+        validation_result = await self._validate_file_content(agent, file_content, validation_type)
+
+        result_text = self._build_validation_response_text(
+            agent, agent_id, validation_type, validation_result
+        )
+
+        return {"success": True, "result_text": result_text, "validation_result": validation_result}
 
     async def _execute_file_validation(self, agent_id: str, args: dict) -> dict:
         """Execute file validation and return consolidated result"""
@@ -1138,31 +1207,39 @@ class MCPHandler:
 
     async def _tool_orchestrate_agents(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle orchestrate_agents tool call for coordinating multiple agents - simplified"""
-        # Single validation point
-        validation_result = self._validate_orchestration_request(args)
-        if validation_result["error"]:
-            return self._create_tool_error(validation_result["message"])
-
         try:
-            # Validate all agents exist
-            agents = []
-            for agent_id in validation_result["agent_ids"]:
-                agent = self.agent_registry.get_agent(agent_id)
-                if not agent:
-                    return self._create_tool_error(f"Agent {agent_id} not found")
-                agents.append(agent)
+            # Single validation and execution flow
+            orchestration_result = self._validate_and_execute_orchestration(args)
 
-            # Build orchestration response
-            result_text = self._build_orchestration_response(
-                agents,
-                validation_result["task_description"],
-                validation_result["wait_for_completion"],
-            )
+            if orchestration_result["error"]:
+                return self._create_tool_error(orchestration_result["message"])
 
-            return self._create_tool_success(result_text)
+            return self._create_tool_success(orchestration_result["result_text"])
 
         except Exception as e:
             return self._create_tool_error(f"Orchestration error: {e!s}")
+
+    def _validate_and_execute_orchestration(self, args: dict) -> dict:
+        """Validate and execute orchestration"""
+        # Single validation point
+        validation_result = self._validate_orchestration_request(args)
+        if validation_result["error"]:
+            return {"error": True, "message": validation_result["message"]}
+
+        # Validate all agents exist
+        agents = []
+        for agent_id in validation_result["agent_ids"]:
+            agent = self.agent_registry.get_agent(agent_id)
+            if not agent:
+                return {"error": True, "message": f"Agent {agent_id} not found"}
+            agents.append(agent)
+
+        # Build orchestration response
+        result_text = self._build_orchestration_response(
+            agents, validation_result["task_description"], validation_result["wait_for_completion"]
+        )
+
+        return {"error": False, "result_text": result_text}
 
     def _validate_orchestration_request(self, args: dict) -> dict:
         """Validate orchestration request"""
