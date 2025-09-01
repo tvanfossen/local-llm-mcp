@@ -141,9 +141,7 @@ class DeploymentManager:
         coverage_percent = self._parse_coverage_from_output(result.stdout)
         return coverage_percent == 100, coverage_percent, result.stdout
 
-    def _build_coverage_report(
-        self, stdout: str, coverage_percent: float, coverage_data: dict
-    ) -> str:
+    def _build_coverage_report(self, stdout: str, coverage_percent: float, coverage_data: dict) -> str:
         """Build detailed coverage report"""
         report = f"Test Results:\n{stdout}\n\n"
         report += f"Coverage: {coverage_percent:.1f}%\n"
@@ -180,9 +178,7 @@ class DeploymentManager:
         test_name = f"test_{managed_file.stem}{managed_file.suffix}"
 
         # Look for test agent managing this file
-        test_file_path = (
-            agent.workspace_dir.parent / "test_agents" / agent.state.agent_id / "files" / test_name
-        )
+        test_file_path = agent.workspace_dir.parent / "test_agents" / agent.state.agent_id / "files" / test_name
         if test_file_path.exists():
             return test_file_path
 
@@ -335,9 +331,7 @@ class DeploymentManager:
 
         return {"error": False, "deployment": deployment, "session": session}
 
-    def _execute_deployment_workflow(
-        self, deployment: dict, session: dict, session_token: str
-    ) -> dict:
+    def _execute_deployment_workflow(self, deployment: dict, session: dict, session_token: str) -> dict:
         """Execute the deployment workflow"""
         try:
             # Authorize with security manager
@@ -361,9 +355,7 @@ class DeploymentManager:
             # Save to history
             self._save_deployment_history(deployment)
 
-            logger.info(
-                f"Deployment successful: {deployment['managed_file']} -> {deployment['target_path']}"
-            )
+            logger.info(f"Deployment successful: {deployment['managed_file']} -> {deployment['target_path']}")
             return {
                 "success": True,
                 "message": f"Successfully deployed {deployment['managed_file']}",
@@ -376,9 +368,7 @@ class DeploymentManager:
         """Create backup if target file exists"""
         target_path = Path(deployment["target_path"])
         if target_path.exists():
-            backup_path = (
-                self.deployments_dir / f"backup_{deployment['deployment_id']}_{target_path.name}"
-            )
+            backup_path = self.deployments_dir / f"backup_{deployment['deployment_id']}_{target_path.name}"
             shutil.copy2(target_path, backup_path)
             logger.info(f"Created backup: {backup_path}")
             return backup_path
@@ -617,9 +607,7 @@ class DeploymentManager:
             "passed": len(results["passed"]),
             "failed": len(results["failed"]),
             "skipped": len(results["skipped"]),
-            "pass_rate": (
-                len(results["passed"]) / len(results["checks_run"]) if results["checks_run"] else 0
-            ),
+            "pass_rate": (len(results["passed"]) / len(results["checks_run"]) if results["checks_run"] else 0),
         }
 
         return results
@@ -642,9 +630,7 @@ class DeploymentManager:
                     elif "Failed" in status or "✗" in status:
                         results["failed"].append(hook_name)
                         # Capture failure details
-                        results["details"][hook_name] = self._extract_failure_details(
-                            stdout, hook_name
-                        )
+                        results["details"][hook_name] = self._extract_failure_details(stdout, hook_name)
                     elif "Skipped" in status:
                         results["skipped"].append(hook_name)
 

@@ -403,9 +403,7 @@ class MCPHandler:
 
             self.sessions[session_id] = session
 
-            logger.info(
-                f"MCP session initialized: {session_id} for client: {client_info.get('name', 'unknown')}"
-            )
+            logger.info(f"MCP session initialized: {session_id} for client: {client_info.get('name', 'unknown')}")
 
             # Return initialization response
             response = self._create_success_response(
@@ -517,9 +515,7 @@ class MCPHandler:
 
         return None
 
-    async def _handle_notification(
-        self, method: str, params: dict[str, Any], session_id: str | None
-    ):
+    async def _handle_notification(self, method: str, params: dict[str, Any], session_id: str | None):
         """Handle JSON-RPC notification (no response required)"""
         try:
             if method == "notifications/initialized" or method == "initialized":
@@ -542,9 +538,7 @@ class MCPHandler:
             "result": result,
         }
 
-    def _create_error_response(
-        self, request_id: Any, code: int, message: str, data: Any = None
-    ) -> dict[str, Any]:
+    def _create_error_response(self, request_id: Any, code: int, message: str, data: Any = None) -> dict[str, Any]:
         """Create JSON-RPC 2.0 error response"""
         error = {
             "code": code,
@@ -755,9 +749,7 @@ class MCPHandler:
             if agent_response.file_content.filename == agent.state.managed_file:
                 success = agent.write_managed_file(agent_response.file_content.content)
                 if success:
-                    logger.info(
-                        f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}"
-                    )
+                    logger.info(f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
                     agent_response.changes_made.append("File written to disk")
                 else:
                     logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
@@ -937,21 +929,19 @@ class MCPHandler:
                 status_text += f"**Model Path:** `{model_info['model_path']}`\n"
                 status_text += f"**GPU Layers:** {model_info['configuration']['gpu_layers']}\n"
                 status_text += f"**Context Size:** {model_info['configuration']['context_size']}\n"
-                status_text += (
-                    f"**Performance:** {performance.get('avg_tokens_per_second', 0)} tokens/sec\n"
-                )
+                status_text += f"**Performance:** {performance.get('avg_tokens_per_second', 0)} tokens/sec\n"
 
             status_text += "\n**👥 Agent Registry:**\n"
             status_text += f"**Total Agents:** {registry_stats['total_agents']}\n"
             status_text += f"**Managed Files:** {registry_stats['managed_files']}\n"
             status_text += f"**Total Interactions:** {registry_stats['total_interactions']}\n"
-            status_text += (
-                f"**Average Success Rate:** {registry_stats['average_success_rate']:.2f}\n"
-            )
+            status_text += f"**Average Success Rate:** {registry_stats['average_success_rate']:.2f}\n"
 
             if registry_stats["most_active_agent"]:
                 most_active = registry_stats["most_active_agent"]
-                status_text += f"**Most Active Agent:** {most_active['name']} ({most_active['interactions']} interactions)\n"
+                status_text += (
+                    f"**Most Active Agent:** {most_active['name']} ({most_active['interactions']} interactions)\n"
+                )
 
             status_text += "\n**🔧 System Configuration:**\n"
             status_text += "**CUDA Optimized:** ✅ RTX 1080ti + CUDA 12.9\n"
@@ -1002,9 +992,7 @@ class MCPHandler:
         if current_content:
             file_update_message += f"Current file content:\n```\n{current_content}\n```\n\n"
 
-        file_update_message += (
-            "Provide the complete updated file content in your JSON response under 'file_content'."
-        )
+        file_update_message += "Provide the complete updated file content in your JSON response under 'file_content'."
 
         return file_update_message
 
@@ -1066,9 +1054,7 @@ class MCPHandler:
                 return self._create_tool_error(f"File not found: `{agent.state.managed_file}`")
 
             validation_type = args.get("validation_type", "syntax")
-            validation_result = await self._validate_file_content(
-                agent, file_content, validation_type
-            )
+            validation_result = await self._validate_file_content(agent, file_content, validation_type)
 
             result_text = "🔍 **File Validation Results**\n\n"
             result_text += f"**Agent:** {agent.state.name} ({agent_id})\n"
@@ -1083,16 +1069,10 @@ class MCPHandler:
                 result_text += f"**⚠️ Warnings:** {', '.join(validation_result['warnings'])}\n"
 
             if validation_result.get("suggestions"):
-                result_text += (
-                    f"**💡 Suggestions:** {', '.join(validation_result['suggestions'])}\n"
-                )
+                result_text += f"**💡 Suggestions:** {', '.join(validation_result['suggestions'])}\n"
 
             is_error = validation_result["status"] == "failed"
-            return (
-                self._create_tool_error(result_text)
-                if is_error
-                else self._create_tool_success(result_text)
-            )
+            return self._create_tool_error(result_text) if is_error else self._create_tool_success(result_text)
 
         except Exception as e:
             return self._create_tool_error(f"Validation error: {e!s}")
@@ -1124,7 +1104,9 @@ class MCPHandler:
             for agent in agents:
                 result_text += f"• **{agent.state.name}** ({agent.state.agent_id}) → `{agent.state.managed_file}`\n"
 
-            result_text += f"\n**Coordination Mode:** {'Wait for completion' if wait_for_completion else 'Async execution'}\n"
+            result_text += (
+                f"\n**Coordination Mode:** {'Wait for completion' if wait_for_completion else 'Async execution'}\n"
+            )
             result_text += "**Status:** Ready for task execution\n\n"
             result_text += "**Next Steps:**\n"
             result_text += "1. Use `chat_with_agent` to send specific tasks to each agent\n"
@@ -1136,9 +1118,7 @@ class MCPHandler:
         except Exception as e:
             return self._create_tool_error(f"Orchestration error: {e!s}")
 
-    async def _validate_file_content(
-        self, agent, content: str, validation_type: str = "syntax"
-    ) -> dict[str, Any]:
+    async def _validate_file_content(self, agent, content: str, validation_type: str = "syntax") -> dict[str, Any]:
         """Validate file content - simplified to reduce complexity"""
         try:
             file_ext = agent.state.managed_file.split(".")[-1].lower()
@@ -1173,9 +1153,7 @@ class MCPHandler:
                 "suggestions": [],
             }
 
-    def _validate_by_file_type(
-        self, file_ext: str, content: str, validation_type: str, result: dict
-    ):
+    def _validate_by_file_type(self, file_ext: str, content: str, validation_type: str, result: dict):
         """Validate content based on file type"""
         if file_ext == "py" and validation_type in ["syntax", "all"]:
             self._validate_python_syntax(content, result)

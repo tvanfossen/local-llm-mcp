@@ -53,9 +53,7 @@ class AgentRegistry:
                 return False, None, conflict_result[1]
 
             # Create agent
-            agent = self._create_and_register_agent(
-                name, description, system_prompt, managed_file, initial_context
-            )
+            agent = self._create_and_register_agent(name, description, system_prompt, managed_file, initial_context)
 
             # Persist registry
             self.save_registry()
@@ -145,9 +143,7 @@ class AgentRegistry:
             logger.error(error_msg)
             return False, error_msg
 
-    def check_file_conflict(
-        self, filename: str, exclude_agent_id: str | None = None
-    ) -> tuple[bool, str | None]:
+    def check_file_conflict(self, filename: str, exclude_agent_id: str | None = None) -> tuple[bool, str | None]:
         """Check if a file is already managed by another agent"""
         existing_agent_id = self.file_to_agent.get(filename)
 
@@ -156,9 +152,7 @@ class AgentRegistry:
 
         return False, None
 
-    def _handle_existing_agent_conflict(
-        self, filename: str, existing_agent_id: str
-    ) -> tuple[bool, str | None]:
+    def _handle_existing_agent_conflict(self, filename: str, existing_agent_id: str) -> tuple[bool, str | None]:
         """Handle conflict with existing agent"""
         if existing_agent_id in self.agents:
             existing_agent = self.agents[existing_agent_id]
@@ -197,8 +191,7 @@ class AgentRegistry:
             "total_interactions": total_interactions,
             "average_success_rate": round(avg_success_rate, 3),
             "most_active_agent": most_active_agent,
-            "file_ownership_integrity": len(self.file_to_agent)
-            == len(set(self.file_to_agent.values())),
+            "file_ownership_integrity": len(self.file_to_agent) == len(set(self.file_to_agent.values())),
         }
 
     def _calculate_average_success_rate(self, active_agents: int) -> float:

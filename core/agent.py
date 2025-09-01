@@ -68,9 +68,7 @@ class Agent:
 
         # Avoid duplicate handlers
         if not agent_logger.handlers:
-            log_file = (
-                self.workspace_dir.parent.parent / "logs" / f"agent_{self.state.agent_id}.log"
-            )
+            log_file = self.workspace_dir.parent.parent / "logs" / f"agent_{self.state.agent_id}.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)
 
             handler = logging.FileHandler(log_file)
@@ -134,9 +132,7 @@ class Agent:
             # Simple moving average
             current_rate = self.state.success_rate
             weight = 0.1  # How much the new result affects the rate
-            self.state.success_rate = (
-                current_rate * (1 - weight) + (1.0 if success else 0.0) * weight
-            )
+            self.state.success_rate = current_rate * (1 - weight) + (1.0 if success else 0.0) * weight
 
     def add_conversation(self, request: AgentRequest, response: AgentResponse):
         """Add conversation entry in standardized format"""

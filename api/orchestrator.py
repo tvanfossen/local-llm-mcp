@@ -90,9 +90,7 @@ class OrchestratorAPI:
             if not private_key:
                 return JSONResponse({"error": "Private key required"}, status_code=400)
 
-            success, session_token, error = self.security_manager.authenticate_with_private_key(
-                private_key
-            )
+            success, session_token, error = self.security_manager.authenticate_with_private_key(private_key)
 
             # Single return point based on success
             if success:
@@ -149,17 +147,13 @@ class OrchestratorAPI:
             # Validate session and get agent
             validation_result = self._validate_session_and_agent(request, agent_id)
             if validation_result.get("error"):
-                return JSONResponse(
-                    validation_result, status_code=validation_result.get("status", 400)
-                )
+                return JSONResponse(validation_result, status_code=validation_result.get("status", 400))
 
             agent = validation_result["agent"]
 
             # Run test coverage validation
             logger.info(f"Running tests for agent {agent_id}")
-            coverage_ok, coverage_percent, report = self.deployment_manager.validate_test_coverage(
-                agent
-            )
+            coverage_ok, coverage_percent, report = self.deployment_manager.validate_test_coverage(agent)
 
             # Broadcast to WebSocket clients
             await self._broadcast_ws(
@@ -297,9 +291,7 @@ class OrchestratorAPI:
             return {"response": {"error": "file_path required"}, "status": 400}
 
         # Execute deployment workflow
-        workflow_result = await self._execute_deployment_workflow(
-            agent, target_path, file_path, session_token
-        )
+        workflow_result = await self._execute_deployment_workflow(agent, target_path, file_path, session_token)
         return workflow_result
 
     async def rollback(self, request: Request) -> JSONResponse:
@@ -318,9 +310,7 @@ class OrchestratorAPI:
             deployment_id = validation_result["deployment_id"]
 
             # Execute rollback
-            success, message = self.deployment_manager.rollback_deployment(
-                deployment_id, session_token
-            )
+            success, message = self.deployment_manager.rollback_deployment(deployment_id, session_token)
 
             # Single return point based on success
             if success:
@@ -398,9 +388,7 @@ class OrchestratorAPI:
 
         return {"session_token": session_token, "deployment_id": deployment_id, "session": session}
 
-    async def _execute_deployment_workflow(
-        self, agent, target_path: str, file_path: str, session_token: str
-    ) -> dict:
+    async def _execute_deployment_workflow(self, agent, target_path: str, file_path: str, session_token: str) -> dict:
         """Execute deployment workflow and return result - fixed to single return"""
         # Stage deployment first
         success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
@@ -458,9 +446,7 @@ class OrchestratorAPI:
             history_result = self._get_deployment_history_with_validation(request)
 
             if history_result["error"]:
-                return JSONResponse(
-                    {"error": history_result["message"]}, status_code=history_result["status"]
-                )
+                return JSONResponse({"error": history_result["message"]}, status_code=history_result["status"])
 
             # Get deployment status
             status = self.deployment_manager.get_deployment_status()

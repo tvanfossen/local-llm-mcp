@@ -66,9 +66,7 @@ class APIEndpoints:
             required_fields = ["name", "description", "system_prompt", "managed_file"]
             for field in required_fields:
                 if field not in data:
-                    return JSONResponse(
-                        {"error": f"Missing required field: {field}"}, status_code=400
-                    )
+                    return JSONResponse({"error": f"Missing required field: {field}"}, status_code=400)
 
             # Create agent
             success, agent, error = self.agent_registry.create_agent(
@@ -156,9 +154,7 @@ class APIEndpoints:
             # Validate prerequisites
             validation_result = self._validate_chat_request(agent_id, data)
             if validation_result["error"]:
-                return JSONResponse(
-                    {"error": validation_result["message"]}, status_code=validation_result["status"]
-                )
+                return JSONResponse({"error": validation_result["message"]}, status_code=validation_result["status"])
 
             agent = validation_result["agent"]
 
@@ -219,9 +215,7 @@ class APIEndpoints:
             if agent_response.file_content.filename == agent.state.managed_file:
                 success = agent.write_managed_file(agent_response.file_content.content)
                 if success:
-                    logger.info(
-                        f"Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}"
-                    )
+                    logger.info(f"Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
                     agent_response.changes_made.append("File written to disk")
                 else:
                     logger.error(f"Agent {agent.state.agent_id} failed to write file")

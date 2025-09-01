@@ -119,9 +119,7 @@ def check_file_complexity(filepath: Path, max_complexity: int) -> list[tuple[str
 def main():
     parser = argparse.ArgumentParser(description="Check cyclomatic complexity")
     parser.add_argument("files", nargs="+", help="Python files to check")
-    parser.add_argument(
-        "--max-complexity", type=int, default=10, help="Maximum allowed complexity (default: 10)"
-    )
+    parser.add_argument("--max-complexity", type=int, default=10, help="Maximum allowed complexity (default: 10)")
 
     args = parser.parse_args()
     exit_code = _process_files(args.files, args.max_complexity)
@@ -150,9 +148,7 @@ def _print_violations(filename: str, violations: list, max_complexity: int):
     """Print complexity violations for a file"""
     print(f"Complexity violations in {filename}:")
     for func_name, line_no, complexity in violations:
-        print(
-            f"  Line {line_no}: {func_name}() has complexity {complexity} (max allowed: {max_complexity})"
-        )
+        print(f"  Line {line_no}: {func_name}() has complexity {complexity} (max allowed: {max_complexity})")
 
 
 if __name__ == "__main__":

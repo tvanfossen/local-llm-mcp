@@ -46,9 +46,7 @@ class RouteHandlers:
     websocket_endpoint: callable
 
 
-async def _root_handler(
-    request: Request, llm_manager: LLMManager, agent_registry: AgentRegistry
-) -> JSONResponse:
+async def _root_handler(request: Request, llm_manager: LLMManager, agent_registry: AgentRegistry) -> JSONResponse:
     """Root endpoint with server information"""
     model_info = llm_manager.get_model_info()
     registry_stats = agent_registry.get_registry_stats()
@@ -87,9 +85,7 @@ async def _root_handler(
     )
 
 
-async def _health_handler(
-    request: Request, llm_manager: LLMManager, agent_registry: AgentRegistry
-) -> JSONResponse:
+async def _health_handler(request: Request, llm_manager: LLMManager, agent_registry: AgentRegistry) -> JSONResponse:
     """Health check endpoint"""
     health_check = llm_manager.health_check()
     registry_stats = agent_registry.get_registry_stats()
@@ -139,15 +135,11 @@ async def _mcp_streamable_http_handler(request: Request, mcp_handler: MCPHandler
         return _create_mcp_error_response(None, e)
 
 
-async def _handle_mcp_post_request(
-    request: Request, mcp_handler: MCPHandler, session_id: str | None
-) -> Response:
+async def _handle_mcp_post_request(request: Request, mcp_handler: MCPHandler, session_id: str | None) -> Response:
     """Handle MCP POST request"""
     try:
         request_data = await request.json()
-        logger.info(
-            f"MCP POST request: {request_data.get('method', 'unknown')} (session: {session_id})"
-        )
+        logger.info(f"MCP POST request: {request_data.get('method', 'unknown')} (session: {session_id})")
 
         response_data = await mcp_handler.handle_jsonrpc_request(request_data, session_id)
 
@@ -332,12 +324,8 @@ def _build_routes(handlers: RouteHandlers):
         Route("/api/agents", handlers.api_endpoints.create_agent, methods=["POST"]),
         Route("/api/agents/{agent_id}", handlers.api_endpoints.get_agent, methods=["GET"]),
         Route("/api/agents/{agent_id}", handlers.api_endpoints.delete_agent, methods=["DELETE"]),
-        Route(
-            "/api/agents/{agent_id}/chat", handlers.api_endpoints.chat_with_agent, methods=["POST"]
-        ),
-        Route(
-            "/api/agents/{agent_id}/file", handlers.api_endpoints.get_agent_file, methods=["GET"]
-        ),
+        Route("/api/agents/{agent_id}/chat", handlers.api_endpoints.chat_with_agent, methods=["POST"]),
+        Route("/api/agents/{agent_id}/file", handlers.api_endpoints.get_agent_file, methods=["GET"]),
         Route("/api/system/status", handlers.api_endpoints.system_status, methods=["GET"]),
         WebSocketRoute("/ws", handlers.websocket_endpoint),
     ]
@@ -381,9 +369,7 @@ def _configure_middleware(app: Starlette, config: ConfigManager):
         response = await call_next(request)
 
         duration = (datetime.now() - start_time).total_seconds()
-        logger.info(
-            f"{request.method} {request.url.path} - {response.status_code} - {duration:.3f}s"
-        )
+        logger.info(f"{request.method} {request.url.path} - {response.status_code} - {duration:.3f}s")
 
         return response
 
@@ -394,9 +380,7 @@ def _configure_middleware(app: Starlette, config: ConfigManager):
             response = Response()
             response.headers["Access-Control-Allow-Origin"] = "*"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = (
-                "Content-Type, Authorization, Mcp-Session-Id"
-            )
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Mcp-Session-Id"
             response.headers["Access-Control-Expose-Headers"] = "Mcp-Session-Id"
             return response
         return await call_next(request)

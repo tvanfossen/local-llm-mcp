@@ -65,9 +65,7 @@ class ClaudeCodeMCPBridge:
 
         return jsonrpc_request
 
-    async def _process_http_request(
-        self, jsonrpc_request: dict, method: str, request_id: Any
-    ) -> dict[str, Any] | None:
+    async def _process_http_request(self, jsonrpc_request: dict, method: str, request_id: Any) -> dict[str, Any] | None:
         """Process the HTTP request and handle response"""
         response = await self.client.post(
             f"{self.server_url}/mcp",
@@ -78,9 +76,7 @@ class ClaudeCodeMCPBridge:
         # Handle different response status codes
         return self._handle_http_response(response, method, request_id)
 
-    def _handle_http_response(
-        self, response: httpx.Response, method: str, request_id: Any
-    ) -> dict[str, Any] | None:
+    def _handle_http_response(self, response: httpx.Response, method: str, request_id: Any) -> dict[str, Any] | None:
         """Handle HTTP response based on status code - fixed to single return"""
         # Handle success cases
         if response.status_code == 200:
@@ -112,9 +108,7 @@ class ClaudeCodeMCPBridge:
 
         return None
 
-    def _create_connection_error_response(
-        self, request: dict, error: Exception
-    ) -> dict[str, Any] | None:
+    def _create_connection_error_response(self, request: dict, error: Exception) -> dict[str, Any] | None:
         """Create error response for connection issues"""
         if request.get("id") is not None:
             return {
@@ -128,9 +122,7 @@ class ClaudeCodeMCPBridge:
             }
         return None
 
-    def _create_unexpected_error_response(
-        self, request: dict, error: Exception
-    ) -> dict[str, Any] | None:
+    def _create_unexpected_error_response(self, request: dict, error: Exception) -> dict[str, Any] | None:
         """Create error response for unexpected errors"""
         if request.get("id") is not None:
             return {

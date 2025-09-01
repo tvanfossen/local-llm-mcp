@@ -85,13 +85,9 @@ def clean(ctx):
     """Clean up Docker images and containers"""
     print("Cleaning up Docker resources...")
     # Stop containers
-    ctx.run(
-        "docker stop $(docker ps -q --filter ancestor=local-llm-mcp) 2>/dev/null || true", pty=True
-    )
+    ctx.run("docker stop $(docker ps -q --filter ancestor=local-llm-mcp) 2>/dev/null || true", pty=True)
     # Remove containers
-    ctx.run(
-        "docker rm $(docker ps -aq --filter ancestor=local-llm-mcp) 2>/dev/null || true", pty=True
-    )
+    ctx.run("docker rm $(docker ps -aq --filter ancestor=local-llm-mcp) 2>/dev/null || true", pty=True)
     # Remove image
     ctx.run("docker rmi local-llm-mcp 2>/dev/null || true", pty=True)
     print("Cleanup complete!")
@@ -141,9 +137,7 @@ def restore_agents(ctx, backup_dir):
         return
 
     # Stop container if running
-    ctx.run(
-        "docker stop $(docker ps -q --filter ancestor=local-llm-mcp) 2>/dev/null || true", pty=True
-    )
+    ctx.run("docker stop $(docker ps -q --filter ancestor=local-llm-mcp) 2>/dev/null || true", pty=True)
 
     state_backup = os.path.join(backup_dir, "state")
     workspaces_backup = os.path.join(backup_dir, "workspaces")
@@ -187,9 +181,7 @@ def status(ctx):
             print("Saved agents: No agents.json file")
 
     if workspaces_exists:
-        workspace_dirs = [
-            d for d in os.listdir("./workspaces") if os.path.isdir(f"./workspaces/{d}")
-        ]
+        workspace_dirs = [d for d in os.listdir("./workspaces") if os.path.isdir(f"./workspaces/{d}")]
         print(f"Agent workspaces: {len(workspace_dirs)}")
         if workspace_dirs:
             print(

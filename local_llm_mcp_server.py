@@ -66,9 +66,7 @@ class ServerOrchestrator:
             ]
 
             for step_name, step_func in initialization_steps:
-                success = (
-                    await step_func() if asyncio.iscoroutinefunction(step_func) else step_func()
-                )
+                success = await step_func() if asyncio.iscoroutinefunction(step_func) else step_func()
                 if not success:
                     logger.error(f"Failed to initialize {step_name}")
                     return False
@@ -113,9 +111,7 @@ class ServerOrchestrator:
 
     def _log_startup_info(self):
         """Log server startup information"""
-        logger.info(
-            f"🚀 Starting server on {self.config_manager.server.host}:{self.config_manager.server.port}"
-        )
+        logger.info(f"🚀 Starting server on {self.config_manager.server.host}:{self.config_manager.server.port}")
         logger.info("📡 MCP endpoint: POST /mcp (for Claude Code)")
         logger.info("🔧 HTTP API: /api/* (for testing/debugging)")
         logger.info("❤️ Health check: GET /health")

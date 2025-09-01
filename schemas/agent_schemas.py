@@ -47,13 +47,9 @@ class AgentRequest(BaseModel):
     task_type: TaskType = Field(..., description="Type of task to perform")
     instruction: str = Field(..., description="Detailed instruction for the agent")
     context: str | None = Field(None, description="Additional context for the task")
-    parameters: dict[str, Any] | None = Field(
-        default_factory=dict, description="Task-specific parameters"
-    )
+    parameters: dict[str, Any] | None = Field(default_factory=dict, description="Task-specific parameters")
     expected_output: str | None = Field(None, description="Description of expected output format")
-    timestamp: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat(), description="Request timestamp"
-    )
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="Request timestamp")
 
 
 class FileContent(BaseModel):
@@ -76,9 +72,7 @@ class AgentResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list, description="Any warnings or notes")
     tokens_used: int | None = Field(None, description="Number of tokens used in generation")
     processing_time: float | None = Field(None, description="Processing time in seconds")
-    timestamp: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat(), description="Response timestamp"
-    )
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="Response timestamp")
 
     class Config:
         json_encoders = {
@@ -115,9 +109,7 @@ class AgentCapabilities(BaseModel):
     """Define what an agent can do"""
 
     supported_tasks: list[TaskType] = Field(default_factory=list)
-    file_extensions: list[str] = Field(
-        default_factory=list, description="File extensions this agent handles"
-    )
+    file_extensions: list[str] = Field(default_factory=list, description="File extensions this agent handles")
     programming_languages: list[str] = Field(default_factory=list)
     specializations: list[str] = Field(default_factory=list, description="Areas of expertise")
     max_file_size: int = Field(default=100000, description="Maximum file size in characters")

@@ -156,9 +156,7 @@ class SecurityManager:
 
         logger.info(f"Added authorized key for {client_name} (fingerprint: {fingerprint[:16]}...)")
 
-    def authenticate_with_private_key(
-        self, private_key_pem: str
-    ) -> tuple[bool, str | None, str | None]:
+    def authenticate_with_private_key(self, private_key_pem: str) -> tuple[bool, str | None, str | None]:
         """Authenticate using a private key - simplified to single return"""
         try:
             # Validate and process private key
@@ -237,9 +235,7 @@ class SecurityManager:
             )
 
             # Verify signature with public key
-            public_key = serialization.load_pem_public_key(
-                public_pem.encode(), backend=default_backend()
-            )
+            public_key = serialization.load_pem_public_key(public_pem.encode(), backend=default_backend())
 
             public_key.verify(
                 signature,
@@ -403,9 +399,7 @@ class SecurityManager:
 
             # Invalidate any active sessions for this key
             sessions_to_remove = [
-                token
-                for token, session in self.active_sessions.items()
-                if session["fingerprint"] == fingerprint
+                token for token, session in self.active_sessions.items() if session["fingerprint"] == fingerprint
             ]
 
             for token in sessions_to_remove:
@@ -425,7 +419,5 @@ class SecurityManager:
             "authorized_keys_count": len(authorized_keys),
             "active_sessions": len(self.active_sessions),
             "recent_deployments": len(self.get_deployment_history(10)),
-            "audit_log_size": (
-                self.audit_log_path.stat().st_size if self.audit_log_path.exists() else 0
-            ),
+            "audit_log_size": (self.audit_log_path.stat().st_size if self.audit_log_path.exists() else 0),
         }

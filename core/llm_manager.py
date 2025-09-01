@@ -259,11 +259,7 @@ class LLMManager:
             status=ResponseStatus(response_data.get("status", "success")),
             message=response_data.get("message", "Task completed"),
             file_content=file_content,
-            changes_made=(
-                [response_data.get("changes_summary", "")]
-                if response_data.get("changes_summary")
-                else []
-            ),
+            changes_made=([response_data.get("changes_summary", "")] if response_data.get("changes_summary") else []),
             warnings=([response_data.get("warnings", "")] if response_data.get("warnings") else []),
         )
 
@@ -316,9 +312,7 @@ class LLMManager:
         import re
 
         # For file content, extract everything between the quotes (more complex)
-        content_match = re.search(
-            r'"full_file_content"\s*:\s*"(.*?)"(?=\s*,\s*"|\s*})', json_text, re.DOTALL
-        )
+        content_match = re.search(r'"full_file_content"\s*:\s*"(.*?)"(?=\s*,\s*"|\s*})', json_text, re.DOTALL)
 
         file_content = None
         if content_match:
@@ -441,9 +435,7 @@ class LLMManager:
             "total_inference_time": round(self.total_inference_time, 2),
             "last_inference_time": round(self.last_inference_time, 2),
             "efficiency": (
-                "high"
-                if self.avg_tokens_per_second > 15
-                else "moderate" if self.avg_tokens_per_second > 8 else "low"
+                "high" if self.avg_tokens_per_second > 15 else "moderate" if self.avg_tokens_per_second > 8 else "low"
             ),
         }
 
@@ -521,9 +513,7 @@ class LLMManager:
             "stop_sequences": ["</s>", "<|im_end|>", "<|endoftext|>"],
         }
 
-    def _process_llm_response(
-        self, response, processing_time
-    ) -> tuple[AgentResponse, dict[str, Any]]:
+    def _process_llm_response(self, response, processing_time) -> tuple[AgentResponse, dict[str, Any]]:
         """Process the LLM response and update metrics"""
         if not response or not response.get("choices"):
             error_response = create_error_response("No response generated from model")

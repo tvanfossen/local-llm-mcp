@@ -409,14 +409,10 @@ class MCPKeyManager:
         try:
             # Try xclip first, then xsel
             try:
-                subprocess.run(
-                    ["xclip", "-selection", "clipboard"], input=private_key.encode(), check=True
-                )
+                subprocess.run(["xclip", "-selection", "clipboard"], input=private_key.encode(), check=True)
                 return {"success": True, "method": "Linux/xclip"}
             except Exception:
-                subprocess.run(
-                    ["xsel", "--clipboard", "--input"], input=private_key.encode(), check=True
-                )
+                subprocess.run(["xsel", "--clipboard", "--input"], input=private_key.encode(), check=True)
                 return {"success": True, "method": "Linux/xsel"}
         except Exception as e:
             return {"success": False, "error": f"Linux clipboard error: {e}"}
@@ -471,9 +467,7 @@ def _add_subcommands(subparsers):
     # Export command
     export_parser = subparsers.add_parser("export", help="Export keys to file")
     export_parser.add_argument("-o", "--output", help="Output file")
-    export_parser.add_argument(
-        "-f", "--format", choices=["pem", "json"], default="json", help="Export format"
-    )
+    export_parser.add_argument("-f", "--format", choices=["pem", "json"], default="json", help="Export format")
 
     # Import command
     import_parser = subparsers.add_parser("import", help="Import keys from file")

@@ -72,9 +72,7 @@ class WebSocketHandler:
             data = await websocket.receive_json()
             await self._handle_websocket_message(websocket, connection_id, data)
 
-    async def _handle_websocket_message(
-        self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
-    ):
+    async def _handle_websocket_message(self, websocket: WebSocket, connection_id: str, data: dict[str, Any]):
         """Handle incoming WebSocket message - simplified dispatch with reduced complexity"""
         message_type = data.get("type", "unknown")
 
@@ -92,9 +90,7 @@ class WebSocketHandler:
             handler = message_handlers.get(message_type)
 
             if handler:
-                await self._execute_message_handler(
-                    handler, websocket, connection_id, data, message_type
-                )
+                await self._execute_message_handler(handler, websocket, connection_id, data, message_type)
             else:
                 await self._send_error(websocket, f"Unknown message type: {message_type}")
 
@@ -146,9 +142,7 @@ class WebSocketHandler:
             )
         return agents_data
 
-    async def _ws_get_agent_info(
-        self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
-    ):
+    async def _ws_get_agent_info(self, websocket: WebSocket, connection_id: str, data: dict[str, Any]):
         """Get agent info via WebSocket"""
         agent_id = data.get("agent_id")
         if not agent_id:
@@ -259,12 +253,8 @@ class WebSocketHandler:
                         )
                         agent_response.changes_made.append("File written to disk")
                     else:
-                        logger.error(
-                            f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file"
-                        )
-                        agent_response.warnings.append(
-                            "File content generated but disk write failed"
-                        )
+                        logger.error(f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file")
+                        agent_response.warnings.append("File content generated but disk write failed")
                 else:
                     filename_mismatch_msg = (
                         f"Filename mismatch: generated {agent_response.file_content.filename}, "
@@ -282,9 +272,7 @@ class WebSocketHandler:
         agent.add_conversation(agent_request, agent_response)
         self.agent_registry.save_registry()
 
-    async def _ws_stream_chat_agent(
-        self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
-    ):
+    async def _ws_stream_chat_agent(self, websocket: WebSocket, connection_id: str, data: dict[str, Any]):
         """Streaming chat with agent via WebSocket"""
         try:
             # Validate inputs
@@ -341,9 +329,7 @@ class WebSocketHandler:
         ):
             await self._process_stream_chunk(websocket, agent, agent_request, stream_data)
 
-    async def _process_stream_chunk(
-        self, websocket: WebSocket, agent, agent_request, stream_data: dict
-    ):
+    async def _process_stream_chunk(self, websocket: WebSocket, agent, agent_request, stream_data: dict):
         """Process individual stream chunk"""
         if stream_data["type"] == "chunk":
             await websocket.send_json(
@@ -374,9 +360,7 @@ class WebSocketHandler:
         elif stream_data["type"] == "error":
             await self._send_error(websocket, stream_data["message"])
 
-    async def _ws_create_agent(
-        self, websocket: WebSocket, connection_id: str, data: dict[str, Any]
-    ):
+    async def _ws_create_agent(self, websocket: WebSocket, connection_id: str, data: dict[str, Any]):
         """Create agent via WebSocket"""
         try:
             # Validate required fields
