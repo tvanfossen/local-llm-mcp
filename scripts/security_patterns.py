@@ -3,7 +3,6 @@
 
 import re
 import sys
-from pathlib import Path
 
 PATTERNS = [
     (r"eval\(", "Dangerous eval() usage"),

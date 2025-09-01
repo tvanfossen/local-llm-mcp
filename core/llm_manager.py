@@ -371,7 +371,6 @@ class LLMManager:
                     # Parse hunk header: @@ -start,count +start,count @@
                     match = re.match(r"@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@", line)
                     if match:
-                        old_start = int(match.group(1)) - 1  # Convert to 0-based
                         new_start = int(match.group(3)) - 1
                         # Add unchanged lines before this hunk
                         while len(result_lines) < new_start:

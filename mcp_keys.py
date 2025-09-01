@@ -71,6 +71,7 @@ class MCPKeyManager:
             response = requests.post(
                 f"{server_url}/api/orchestrator/generate-keys",
                 json={"client_name": name},
+                timeout=10,
             )
 
             if response.status_code == 200:
@@ -333,6 +334,7 @@ class MCPKeyManager:
             response = requests.post(
                 f"{server_url}/api/orchestrator/authenticate",
                 json={"private_key": private_key},
+                timeout=10,
             )
 
             if response.status_code == 200:
