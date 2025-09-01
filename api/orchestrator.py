@@ -82,7 +82,7 @@ class OrchestratorAPI:
             )
 
     async def authenticate(self, request: Request) -> JSONResponse:
-        """Authenticate with private key - simplified error handling"""
+        """Authenticate with private key - consolidated error handling"""
         try:
             data = await request.json()
             private_key = data.get("private_key")
@@ -94,23 +94,26 @@ class OrchestratorAPI:
                 private_key
             )
 
+            # Single return point based on success
             if success:
-                return JSONResponse(
-                    {
-                        "success": True,
-                        "session_token": session_token,
-                        "expires_in": 14400,  # 4 hours
-                    }
-                )
+                response_data = {
+                    "success": True,
+                    "session_token": session_token,
+                    "expires_in": 14400,  # 4 hours
+                }
+                status_code = 200
+            else:
+                response_data = {"error": f"Authentication failed: {error}"}
+                status_code = 401
 
-            return JSONResponse({"error": f"Authentication failed: {error}"}, status_code=401)
+            return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
             logger.error(f"Authentication error: {e}")
             return JSONResponse({"error": f"Authentication error: {e!s}"}, status_code=500)
 
     async def validate_session(self, request: Request) -> JSONResponse:
-        """Validate current session - simplified"""
+        """Validate current session - consolidated validation"""
         try:
             # Extract and validate session token
             session_token = self._extract_session_token(request)
@@ -119,17 +122,20 @@ class OrchestratorAPI:
 
             valid, session = self.security_manager.validate_session(session_token)
 
+            # Single return point based on validity
             if valid:
-                return JSONResponse(
-                    {
-                        "valid": True,
-                        "client": session["client_name"],
-                        "authenticated_at": session["authenticated_at"],
-                        "expires_at": session["expires_at"],
-                    }
-                )
+                response_data = {
+                    "valid": True,
+                    "client": session["client_name"],
+                    "authenticated_at": session["authenticated_at"],
+                    "expires_at": session["expires_at"],
+                }
+                status_code = 200
+            else:
+                response_data = {"valid": False}
+                status_code = 401
 
-            return JSONResponse({"valid": False}, status_code=401)
+            return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
             logger.error(f"Session validation error: {e}")
@@ -188,6 +194,12 @@ class OrchestratorAPI:
 
     def _validate_session_and_agent(self, request: Request, agent_id: str) -> dict:
         """Validate session and get agent - consolidated validation"""
+        # Single validation flow
+        validation_result = self._perform_session_agent_validation(request, agent_id)
+        return validation_result
+
+    def _perform_session_agent_validation(self, request: Request, agent_id: str) -> dict:
+        """Perform session and agent validation"""
         # Extract and validate session token
         session_token = self._extract_session_token(request)
         if not session_token:
@@ -205,14 +217,14 @@ class OrchestratorAPI:
         return {"agent": agent, "session": session}
 
     async def stage_deployment(self, request: Request) -> JSONResponse:
-        """Stage a deployment for approval"""
+        """Stage a deployment for approval - consolidated validation"""
         try:
             data = await request.json()
 
-            # Validate authentication and parameters
+            # Single validation point
             validation_result = self._validate_deployment_request(request, data)
-            error = validation_result.get("error")
-            if error:
+            if validation_result.get("error"):
+                error = validation_result["error"]
                 status_code = validation_result.get("status", 400)
                 return JSONResponse({"error": error}, status_code=status_code)
 
@@ -225,47 +237,32 @@ class OrchestratorAPI:
                 agent, Path(target_path), session_token
             )
 
+            # Single return point based on success
             if success:
-                return JSONResponse(
-                    {
-                        "success": True,
-                        "deployment_id": deployment_id,
-                        "deployment": deployment_info,
-                    }
-                )
+                response_data = {
+                    "success": True,
+                    "deployment_id": deployment_id,
+                    "deployment": deployment_info,
+                }
+                status_code = 200
+            else:
+                error_msg = deployment_info.get("error", "Staging failed")
+                response_data = {"error": error_msg}
+                status_code = 400
 
-            error_msg = deployment_info.get("error", "Staging failed")
-            return JSONResponse({"error": error_msg}, status_code=400)
+            return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
             logger.error(f"Staging failed: {e}")
             return JSONResponse({"error": f"Staging failed: {e!s}"}, status_code=500)
 
     async def deploy(self, request: Request) -> JSONResponse:
-        """Execute a deployment"""
+        """Execute a deployment - consolidated validation and execution"""
         try:
             data = await request.json()
 
-            # Validate authentication and parameters
-            validation_result = self._validate_deployment_request(request, data)
-            error = validation_result.get("error")
-            if error:
-                return JSONResponse(
-                    {"error": error}, status_code=validation_result.get("status", 400)
-                )
-
-            session_token = validation_result["session_token"]
-            agent = validation_result["agent"]
-            target_path = validation_result["target_path"]
-            file_path = data.get("file_path")
-
-            if not file_path:
-                return JSONResponse({"error": "file_path required"}, status_code=400)
-
-            # Execute deployment workflow
-            deployment_result = await self._execute_deployment_workflow(
-                agent, target_path, file_path, session_token
-            )
+            # Single validation and execution flow
+            deployment_result = await self._process_deployment_request(request, data)
 
             status_code = deployment_result.get("status", 200)
             return JSONResponse(deployment_result["response"], status_code=status_code)
@@ -274,15 +271,36 @@ class OrchestratorAPI:
             logger.error(f"Deployment failed: {e}")
             return JSONResponse({"error": f"Deployment failed: {e!s}"}, status_code=500)
 
+    async def _process_deployment_request(self, request: Request, data: dict) -> dict:
+        """Process deployment request with consolidated validation"""
+        # Single validation point
+        validation_result = self._validate_deployment_request(request, data)
+        if validation_result.get("error"):
+            return {
+                "response": {"error": validation_result["error"]},
+                "status": validation_result.get("status", 400),
+            }
+
+        session_token = validation_result["session_token"]
+        agent = validation_result["agent"]
+        target_path = validation_result["target_path"]
+        file_path = data.get("file_path")
+
+        if not file_path:
+            return {"response": {"error": "file_path required"}, "status": 400}
+
+        # Execute deployment workflow
+        return await self._execute_deployment_workflow(agent, target_path, file_path, session_token)
+
     async def rollback(self, request: Request) -> JSONResponse:
-        """Rollback a deployment"""
+        """Rollback a deployment - consolidated validation"""
         try:
             data = await request.json()
 
-            # Validate session and deployment ID
+            # Single validation point
             validation_result = self._validate_rollback_request(request, data)
-            error = validation_result.get("error")
-            if error:
+            if validation_result.get("error"):
+                error = validation_result["error"]
                 status_code = validation_result.get("status", 400)
                 return JSONResponse({"error": error}, status_code=status_code)
 
@@ -294,17 +312,27 @@ class OrchestratorAPI:
                 deployment_id, session_token
             )
 
+            # Single return point based on success
             if success:
-                return JSONResponse({"success": True, "message": message})
+                response_data = {"success": True, "message": message}
+                status_code = 200
+            else:
+                response_data = {"error": message}
+                status_code = 400
 
-            return JSONResponse({"error": message}, status_code=400)
+            return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
             logger.error(f"Rollback failed: {e}")
             return JSONResponse({"error": f"Rollback failed: {e!s}"}, status_code=500)
 
     def _validate_deployment_request(self, request: Request, data: dict) -> dict:
-        """Validate deployment request and return validation result"""
+        """Validate deployment request and return validation result - consolidated"""
+        # Perform all validation in single flow
+        return self._perform_deployment_validation(request, data)
+
+    def _perform_deployment_validation(self, request: Request, data: dict) -> dict:
+        """Perform deployment validation with consolidated logic"""
         # Validate authentication
         session_token = self._extract_session_token(request)
         if not session_token:
@@ -325,7 +353,12 @@ class OrchestratorAPI:
         return {"session_token": session_token, "agent": agent, "target_path": target_path}
 
     def _validate_rollback_request(self, request: Request, data: dict) -> dict:
-        """Validate rollback request and return validation result"""
+        """Validate rollback request and return validation result - consolidated"""
+        # Perform all validation in single flow
+        return self._perform_rollback_validation(request, data)
+
+    def _perform_rollback_validation(self, request: Request, data: dict) -> dict:
+        """Perform rollback validation with consolidated logic"""
         # Validate authentication
         session_token = self._extract_session_token(request)
         if not session_token:
@@ -345,7 +378,7 @@ class OrchestratorAPI:
     async def _execute_deployment_workflow(
         self, agent, target_path: str, file_path: str, session_token: str
     ) -> dict:
-        """Execute deployment workflow and return result"""
+        """Execute deployment workflow and return result - consolidated flow"""
         # Stage deployment first
         success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
             agent, Path(target_path), session_token
@@ -393,16 +426,15 @@ class OrchestratorAPI:
         return {"response": {"error": message}, "status": 400}
 
     async def get_deployment_history(self, request: Request) -> JSONResponse:
-        """Get deployment history"""
+        """Get deployment history - consolidated validation"""
         try:
-            # Validate session
-            session_token = self._extract_session_token(request)
-            if not session_token:
-                return JSONResponse({"error": "Authentication required"}, status_code=401)
+            # Single validation and execution flow
+            history_result = self._get_deployment_history_with_validation(request)
 
-            valid, session = self.security_manager.validate_session(session_token)
-            if not valid:
-                return JSONResponse({"error": "Invalid or expired session"}, status_code=401)
+            if history_result["error"]:
+                return JSONResponse(
+                    {"error": history_result["message"]}, status_code=history_result["status"]
+                )
 
             # Get deployment status
             status = self.deployment_manager.get_deployment_status()
@@ -418,6 +450,19 @@ class OrchestratorAPI:
         except Exception as e:
             logger.error(f"Failed to get history: {e}")
             return JSONResponse({"error": f"Failed to get history: {e!s}"}, status_code=500)
+
+    def _get_deployment_history_with_validation(self, request: Request) -> dict:
+        """Get deployment history with validation"""
+        # Single validation point
+        session_token = self._extract_session_token(request)
+        if not session_token:
+            return {"error": True, "message": "Authentication required", "status": 401}
+
+        valid, session = self.security_manager.validate_session(session_token)
+        if not valid:
+            return {"error": True, "message": "Invalid or expired session", "status": 401}
+
+        return {"error": False, "session": session}
 
     async def handle_websocket(self, websocket: WebSocket):
         """Handle WebSocket connections for real-time updates"""

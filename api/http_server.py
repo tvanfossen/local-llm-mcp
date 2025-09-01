@@ -227,17 +227,18 @@ async def _process_legacy_request(data: dict, mcp_handler: MCPHandler):
 
 
 def _format_legacy_response(response) -> JSONResponse:
-    """Format legacy response"""
+    """Format legacy response - consolidated returns"""
     if not response:
         return JSONResponse({"status": "ok"})
 
+    # Handle result response
     if "result" in response:
         return JSONResponse(response["result"])
 
-    if "error" in response:
-        return JSONResponse(response["error"], status_code=400)
-
-    return JSONResponse({"error": "No response"}, status_code=500)
+    # Handle error response or no response
+    error_data = response.get("error", {"error": "No response"})
+    status_code = 400 if "error" in response else 500
+    return JSONResponse(error_data, status_code=status_code)
 
 
 def create_http_server(
@@ -258,7 +259,13 @@ def create_http_server(
 
 
 def _initialize_handlers(agent_registry, llm_manager, config):
-    """Initialize all route handlers"""
+    """Initialize all route handlers - consolidated approach"""
+    components = _create_core_components(agent_registry, llm_manager, config)
+    return _create_route_handlers(components, agent_registry, llm_manager)
+
+
+def _create_core_components(agent_registry, llm_manager, config):
+    """Create core components needed for handlers"""
     mcp_handler = MCPHandler(agent_registry, llm_manager)
     api_endpoints = APIEndpoints(agent_registry, llm_manager)
     security_manager = SecurityManager(config.system.state_dir)
@@ -266,7 +273,19 @@ def _initialize_handlers(agent_registry, llm_manager, config):
     orchestrator_api = OrchestratorAPI(agent_registry, security_manager, deployment_manager)
     websocket_handler = WebSocketHandler(agent_registry, llm_manager)
 
-    # Create handler wrappers
+    return {
+        "mcp_handler": mcp_handler,
+        "api_endpoints": api_endpoints,
+        "orchestrator_api": orchestrator_api,
+        "websocket_handler": websocket_handler,
+    }
+
+
+def _create_route_handlers(components, agent_registry, llm_manager):
+    """Create handler wrappers - consolidated return structure"""
+    # Create all handler wrappers at once
+    handlers = {}
+
     async def root_handler(request: Request) -> JSONResponse:
         return await _root_handler(request, llm_manager, agent_registry)
 
@@ -274,21 +293,22 @@ def _initialize_handlers(agent_registry, llm_manager, config):
         return await _health_handler(request, llm_manager, agent_registry)
 
     async def mcp_handler_wrapper(request: Request) -> Response:
-        return await _mcp_streamable_http_handler(request, mcp_handler)
+        return await _mcp_streamable_http_handler(request, components["mcp_handler"])
 
     async def legacy_handler_wrapper(request: Request) -> JSONResponse:
-        return await _mcp_legacy_handler(request, mcp_handler)
+        return await _mcp_legacy_handler(request, components["mcp_handler"])
 
     async def websocket_endpoint(websocket):
-        await websocket_handler.handle_connection(websocket)
+        await components["websocket_handler"].handle_connection(websocket)
 
+    # Return single RouteHandlers object
     return RouteHandlers(
         root_handler=root_handler,
         health_handler=health_handler,
         mcp_handler_wrapper=mcp_handler_wrapper,
         legacy_handler_wrapper=legacy_handler_wrapper,
-        api_endpoints=api_endpoints,
-        orchestrator_api=orchestrator_api,
+        api_endpoints=components["api_endpoints"],
+        orchestrator_api=components["orchestrator_api"],
         websocket_endpoint=websocket_endpoint,
     )
 

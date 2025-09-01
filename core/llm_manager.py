@@ -164,7 +164,6 @@ class LLMManager:
     def _parse_agent_response(self, response_text: str) -> AgentResponse:
         """Parse agent response - Handle unescaped quotes in JSON strings"""
         try:
-
             logger.info(f"Attempting to parse response: {response_text[:200]!r}")
 
             # Clean the response - find JSON boundaries

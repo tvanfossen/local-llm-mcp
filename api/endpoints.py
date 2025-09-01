@@ -232,18 +232,12 @@ class APIEndpoints:
         try:
             agent_id = request.path_params["agent_id"]
             agent = self.agent_registry.get_agent(agent_id)
-
-            # Validate agent and model - consolidated error handling
-            error_response = self._validate_chat_prerequisites(agent_id, agent)
-            if error_response:
-                return error_response
-
             data = await request.json()
-            if "message" not in data:
-                return JSONResponse(
-                    {"error": "Missing required field: message"},
-                    status_code=400,
-                )
+
+            # Consolidated validation
+            validation_result = self._validate_chat_request(agent_id, agent, data)
+            if validation_result["error"]:
+                return validation_result["response"]
 
             # Process the chat request
             return await self._process_chat_request(agent, data)
@@ -255,8 +249,39 @@ class APIEndpoints:
                 status_code=500,
             )
 
+    def _validate_chat_request(self, agent_id: str, agent, data: dict) -> dict:
+        """Validate chat request - returns dict with error flag and response"""
+        if not agent:
+            return {
+                "error": True,
+                "response": JSONResponse(
+                    {"error": f"Agent {agent_id} not found"},
+                    status_code=404,
+                ),
+            }
+
+        if not self.llm_manager.model_loaded:
+            return {
+                "error": True,
+                "response": JSONResponse(
+                    {"error": "Model not loaded"},
+                    status_code=503,
+                ),
+            }
+
+        if "message" not in data:
+            return {
+                "error": True,
+                "response": JSONResponse(
+                    {"error": "Missing required field: message"},
+                    status_code=400,
+                ),
+            }
+
+        return {"error": False, "response": None}
+
     def _validate_chat_prerequisites(self, agent_id: str, agent) -> JSONResponse | None:
-        """Validate agent existence and model status - consolidated validation"""
+        """Validate agent existence and model status - returns error or None"""
         if not agent:
             return JSONResponse(
                 {"error": f"Agent {agent_id} not found"},
