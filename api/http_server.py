@@ -274,34 +274,75 @@ def _create_core_components(agent_registry, llm_manager, config):
 
 
 def _create_route_handlers(components, agent_registry, llm_manager):
-    """Create handler wrappers - fixed to use single return"""
+    """Create handler wrappers with reduced complexity"""
+    # Create handler functions using helper functions
+    handlers = _build_handler_functions(components, agent_registry, llm_manager)
 
-    # Create all handler wrappers
+    return RouteHandlers(
+        root_handler=handlers["root"],
+        health_handler=handlers["health"],
+        mcp_handler_wrapper=handlers["mcp"],
+        legacy_handler_wrapper=handlers["legacy"],
+        api_endpoints=components["api_endpoints"],
+        orchestrator_api=components["orchestrator_api"],
+        websocket_endpoint=handlers["websocket"],
+    )
+
+
+def _build_handler_functions(components, agent_registry, llm_manager):
+    """Build all handler functions"""
+    return {
+        "root": _create_root_handler(agent_registry, llm_manager),
+        "health": _create_health_handler(agent_registry, llm_manager),
+        "mcp": _create_mcp_handler(components["mcp_handler"]),
+        "legacy": _create_legacy_handler(components["mcp_handler"]),
+        "websocket": _create_websocket_handler(components["websocket_handler"]),
+    }
+
+
+def _create_root_handler(agent_registry, llm_manager):
+    """Create root handler wrapper"""
+
     async def root_handler(request: Request) -> JSONResponse:
         return await _root_handler(request, llm_manager, agent_registry)
+
+    return root_handler
+
+
+def _create_health_handler(agent_registry, llm_manager):
+    """Create health handler wrapper"""
 
     async def health_handler(request: Request) -> JSONResponse:
         return await _health_handler(request, llm_manager, agent_registry)
 
+    return health_handler
+
+
+def _create_mcp_handler(mcp_handler):
+    """Create MCP handler wrapper"""
+
     async def mcp_handler_wrapper(request: Request) -> Response:
-        return await _mcp_streamable_http_handler(request, components["mcp_handler"])
+        return await _mcp_streamable_http_handler(request, mcp_handler)
+
+    return mcp_handler_wrapper
+
+
+def _create_legacy_handler(mcp_handler):
+    """Create legacy MCP handler wrapper"""
 
     async def legacy_handler_wrapper(request: Request) -> JSONResponse:
-        return await _mcp_legacy_handler(request, components["mcp_handler"])
+        return await _mcp_legacy_handler(request, mcp_handler)
+
+    return legacy_handler_wrapper
+
+
+def _create_websocket_handler(websocket_handler):
+    """Create WebSocket handler wrapper"""
 
     async def websocket_endpoint(websocket):
-        await components["websocket_handler"].handle_connection(websocket)
+        await websocket_handler.handle_connection(websocket)
 
-    # Single return point with all components
-    return RouteHandlers(
-        root_handler=root_handler,
-        health_handler=health_handler,
-        mcp_handler_wrapper=mcp_handler_wrapper,
-        legacy_handler_wrapper=legacy_handler_wrapper,
-        api_endpoints=components["api_endpoints"],
-        orchestrator_api=components["orchestrator_api"],
-        websocket_endpoint=websocket_endpoint,
-    )
+    return websocket_endpoint
 
 
 def _create_starlette_app(handlers: RouteHandlers) -> Starlette:
