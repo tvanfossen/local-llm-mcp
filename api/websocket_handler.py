@@ -243,27 +243,40 @@ class WebSocketHandler:
 
     def _handle_agent_file_content(self, agent, agent_response):
         """Handle file content processing for agent"""
-        if agent_response.file_content and agent_response.status == ResponseStatus.SUCCESS:
-            try:
-                if agent_response.file_content.filename == agent.state.managed_file:
-                    success = agent.write_managed_file(agent_response.file_content.content)
-                    if success:
-                        logger.info(
-                            f"✅ WebSocket: Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}"
-                        )
-                        agent_response.changes_made.append("File written to disk")
-                    else:
-                        logger.error(f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file")
-                        agent_response.warnings.append("File content generated but disk write failed")
-                else:
-                    filename_mismatch_msg = (
-                        f"Filename mismatch: generated {agent_response.file_content.filename}, "
-                        f"manages {agent.state.managed_file}"
-                    )
-                    agent_response.warnings.append(filename_mismatch_msg)
-            except Exception as e:
-                logger.error(f"WebSocket file writing error for agent {agent.state.agent_id}: {e}")
-                agent_response.warnings.append(f"File write failed: {e!s}")
+        # Early return if no file content to process
+        if not agent_response.file_content or agent_response.status != ResponseStatus.SUCCESS:
+            return
+
+        try:
+            self._process_file_content_write(agent, agent_response)
+        except Exception as e:
+            logger.error(f"WebSocket file writing error for agent {agent.state.agent_id}: {e}")
+            agent_response.warnings.append(f"File write failed: {e!s}")
+
+    def _process_file_content_write(self, agent, agent_response):
+        """Process the actual file content writing"""
+        if agent_response.file_content.filename != agent.state.managed_file:
+            self._handle_filename_mismatch(agent, agent_response)
+            return
+
+        success = agent.write_managed_file(agent_response.file_content.content)
+        self._handle_write_result(agent, agent_response, success)
+
+    def _handle_write_result(self, agent, agent_response, success):
+        """Handle the result of file write operation"""
+        if success:
+            logger.info(f"✅ WebSocket: Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
+            agent_response.changes_made.append("File written to disk")
+        else:
+            logger.error(f"❌ WebSocket: Agent {agent.state.agent_id} failed to write file")
+            agent_response.warnings.append("File content generated but disk write failed")
+
+    def _handle_filename_mismatch(self, agent, agent_response):
+        """Handle filename mismatch scenario"""
+        filename_mismatch_msg = (
+            f"Filename mismatch: generated {agent_response.file_content.filename}, manages {agent.state.managed_file}"
+        )
+        agent_response.warnings.append(filename_mismatch_msg)
 
     def _update_agent_state(self, agent, agent_request, agent_response):
         """Update agent state after processing"""

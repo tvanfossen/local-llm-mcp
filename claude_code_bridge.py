@@ -77,36 +77,32 @@ class ClaudeCodeMCPBridge:
         return self._handle_http_response(response, method, request_id)
 
     def _handle_http_response(self, response: httpx.Response, method: str, request_id: Any) -> dict[str, Any] | None:
-        """Handle HTTP response based on status code - fixed to single return"""
-        # Handle success cases
+        """Handle HTTP response based on status code"""
+        result = None
+
         if response.status_code == 200:
-            response_data = response.json()
+            result = response.json()
             # Handle initialization response
             if method == "initialize" and not self.initialized:
                 self.initialized = True
                 logger.info("MCP bridge initialized successfully")
-            return response_data
+        elif response.status_code == 204:
+            result = None  # No content for notifications
+        else:
+            # Handle all error cases
+            logger.error(f"HTTP error {response.status_code}: {response.text}")
+            if request_id is not None:
+                result = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32603,
+                        "message": f"HTTP error {response.status_code}",
+                        "data": response.text,
+                    },
+                }
 
-        if response.status_code == 204:
-            return None  # No content for notifications
-
-        # Handle all error cases in single path
-        logger.error(f"HTTP error {response.status_code}: {response.text}")
-
-        # Create error response if request ID is present, otherwise return None
-        if request_id is not None:
-            error_response = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {
-                    "code": -32603,
-                    "message": f"HTTP error {response.status_code}",
-                    "data": response.text,
-                },
-            }
-            return error_response
-
-        return None
+        return result
 
     def _create_connection_error_response(self, request: dict, error: Exception) -> dict[str, Any] | None:
         """Create error response for connection issues"""
@@ -148,25 +144,32 @@ class ClaudeCodeMCPBridge:
             logger.info("Bridge shutdown complete")
 
     async def _main_loop(self):
-        """Main processing loop - simplified to reduce cognitive complexity"""
+        """Main processing loop"""
         while True:
-            # Read line from stdin
-            line = sys.stdin.readline()
-            if not line:
-                logger.info("EOF received, shutting down")
+            line = self._read_input_line()
+            if line is None:
                 break
-
-            line = line.strip()
-            if not line:
+            if line == "":
                 continue
 
-            # Process the input line
-            try:
-                await self._process_input_line(line)
-            except json.JSONDecodeError as e:
-                self._handle_json_decode_error(e)
-            except Exception as e:
-                logger.error(f"Request handling error: {e}")
+            await self._safe_process_line(line)
+
+    def _read_input_line(self) -> str | None:
+        """Read and prepare input line"""
+        line = sys.stdin.readline()
+        if not line:
+            logger.info("EOF received, shutting down")
+            return None
+        return line.strip()
+
+    async def _safe_process_line(self, line: str):
+        """Safely process input line with error handling"""
+        try:
+            await self._process_input_line(line)
+        except json.JSONDecodeError as e:
+            self._handle_json_decode_error(e)
+        except Exception as e:
+            logger.error(f"Request handling error: {e}")
 
     async def _process_input_line(self, line: str):
         """Process a single input line - extracted to reduce complexity"""

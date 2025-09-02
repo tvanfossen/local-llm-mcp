@@ -522,17 +522,24 @@ class MCPHandler:
     async def _handle_notification(self, method: str, params: dict[str, Any], session_id: str | None):
         """Handle JSON-RPC notification (no response required)"""
         try:
-            if method == "notifications/initialized" or method == "initialized":
-                if session_id and session_id in self.sessions:
-                    self.sessions[session_id].initialized = True
-                    logger.info(f"MCP session {session_id} fully initialized")
-                else:
-                    logger.warning("Received initialized notification without valid session")
+            if self._is_initialization_method(method):
+                self._handle_initialization_notification(session_id)
             else:
                 logger.info(f"Received notification: {method}")
-
         except Exception as e:
             logger.error(f"Notification handling failed: {e}")
+
+    def _is_initialization_method(self, method: str) -> bool:
+        """Check if method is an initialization method"""
+        return method == "notifications/initialized" or method == "initialized"
+
+    def _handle_initialization_notification(self, session_id: str | None):
+        """Handle initialization notification"""
+        if session_id and session_id in self.sessions:
+            self.sessions[session_id].initialized = True
+            logger.info(f"MCP session {session_id} fully initialized")
+        else:
+            logger.warning("Received initialized notification without valid session")
 
     def _create_success_response(self, request_id: Any, result: Any) -> dict[str, Any]:
         """Create JSON-RPC 2.0 success response"""
@@ -787,22 +794,32 @@ class MCPHandler:
     def _handle_file_content_for_agent(self, agent, agent_response):
         """Handle file content processing for agent"""
         try:
-            if agent_response.file_content.filename == agent.state.managed_file:
-                success = agent.write_managed_file(agent_response.file_content.content)
-                if success:
-                    logger.info(f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
-                    agent_response.changes_made.append("File written to disk")
-                else:
-                    logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
-                    agent_response.warnings.append("File content generated but disk write failed")
-            else:
-                agent_response.warnings.append(
-                    f"Filename mismatch: generated {agent_response.file_content.filename}, "
-                    f"manages {agent.state.managed_file}"
-                )
+            self._process_file_content_write(agent, agent_response)
         except Exception as e:
             logger.error(f"File writing error for agent {agent.state.agent_id}: {e}")
             agent_response.warnings.append(f"File write failed: {e!s}")
+
+    def _process_file_content_write(self, agent, agent_response):
+        """Process the actual file content writing"""
+        if agent_response.file_content.filename != agent.state.managed_file:
+            agent_response.warnings.append(
+                f"Filename mismatch: generated {agent_response.file_content.filename}, "
+                f"manages {agent.state.managed_file}"
+            )
+            return
+
+        # Attempt to write file
+        success = agent.write_managed_file(agent_response.file_content.content)
+        self._handle_write_result(agent, agent_response, success)
+
+    def _handle_write_result(self, agent, agent_response, success):
+        """Handle the result of file write operation"""
+        if success:
+            logger.info(f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
+            agent_response.changes_made.append("File written to disk")
+        else:
+            logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
+            agent_response.warnings.append("File content generated but disk write failed")
 
     def _build_chat_response_text(self, agent, agent_response, metrics) -> str:
         """Build formatted chat response text"""

@@ -43,6 +43,19 @@ class DeploymentInfo:
     staged_by: str
 
 
+@dataclass
+class ValidationResult:
+    """Container for validation results to reduce complexity"""
+
+    success: bool
+    error_message: str = ""
+    data: dict = None
+
+    def __post_init__(self):
+        if self.data is None:
+            self.data = {}
+
+
 class DeploymentManager:
     """Manages the deployment pipeline from agent workspace to production repository"""
 
@@ -59,9 +72,9 @@ class DeploymentManager:
     def validate_test_coverage(self, agent: Agent) -> tuple[bool, float, str]:
         """Validate test coverage for agent's file - simplified error handling"""
         # Validate prerequisites
-        validation_error = self._validate_coverage_prerequisites(agent)
-        if validation_error:
-            return validation_error
+        validation_result = self._validate_coverage_prerequisites(agent)
+        if not validation_result.success:
+            return False, 0.0, validation_result.error_message
 
         test_file = self._get_test_file_path(agent)
         main_file = agent.get_managed_file_path()
@@ -69,39 +82,36 @@ class DeploymentManager:
         # Execute coverage test
         return self._execute_coverage_test(test_file, main_file)
 
-    def _validate_coverage_prerequisites(self, agent: Agent) -> tuple[bool, float, str] | None:
+    def _validate_coverage_prerequisites(self, agent: Agent) -> ValidationResult:
         """Validate prerequisites for coverage testing"""
         test_file = self._get_test_file_path(agent)
         if not test_file.exists():
-            return False, 0.0, "No test file found"
+            return ValidationResult(False, "No test file found")
 
         main_file = agent.get_managed_file_path()
         if not main_file.exists():
-            return False, 0.0, "Managed file not found"
+            return ValidationResult(False, "Managed file not found")
 
-        return None  # No validation errors
+        return ValidationResult(True)
 
     def _execute_coverage_test(self, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
         """Execute the actual coverage test - simplified complexity"""
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
-
-                # Copy files to temp directory
-                self._copy_test_files(test_file, main_file, temp_path)
-
-                # Run pytest with coverage
-                result = self._run_pytest_coverage(test_file, temp_path)
-
-                # Parse coverage results
-                return self._parse_coverage_results(temp_path, result)
-
+                return self._run_coverage_in_temp_dir(temp_dir, test_file, main_file)
         except Exception as e:
             logger.error(f"Coverage validation failed: {e}")
             return False, 0.0, f"Error: {e!s}"
 
-    def _copy_test_files(self, test_file: Path, main_file: Path, temp_path: Path):
-        """Copy test files to temporary directory"""
+    def _run_coverage_in_temp_dir(self, temp_dir: str, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
+        """Run coverage test in temporary directory"""
+        temp_path = Path(temp_dir)
+        self._setup_test_environment(test_file, main_file, temp_path)
+        result = self._run_pytest_coverage(test_file, temp_path)
+        return self._parse_coverage_results(temp_path, result)
+
+    def _setup_test_environment(self, test_file: Path, main_file: Path, temp_path: Path):
+        """Setup test environment by copying necessary files"""
         shutil.copy(main_file, temp_path / main_file.name)
         shutil.copy(test_file, temp_path / test_file.name)
 
@@ -126,20 +136,21 @@ class DeploymentManager:
         """Parse coverage test results"""
         coverage_json = temp_path / "coverage.json"
         if coverage_json.exists():
-            with open(coverage_json) as f:
-                coverage_data = json.load(f)
-
-            totals = coverage_data.get("totals", {})
-            coverage_percent = totals.get("percent_covered", 0)
-
-            # Build detailed report
-            report = self._build_coverage_report(result.stdout, coverage_percent, coverage_data)
-
-            return coverage_percent == 100, coverage_percent, report
+            return self._parse_json_coverage(coverage_json, result.stdout)
 
         # Fallback: parse from stdout
         coverage_percent = self._parse_coverage_from_output(result.stdout)
         return coverage_percent == 100, coverage_percent, result.stdout
+
+    def _parse_json_coverage(self, coverage_json: Path, stdout: str) -> tuple[bool, float, str]:
+        """Parse coverage from JSON file"""
+        with open(coverage_json) as f:
+            coverage_data = json.load(f)
+
+        totals = coverage_data.get("totals", {})
+        coverage_percent = totals.get("percent_covered", 0)
+        report = self._build_coverage_report(stdout, coverage_percent, coverage_data)
+        return coverage_percent == 100, coverage_percent, report
 
     def _build_coverage_report(self, stdout: str, coverage_percent: float, coverage_data: dict) -> str:
         """Build detailed coverage report"""
@@ -149,27 +160,44 @@ class DeploymentManager:
         if coverage_percent == 100:
             report += "✅ 100% coverage achieved!"
         else:
-            # Find uncovered lines
-            files = coverage_data.get("files", {})
-            for filename, file_data in files.items():
-                uncovered = file_data.get("missing_lines", [])
-                if uncovered:
-                    report += f"\nUncovered lines in {filename}: {uncovered}"
+            report += self._build_uncovered_lines_report(coverage_data)
 
+        return report
+
+    def _build_uncovered_lines_report(self, coverage_data: dict) -> str:
+        """Build report for uncovered lines"""
+        report = ""
+        files = coverage_data.get("files", {})
+        for filename, file_data in files.items():
+            uncovered = file_data.get("missing_lines", [])
+            if uncovered:
+                report += f"\nUncovered lines in {filename}: {uncovered}"
         return report
 
     def _parse_coverage_from_output(self, output: str) -> float:
         """Parse coverage percentage from pytest output"""
         try:
             lines = output.split("\n")
-            for line in lines:
-                if "TOTAL" in line and "%" in line:
-                    parts = line.split()
-                    for part in parts:
-                        if part.endswith("%"):
-                            return float(part.rstrip("%"))
+            total_line = self._find_total_coverage_line(lines)
+            if total_line:
+                return self._extract_percentage_from_line(total_line)
         except Exception:
             pass
+        return 0.0
+
+    def _find_total_coverage_line(self, lines: list[str]) -> str | None:
+        """Find the line containing total coverage information"""
+        for line in lines:
+            if "TOTAL" in line and "%" in line:
+                return line
+        return None
+
+    def _extract_percentage_from_line(self, line: str) -> float:
+        """Extract percentage value from a coverage line"""
+        parts = line.split()
+        for part in parts:
+            if part.endswith("%"):
+                return float(part.rstrip("%"))
         return 0.0
 
     def _get_test_file_path(self, agent: Agent) -> Path:
@@ -192,29 +220,11 @@ class DeploymentManager:
             if not source_file.exists():
                 return False, "", ""
 
-            # Determine target file path
             target_file = target_repo / agent.state.managed_file
+            source_content = self._read_file_lines(source_file)
+            target_content = self._read_file_lines(target_file) if target_file.exists() else []
 
-            # Read source content
-            with open(source_file) as f:
-                source_content = f.readlines()
-
-            # Read target content if exists
-            target_content = []
-            if target_file.exists():
-                with open(target_file) as f:
-                    target_content = f.readlines()
-
-            # Generate unified diff
-            diff = difflib.unified_diff(
-                target_content,
-                source_content,
-                fromfile=f"a/{agent.state.managed_file}",
-                tofile=f"b/{agent.state.managed_file}",
-                lineterm="",
-            )
-
-            diff_text = "\n".join(diff)
+            diff_text = self._generate_unified_diff(source_content, target_content, agent.state.managed_file)
             has_changes = len(diff_text) > 0
 
             return has_changes, diff_text, str(target_file)
@@ -222,6 +232,22 @@ class DeploymentManager:
         except Exception as e:
             logger.error(f"Diff generation failed: {e}")
             return False, f"Error: {e!s}", ""
+
+    def _read_file_lines(self, file_path: Path) -> list[str]:
+        """Read file and return lines"""
+        with open(file_path) as f:
+            return f.readlines()
+
+    def _generate_unified_diff(self, source_content: list[str], target_content: list[str], filename: str) -> str:
+        """Generate unified diff between source and target content"""
+        diff = difflib.unified_diff(
+            target_content,
+            source_content,
+            fromfile=f"a/{filename}",
+            tofile=f"b/{filename}",
+            lineterm="",
+        )
+        return "\n".join(diff)
 
     def stage_deployment(
         self,
@@ -236,29 +262,8 @@ class DeploymentManager:
             if not valid:
                 return False, "", {"error": "Invalid session"}
 
-            # Validate test coverage
-            coverage_ok, coverage_percent, coverage_report = self.validate_test_coverage(agent)
-
-            # Generate diff
-            has_changes, diff_text, target_path = self.generate_diff(agent, target_repo)
-
-            # Create deployment record
-            deployment_info = DeploymentInfo(
-                agent_id=agent.state.agent_id,
-                agent_name=agent.state.name,
-                managed_file=agent.state.managed_file,
-                source_path=str(agent.get_managed_file_path()),
-                target_path=target_path,
-                target_repo=str(target_repo),
-                has_changes=has_changes,
-                diff_text=diff_text,
-                coverage_percent=coverage_percent,
-                coverage_ok=coverage_ok,
-                coverage_report=coverage_report,
-                staged_by=session["client_name"],
-            )
-
-            deployment_record = self._create_deployment_record(deployment_info)
+            deployment_data = self._gather_deployment_data(agent, target_repo, session)
+            deployment_record = self._create_deployment_record(deployment_data)
             deployment_id = deployment_record["deployment_id"]
             self.pending_deployments[deployment_id] = deployment_record
 
@@ -268,8 +273,31 @@ class DeploymentManager:
             logger.error(f"Staging failed: {e}")
             return False, "", {"error": str(e)}
 
+    def _gather_deployment_data(self, agent: Agent, target_repo: Path, session: dict) -> DeploymentInfo:
+        """Gather all data needed for deployment"""
+        # Validate test coverage
+        coverage_ok, coverage_percent, coverage_report = self.validate_test_coverage(agent)
+
+        # Generate diff
+        has_changes, diff_text, target_path = self.generate_diff(agent, target_repo)
+
+        return DeploymentInfo(
+            agent_id=agent.state.agent_id,
+            agent_name=agent.state.name,
+            managed_file=agent.state.managed_file,
+            source_path=str(agent.get_managed_file_path()),
+            target_path=target_path,
+            target_repo=str(target_repo),
+            has_changes=has_changes,
+            diff_text=diff_text,
+            coverage_percent=coverage_percent,
+            coverage_ok=coverage_ok,
+            coverage_report=coverage_report,
+            staged_by=session["client_name"],
+        )
+
     def _create_deployment_record(self, info: DeploymentInfo) -> dict[str, Any]:
-        """Create deployment record - fixed to use dataclass"""
+        """Create deployment record"""
         deployment_id = f"{info.agent_id}_{datetime.now().timestamp()}"
 
         return {
@@ -295,64 +323,54 @@ class DeploymentManager:
         deployment_id: str,
         session_token: str,
     ) -> tuple[bool, str]:
-        """Execute a staged deployment - simplified error handling"""
-        # Validate prerequisites
+        """Execute a staged deployment"""
         validation_result = self._validate_deployment_prerequisites(deployment_id, session_token)
-        if validation_result["error"]:
-            return False, validation_result["message"]
+        if not validation_result.success:
+            return False, validation_result.error_message
 
-        deployment = validation_result["deployment"]
-        session = validation_result["session"]
+        deployment = validation_result.data["deployment"]
+        session = validation_result.data["session"]
 
-        # Execute deployment workflow
         workflow_result = self._execute_deployment_workflow(deployment, session, session_token)
-
         return workflow_result["success"], workflow_result["message"]
 
-    def _validate_deployment_prerequisites(self, deployment_id: str, session_token: str) -> dict:
-        """Validate deployment prerequisites - simplified to single return"""
+    def _validate_deployment_prerequisites(self, deployment_id: str, session_token: str) -> ValidationResult:
+        """Validate deployment prerequisites"""
         # Check session validity
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
-            return {"error": True, "message": "Invalid session"}
+            return ValidationResult(False, "Invalid session")
 
-        # Check deployment exists
+        # Check deployment exists and coverage
+        deployment_check = self._check_deployment_readiness(deployment_id)
+        if not deployment_check.success:
+            return deployment_check
+
+        return ValidationResult(True, data={"deployment": deployment_check.data["deployment"], "session": session})
+
+    def _check_deployment_readiness(self, deployment_id: str) -> ValidationResult:
+        """Check if deployment exists and meets coverage requirements"""
         if deployment_id not in self.pending_deployments:
-            return {"error": True, "message": "Deployment not found"}
+            return ValidationResult(False, "Deployment not found")
 
         deployment = self.pending_deployments[deployment_id]
-
-        # Check coverage requirement
         if not deployment["coverage_ok"]:
-            return {
-                "error": True,
-                "message": f"Coverage requirement not met: {deployment['coverage_percent']}%",
-            }
+            error_msg = f"Coverage requirement not met: {deployment['coverage_percent']}%"
+            return ValidationResult(False, error_msg)
 
-        return {"error": False, "deployment": deployment, "session": session}
+        return ValidationResult(True, data={"deployment": deployment})
 
     def _execute_deployment_workflow(self, deployment: dict, session: dict, session_token: str) -> dict:
         """Execute the deployment workflow"""
         try:
-            # Authorize with security manager
-            authorized, error = self.security_manager.authorize_deployment(
-                session_token,
-                deployment["agent_id"],
-                Path(deployment["source_path"]),
-                Path(deployment["target_path"]),
-            )
-
-            if not authorized:
-                return {"success": False, "message": f"Authorization failed: {error}"}
+            auth_result = self._authorize_deployment(deployment, session_token)
+            if not auth_result["success"]:
+                return auth_result
 
             # Create backup and deploy
             backup_path = self._create_backup_if_needed(deployment)
             self._copy_deployment_file(deployment, backup_path)
-
-            # Update deployment record
             self._update_deployment_record(deployment, session, backup_path)
-
-            # Save to history
             self._save_deployment_history(deployment)
 
             logger.info(f"Deployment successful: {deployment['managed_file']} -> {deployment['target_path']}")
@@ -363,6 +381,20 @@ class DeploymentManager:
 
         except Exception as e:
             return {"success": False, "message": f"Deployment workflow failed: {e!s}"}
+
+    def _authorize_deployment(self, deployment: dict, session_token: str) -> dict:
+        """Authorize deployment with security manager"""
+        authorized, error = self.security_manager.authorize_deployment(
+            session_token,
+            deployment["agent_id"],
+            Path(deployment["source_path"]),
+            Path(deployment["target_path"]),
+        )
+
+        if authorized:
+            return {"success": True}
+        else:
+            return {"success": False, "message": f"Authorization failed: {error}"}
 
     def _create_backup_if_needed(self, deployment: dict) -> Path | None:
         """Create backup if target file exists"""
@@ -397,7 +429,7 @@ class DeploymentManager:
         deployment_id: str,
         session_token: str,
     ) -> tuple[bool, str]:
-        """Rollback a deployment - simplified to single return"""
+        """Rollback a deployment"""
         # Validate session
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
@@ -405,29 +437,34 @@ class DeploymentManager:
 
         # Find and validate deployment
         rollback_validation = self._validate_rollback_deployment(deployment_id)
-        if rollback_validation["error"]:
-            return False, rollback_validation["message"]
+        if not rollback_validation.success:
+            return False, rollback_validation.error_message
 
         # Execute the rollback
-        deployment = rollback_validation["deployment"]
+        deployment = rollback_validation.data["deployment"]
         return self._execute_rollback(deployment, session)
 
-    def _validate_rollback_deployment(self, deployment_id: str) -> dict:
+    def _validate_rollback_deployment(self, deployment_id: str) -> ValidationResult:
         """Validate deployment for rollback"""
         # Find deployment in history
         deployment = self._find_deployment_in_history(deployment_id)
         if not deployment:
-            return {"error": True, "message": "Deployment not found in history"}
+            return ValidationResult(False, "Deployment not found in history")
 
-        # Check eligibility
+        # Check eligibility and backup availability
+        eligibility_check = self._check_rollback_eligibility(deployment)
+        return eligibility_check
+
+    def _check_rollback_eligibility(self, deployment: dict) -> ValidationResult:
+        """Check if deployment is eligible for rollback"""
         if deployment.get("status") != "deployed":
-            return {"error": True, "message": "Deployment was not successfully deployed"}
+            return ValidationResult(False, "Deployment was not successfully deployed")
 
         backup_path = deployment.get("backup_path")
         if not backup_path or not Path(backup_path).exists():
-            return {"error": True, "message": "No backup available for rollback"}
+            return ValidationResult(False, "No backup available for rollback")
 
-        return {"error": False, "deployment": deployment}
+        return ValidationResult(True, data={"deployment": deployment})
 
     def _find_deployment_in_history(self, deployment_id: str) -> dict | None:
         """Find deployment in history"""
@@ -464,22 +501,26 @@ class DeploymentManager:
     def _save_deployment_history(self, deployment: dict[str, Any]):
         """Save deployment to history"""
         history = self._load_deployment_history()
-
-        # Add or update entry
-        found = False
-        for i, entry in enumerate(history):
-            if entry.get("deployment_id") == deployment["deployment_id"]:
-                history[i] = deployment
-                found = True
-                break
-
-        if not found:
-            history.append(deployment)
+        history = self._update_deployment_in_history(history, deployment)
 
         # Keep only last 1000 entries
         if len(history) > 1000:
             history = history[-1000:]
 
+        self._write_deployment_history(history)
+
+    def _update_deployment_in_history(self, history: list, deployment: dict) -> list:
+        """Update or add deployment in history"""
+        for i, entry in enumerate(history):
+            if entry.get("deployment_id") == deployment["deployment_id"]:
+                history[i] = deployment
+                return history
+
+        history.append(deployment)
+        return history
+
+    def _write_deployment_history(self, history: list):
+        """Write deployment history to file"""
         try:
             with open(self.history_file, "w") as f:
                 json.dump(history, f, indent=2)
@@ -501,12 +542,7 @@ class DeploymentManager:
     def get_deployment_status(self) -> dict[str, Any]:
         """Get current deployment status"""
         history = self._load_deployment_history()
-
-        # Count by status
-        status_counts = {}
-        for entry in history:
-            status = entry.get("status", "unknown")
-            status_counts[status] = status_counts.get(status, 0) + 1
+        status_counts = self._count_deployment_statuses(history)
 
         return {
             "pending_deployments": len(self.pending_deployments),
@@ -515,24 +551,25 @@ class DeploymentManager:
             "recent_deployments": history[-10:] if history else [],
         }
 
+    def _count_deployment_statuses(self, history: list) -> dict[str, int]:
+        """Count deployments by status"""
+        status_counts = {}
+        for entry in history:
+            status = entry.get("status", "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+        return status_counts
+
     def validate_code_quality(self, agent: Agent) -> tuple[bool, dict[str, Any], str]:
-        """Run pre-commit quality gates on agent's file - simplified complexity"""
+        """Run pre-commit quality gates on agent's file"""
         try:
             file_path = agent.get_managed_file_path()
             if not file_path.exists():
                 return False, {}, "File not found"
 
-            # Create a temporary git repo for pre-commit to work
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
-
-                # Setup temporary repo and run checks
                 quality_results = self._run_quality_checks(file_path, temp_path)
-
-                # Build detailed report
                 report = self._build_quality_report(quality_results)
-
-                # Determine if all checks passed
                 all_passed = quality_results.get("returncode", 1) == 0
 
                 return all_passed, quality_results, report
@@ -542,12 +579,54 @@ class DeploymentManager:
             return False, {"error": str(e)}, f"Error running quality checks: {e!s}"
 
     def _run_quality_checks(self, file_path: Path, temp_path: Path) -> dict[str, Any]:
-        """Run quality checks in temporary repo - simplified"""
-        # Initialize git repo
+        """Run quality checks in temporary repo"""
+        self._prepare_quality_check_environment(file_path, temp_path)
+        result = self._execute_precommit_hooks(temp_path)
+        return self._parse_precommit_output(result.stdout, result.stderr, result.returncode)
+
+    def _prepare_quality_check_environment(self, file_path: Path, temp_path: Path):
+        """Prepare environment for quality checks"""
         self._setup_temp_git_repo(temp_path, file_path)
 
-        # Run pre-commit hooks
-        result = subprocess.run(
+    def _setup_temp_git_repo(self, temp_path: Path, file_path: Path):
+        """Setup temporary git repository"""
+        self._initialize_git_repo(temp_path)
+        self._setup_git_config(temp_path)
+        self._prepare_test_files(temp_path, file_path)
+        self._stage_files_for_git(temp_path)
+
+    def _initialize_git_repo(self, temp_path: Path):
+        """Initialize git repository"""
+        self._run_git_command(temp_path, ["init"])
+
+    def _setup_git_config(self, temp_path: Path):
+        """Configure git user settings"""
+        self._run_git_command(temp_path, ["config", "user.email", "test@test.com"])
+        self._run_git_command(temp_path, ["config", "user.name", "Test User"])
+
+    def _prepare_test_files(self, temp_path: Path, file_path: Path):
+        """Copy necessary files for testing"""
+        target_file = temp_path / file_path.name
+        shutil.copy(file_path, target_file)
+        self._copy_precommit_config(temp_path)
+
+    def _stage_files_for_git(self, temp_path: Path):
+        """Stage all files in git"""
+        self._run_git_command(temp_path, ["add", "."])
+
+    def _run_git_command(self, cwd: Path, args: list[str]):
+        """Run git command in specified directory"""
+        subprocess.run(["git"] + args, cwd=cwd, check=True, capture_output=True)
+
+    def _copy_precommit_config(self, temp_path: Path):
+        """Copy pre-commit configuration if it exists"""
+        precommit_config = Path(__file__).parent.parent / ".pre-commit-config.yaml"
+        if precommit_config.exists():
+            shutil.copy(precommit_config, temp_path / ".pre-commit-config.yaml")
+
+    def _execute_precommit_hooks(self, temp_path: Path):
+        """Execute pre-commit hooks"""
+        return subprocess.run(
             ["pre-commit", "run", "--all-files", "--verbose"],
             check=False,
             cwd=temp_path,
@@ -555,41 +634,16 @@ class DeploymentManager:
             text=True,
         )
 
-        # Parse results
-        return self._parse_precommit_output(result.stdout, result.stderr, result.returncode)
-
-    def _setup_temp_git_repo(self, temp_path: Path, file_path: Path):
-        """Setup temporary git repository - extracted to reduce complexity"""
-        # Initialize git repo
-        subprocess.run(["git", "init"], cwd=temp_path, check=True, capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@test.com"],
-            cwd=temp_path,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test User"],
-            cwd=temp_path,
-            check=True,
-            capture_output=True,
-        )
-
-        # Copy file to temp repo
-        target_file = temp_path / file_path.name
-        shutil.copy(file_path, target_file)
-
-        # Copy pre-commit config
-        precommit_config = Path(__file__).parent.parent / ".pre-commit-config.yaml"
-        if precommit_config.exists():
-            shutil.copy(precommit_config, temp_path / ".pre-commit-config.yaml")
-
-        # Stage the file
-        subprocess.run(["git", "add", "."], cwd=temp_path, check=True, capture_output=True)
-
     def _parse_precommit_output(self, stdout: str, stderr: str, returncode: int) -> dict[str, Any]:
-        """Parse pre-commit output into structured results - simplified"""
-        results = {
+        """Parse pre-commit output into structured results"""
+        results = self._initialize_precommit_results(returncode)
+        self._extract_hook_results(stdout, results)
+        self._calculate_precommit_summary(results)
+        return results
+
+    def _initialize_precommit_results(self, returncode: int) -> dict[str, Any]:
+        """Initialize pre-commit results structure"""
+        return {
             "checks_run": [],
             "passed": [],
             "failed": [],
@@ -598,138 +652,224 @@ class DeploymentManager:
             "returncode": returncode,
         }
 
-        # Parse hook results from output
-        self._extract_hook_results(stdout, results)
-
-        # Add summary
-        results["summary"] = {
-            "total": len(results["checks_run"]),
-            "passed": len(results["passed"]),
-            "failed": len(results["failed"]),
-            "skipped": len(results["skipped"]),
-            "pass_rate": (len(results["passed"]) / len(results["checks_run"]) if results["checks_run"] else 0),
-        }
-
-        return results
-
     def _extract_hook_results(self, stdout: str, results: dict):
-        """Extract hook results from stdout - simplified parsing"""
+        """Extract hook results from stdout"""
         lines = stdout.split("\n")
         for line in lines:
             if "......................." in line:
-                # This is a hook result line
-                parts = line.split(".")
-                if len(parts) >= 2:
-                    hook_name = parts[0].strip()
-                    status = parts[-1].strip()
+                hook_info = self._parse_hook_line(line)
+                if hook_info:
+                    self._categorize_hook_result(hook_info, results, stdout)
 
-                    results["checks_run"].append(hook_name)
+    def _parse_hook_line(self, line: str) -> dict | None:
+        """Parse individual hook result line"""
+        parts = line.split(".")
+        if len(parts) >= 2:
+            return {"name": parts[0].strip(), "status": parts[-1].strip()}
+        return None
 
-                    if "Passed" in status or "✓" in status:
-                        results["passed"].append(hook_name)
-                    elif "Failed" in status or "✗" in status:
-                        results["failed"].append(hook_name)
-                        # Capture failure details
-                        results["details"][hook_name] = self._extract_failure_details(stdout, hook_name)
-                    elif "Skipped" in status:
-                        results["skipped"].append(hook_name)
+    def _categorize_hook_result(self, hook_info: dict, results: dict, stdout: str):
+        """Categorize hook result into passed/failed/skipped"""
+        hook_name = hook_info["name"]
+        status = hook_info["status"]
+
+        results["checks_run"].append(hook_name)
+
+        status_handlers = {
+            "passed": lambda: self._handle_passed_check(hook_name, results),
+            "failed": lambda: self._handle_failed_check(hook_name, results, stdout),
+            "skipped": lambda: self._handle_skipped_check(hook_name, results),
+        }
+
+        status_type = self._determine_status_type(status)
+        handler = status_handlers.get(status_type, lambda: None)
+        handler()
+
+    def _determine_status_type(self, status: str) -> str:
+        """Determine the type of status from status string"""
+        if "Passed" in status or "✓" in status:
+            return "passed"
+        elif "Failed" in status or "✗" in status:
+            return "failed"
+
+        # Handle skipped or unknown statuses
+        return "skipped" if "Skipped" in status else "unknown"
+
+    def _handle_passed_check(self, hook_name: str, results: dict):
+        """Handle passed check result"""
+        results["passed"].append(hook_name)
+
+    def _handle_failed_check(self, hook_name: str, results: dict, stdout: str):
+        """Handle failed check result"""
+        results["failed"].append(hook_name)
+        results["details"][hook_name] = self._extract_failure_details(stdout, hook_name)
+
+    def _handle_skipped_check(self, hook_name: str, results: dict):
+        """Handle skipped check result"""
+        results["skipped"].append(hook_name)
+
+    def _calculate_precommit_summary(self, results: dict):
+        """Calculate summary statistics for pre-commit results"""
+        total_checks = len(results["checks_run"])
+        passed_checks = len(results["passed"])
+
+        results["summary"] = {
+            "total": total_checks,
+            "passed": passed_checks,
+            "failed": len(results["failed"]),
+            "skipped": len(results["skipped"]),
+            "pass_rate": (passed_checks / total_checks if total_checks > 0 else 0),
+        }
 
     def _extract_failure_details(self, output: str, hook_name: str) -> dict[str, Any]:
         """Extract detailed failure information for a specific hook"""
-        details = {
-            "issues": [],
-            "suggestions": [],
-        }
+        details = {"issues": [], "suggestions": []}
 
-        # Hook-specific parsing
-        if "ruff" in hook_name.lower():
-            # Parse ruff output
-            for line in output.split("\n"):
-                if " | " in line and "error" in line.lower():
-                    details["issues"].append(line.strip())
-
-        elif "mypy" in hook_name.lower():
-            # Parse mypy output
-            for line in output.split("\n"):
-                if "error:" in line.lower():
-                    details["issues"].append(line.strip())
-
-        elif "bandit" in hook_name.lower():
-            # Parse bandit security issues
-            in_issue = False
-            for line in output.split("\n"):
-                if "Issue:" in line:
-                    in_issue = True
-                    details["issues"].append(line.strip())
-                elif in_issue and line.strip():
-                    details["issues"][-1] += " " + line.strip()
-                else:
-                    in_issue = False
-
-        elif "complexity" in hook_name.lower():
-            # Parse complexity issues
-            for line in output.split("\n"):
-                if "complexity" in line.lower() and any(char.isdigit() for char in line):
-                    details["issues"].append(line.strip())
+        # Use hook-specific parsers
+        parser = self._get_hook_parser(hook_name)
+        if parser:
+            parser(output, details)
 
         return details
 
+    def _get_hook_parser(self, hook_name: str):
+        """Get the appropriate parser for a hook"""
+        hook_parsers = {
+            "ruff": self._parse_ruff_errors,
+            "mypy": self._parse_mypy_errors,
+            "bandit": self._parse_bandit_errors,
+            "complexity": self._parse_complexity_errors,
+        }
+
+        for hook_type, parser in hook_parsers.items():
+            if hook_type in hook_name.lower():
+                return parser
+
+        return None
+
+    def _parse_ruff_errors(self, output: str, details: dict):
+        """Parse ruff-specific errors"""
+        for line in output.split("\n"):
+            if " | " in line and "error" in line.lower():
+                details["issues"].append(line.strip())
+
+    def _parse_mypy_errors(self, output: str, details: dict):
+        """Parse mypy-specific errors"""
+        for line in output.split("\n"):
+            if "error:" in line.lower():
+                details["issues"].append(line.strip())
+
+    def _parse_bandit_errors(self, output: str, details: dict):
+        """Parse bandit security issues"""
+        in_issue = False
+        for line in output.split("\n"):
+            if "Issue:" in line:
+                in_issue = True
+                details["issues"].append(line.strip())
+            elif in_issue and line.strip():
+                details["issues"][-1] += " " + line.strip()
+            else:
+                in_issue = False
+
+    def _parse_complexity_errors(self, output: str, details: dict):
+        """Parse complexity issues"""
+        for line in output.split("\n"):
+            if "complexity" in line.lower() and any(char.isdigit() for char in line):
+                details["issues"].append(line.strip())
+
     def _build_quality_report(self, results: dict[str, Any]) -> str:
-        """Build human-readable quality report - simplified"""
-        report = []
-        report.append("=" * 60)
-        report.append("CODE QUALITY VALIDATION REPORT")
-        report.append("=" * 60)
+        """Build human-readable quality report"""
+        report_sections = []
 
-        # Summary
+        # Header
+        report_sections.extend(["=" * 60, "CODE QUALITY VALIDATION REPORT", "=" * 60])
+
+        # Summary section
+        report_sections.append(self._build_summary_section(results))
+
+        # Detailed sections
+        report_sections.append(self._build_passed_checks_section(results))
+        report_sections.append(self._build_failed_checks_section(results))
+        report_sections.append(self._build_recommendations_section(results))
+
+        # Footer
+        report_sections.append("\n" + "=" * 60)
+
+        return "\n".join(filter(None, report_sections))
+
+    def _build_summary_section(self, results: dict) -> str:
+        """Build summary section of quality report"""
         summary = results.get("summary", {})
-        report.append("\n📊 Summary:")
-        report.append(f"  Total Checks: {summary.get('total', 0)}")
-        report.append(f"  ✅ Passed: {summary.get('passed', 0)}")
-        report.append(f"  ❌ Failed: {summary.get('failed', 0)}")
-        report.append(f"  ⏭️  Skipped: {summary.get('skipped', 0)}")
-        report.append(f"  📈 Pass Rate: {summary.get('pass_rate', 0):.1%}")
+        return f"""
+📊 Summary:
+  Total Checks: {summary.get("total", 0)}
+  ✅ Passed: {summary.get("passed", 0)}
+  ❌ Failed: {summary.get("failed", 0)}
+  ⏭️  Skipped: {summary.get("skipped", 0)}
+  📈 Pass Rate: {summary.get("pass_rate", 0):.1%}"""
 
-        # Add passed/failed sections
-        self._add_quality_report_sections(results, report)
+    def _build_passed_checks_section(self, results: dict) -> str:
+        """Build passed checks section"""
+        if not results.get("passed"):
+            return ""
 
-        # Add recommendations
-        if results.get("failed"):
-            report.append("\n💡 Recommendations:")
-            self._add_quality_recommendations(results, report)
+        passed_list = "\n".join(f"  • {check}" for check in results["passed"])
+        return f"\n✅ Passed Checks:\n{passed_list}"
 
-        report.append("\n" + "=" * 60)
-        return "\n".join(report)
+    def _build_failed_checks_section(self, results: dict) -> str:
+        """Build failed checks section"""
+        if not results.get("failed"):
+            return ""
 
-    def _add_quality_report_sections(self, results: dict, report: list[str]):
-        """Add quality report sections for passed/failed checks"""
-        # Passed checks
-        if results.get("passed"):
-            report.append("\n✅ Passed Checks:")
-            for check in results["passed"]:
-                report.append(f"  • {check}")
+        failed_section = "\n❌ Failed Checks:"
+        for check in results["failed"]:
+            failed_section += self._build_single_failed_check(check, results)
 
-        # Failed checks with details
-        if results.get("failed"):
-            report.append("\n❌ Failed Checks:")
-            for check in results["failed"]:
-                report.append(f"  • {check}")
-                details = results.get("details", {}).get(check, {})
-                if details.get("issues"):
-                    for issue in details["issues"][:5]:  # Limit to first 5 issues
-                        report.append(f"    → {issue}")
-                    if len(details["issues"]) > 5:
-                        report.append(f"    ... and {len(details['issues']) - 5} more issues")
+        return failed_section
 
-    def _add_quality_recommendations(self, results: dict, report: list[str]):
-        """Add quality recommendations to report"""
+    def _build_single_failed_check(self, check: str, results: dict) -> str:
+        """Build section for a single failed check"""
+        check_section = f"\n  • {check}"
+        details = results.get("details", {}).get(check, {})
+
+        if details.get("issues"):
+            check_section += self._build_issues_list(details["issues"])
+
+        return check_section
+
+    def _build_issues_list(self, issues: list[str]) -> str:
+        """Build list of issues with optional truncation"""
+        issues_section = ""
+        displayed_issues = issues[:5]  # Limit to first 5 issues
+
+        for issue in displayed_issues:
+            issues_section += f"\n    → {issue}"
+
+        if len(issues) > 5:
+            remaining_count = len(issues) - 5
+            issues_section += f"\n    ... and {remaining_count} more issues"
+
+        return issues_section
+
+    def _build_recommendations_section(self, results: dict) -> str:
+        """Build recommendations section"""
+        if not results.get("failed"):
+            return ""
+
+        recommendations = ["\n💡 Recommendations:"]
         failed_checks = str(results.get("failed", []))
 
-        if "ruff" in failed_checks:
-            report.append("  • Run 'ruff check --fix' to auto-fix formatting issues")
-        if "mypy" in failed_checks:
-            report.append("  • Add type hints to resolve mypy errors")
-        if "bandit" in failed_checks:
-            report.append("  • Review security issues and add '# nosec' for false positives")
-        if "complexity" in failed_checks:
-            report.append("  • Refactor complex functions to reduce cyclomatic complexity")
+        for check_type, recommendation in self._get_recommendation_map().items():
+            if check_type in failed_checks:
+                recommendations.append(recommendation)
+
+        return "\n".join(recommendations) if len(recommendations) > 1 else ""
+
+    def _get_recommendation_map(self) -> dict[str, str]:
+        """Get mapping of check types to recommendations"""
+        return {
+            "ruff": "  • Run 'ruff check --fix' to auto-fix formatting issues",
+            "mypy": "  • Add type hints to resolve mypy errors",
+            "bandit": "  • Review security issues and add '# nosec' for false positives",
+            "complexity": "  • Refactor complex functions to reduce cyclomatic complexity",
+        }
