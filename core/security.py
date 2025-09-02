@@ -157,35 +157,45 @@ class SecurityManager:
         logger.info(f"Added authorized key for {client_name} (fingerprint: {fingerprint[:16]}...)")
 
     def authenticate_with_private_key(self, private_key_pem: str) -> tuple[bool, str | None, str | None]:
-        """Authenticate using a private key - simplified to single return"""
+        """Authenticate using a private key - single return path"""
         try:
-            # Validate and process private key
-            validation_result = self._validate_and_process_private_key(private_key_pem)
-            if validation_result.get("error"):
-                return False, None, validation_result["error"]
-
-            # Extract validated components
-            private_key = validation_result["private_key"]
-            public_pem = validation_result["public_pem"]
-            fingerprint = validation_result["fingerprint"]
-
-            # Perform challenge-response authentication
-            auth_result = self._perform_authentication_challenge(private_key, public_pem)
-            if auth_result.get("error"):
-                return False, None, auth_result["error"]
-
-            # Create session and update key usage
-            session_token = self._create_authenticated_session(fingerprint)
-
-            authorized_keys = self._load_authorized_keys()
-            client_name = authorized_keys[fingerprint]["name"]
-            logger.info(f"Authentication successful for {client_name}")
-
-            return True, session_token, None
-
+            # Perform complete authentication workflow
+            auth_result = self._execute_authentication_workflow(private_key_pem)
+            return auth_result
         except Exception as e:
             logger.error(f"Authentication failed: {e}")
-            return False, None, str(e)
+            return (False, None, str(e))
+
+    def _execute_authentication_workflow(self, private_key_pem: str) -> tuple[bool, str | None, str | None]:
+        """Execute the complete authentication workflow"""
+        # Validate and process private key
+        validation_result = self._validate_and_process_private_key(private_key_pem)
+        if validation_result.get("error"):
+            return (False, None, validation_result["error"])
+
+        # Extract validated components
+        private_key = validation_result["private_key"]
+        public_pem = validation_result["public_pem"]
+        fingerprint = validation_result["fingerprint"]
+
+        # Perform challenge-response authentication
+        auth_result = self._perform_authentication_challenge(private_key, public_pem)
+        if auth_result.get("error"):
+            return (False, None, auth_result["error"])
+
+        # Complete authentication and return success
+        session_token = self._complete_authentication(fingerprint)
+        return (True, session_token, None)
+
+    def _complete_authentication(self, fingerprint: str) -> str:
+        """Complete authentication process and return session token"""
+        session_token = self._create_authenticated_session(fingerprint)
+
+        authorized_keys = self._load_authorized_keys()
+        client_name = authorized_keys[fingerprint]["name"]
+        logger.info(f"Authentication successful for {client_name}")
+
+        return session_token
 
     def _validate_and_process_private_key(self, private_key_pem: str) -> dict:
         """Validate private key and check authorization"""

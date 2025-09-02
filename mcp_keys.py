@@ -152,27 +152,70 @@ class MCPKeyManager:
         return copy_result["success"]
 
     def _copy_by_os(self, private_key: str) -> dict:
-        """Copy to clipboard by OS - consolidated to reduce complexity"""
+        """Copy to clipboard by OS - consolidated to reduce returns"""
         system = platform.system()
 
         try:
-            # Handle different operating systems
-            copy_commands = {
-                "Darwin": ("pbcopy", "macOS"),  # macOS
-                "Windows": ("clip", "Windows"),
-            }
-
-            if system in copy_commands:
-                cmd, method = copy_commands[system]
-                subprocess.run(cmd, input=private_key.encode(), check=True)
-                return {"success": True, "method": method}
-            elif system == "Linux":
-                return self._copy_to_linux_clipboard(private_key)
-            else:
-                return {"success": False, "error": f"Clipboard not supported on {system}"}
-
+            result = self._attempt_clipboard_copy(system, private_key)
+            return result
         except Exception as e:
             return {"success": False, "error": f"Failed to copy to clipboard: {e}"}
+
+    def _attempt_clipboard_copy(self, system: str, private_key: str) -> dict:
+        """Attempt clipboard copy based on system - single return path"""
+        try:
+            copy_result = self._execute_system_specific_copy(system, private_key)
+            return copy_result
+        except Exception as e:
+            return {"success": False, "error": f"Clipboard copy failed: {e}"}
+
+    def _execute_system_specific_copy(self, system: str, private_key: str) -> dict:
+        """Execute system-specific clipboard copy"""
+        copy_handlers = {
+            "Darwin": lambda: self._copy_macos(private_key),
+            "Windows": lambda: self._copy_windows(private_key),
+            "Linux": lambda: self._copy_to_linux_clipboard(private_key),
+        }
+
+        handler = copy_handlers.get(system)
+        if handler:
+            return handler()
+        else:
+            return {"success": False, "error": f"Clipboard not supported on {system}"}
+
+    def _copy_macos(self, private_key: str) -> dict:
+        """Copy to macOS clipboard"""
+        subprocess.run("pbcopy", input=private_key.encode(), check=True)
+        return {"success": True, "method": "macOS"}
+
+    def _copy_windows(self, private_key: str) -> dict:
+        """Copy to Windows clipboard"""
+        subprocess.run("clip", input=private_key.encode(), check=True)
+        return {"success": True, "method": "Windows"}
+
+    def _copy_to_linux_clipboard(self, private_key: str) -> dict:
+        """Copy to Linux clipboard using available tools - single return"""
+        try:
+            return self._try_linux_clipboard_tools(private_key)
+        except Exception as e:
+            return {"success": False, "error": f"Linux clipboard error: {e}"}
+
+    def _try_linux_clipboard_tools(self, private_key: str) -> dict:
+        """Try Linux clipboard tools in order of preference"""
+        # Try xclip first, then xsel
+        tools = [
+            ("xclip", ["xclip", "-selection", "clipboard"], "Linux/xclip"),
+            ("xsel", ["xsel", "--clipboard", "--input"], "Linux/xsel"),
+        ]
+
+        for _tool_name, cmd, method_name in tools:
+            try:
+                subprocess.run(cmd, input=private_key.encode(), check=True)
+                return {"success": True, "method": method_name}
+            except Exception:
+                continue
+
+        return {"success": False, "error": "No Linux clipboard tools available (xclip/xsel)"}
 
     def export(self, output_file: str | None = None, format: str = "pem"):
         """Export keys to file"""
@@ -403,19 +446,6 @@ class MCPKeyManager:
         else:
             print(f"❌ Server error: {response.status_code}")
             return False
-
-    def _copy_to_linux_clipboard(self, private_key: str) -> dict:
-        """Copy to Linux clipboard using available tools"""
-        try:
-            # Try xclip first, then xsel
-            try:
-                subprocess.run(["xclip", "-selection", "clipboard"], input=private_key.encode(), check=True)
-                return {"success": True, "method": "Linux/xclip"}
-            except Exception:
-                subprocess.run(["xsel", "--clipboard", "--input"], input=private_key.encode(), check=True)
-                return {"success": True, "method": "Linux/xsel"}
-        except Exception as e:
-            return {"success": False, "error": f"Linux clipboard error: {e}"}
 
 
 def main():

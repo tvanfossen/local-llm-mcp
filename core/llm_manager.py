@@ -336,72 +336,96 @@ class LLMManager:
         max_tokens: int | None = None,
         stop_sequences: list | None = None,
     ):
-        """Generate streaming response from the model"""
+        """Generate streaming response from the model - simplified complexity"""
         if not self.model_loaded:
             yield {"type": "error", "message": "Model not loaded"}
             return
 
-        # Use config defaults if not specified
-        temperature = temperature or self.config.temperature
-        max_tokens = max_tokens or self.config.max_tokens
-        stop_sequences = stop_sequences or ["</s>", "<|im_end|>", "<|endoftext|>"]
-
         try:
-            start_time = time.time()
-            accumulated_text = ""
-            tokens_generated = 0
+            # Initialize streaming
+            stream_context = self._initialize_streaming_context(temperature, max_tokens, stop_sequences)
+            stream = self._create_llm_stream(prompt, stream_context)
 
-            # Create streaming generator
-            stream = self.llm(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=stop_sequences,
-                stream=True,
-                echo=False,
-            )
-
-            for output in stream:
-                if output.get("choices"):
-                    chunk_text = output["choices"][0].get("text", "")
-                    if chunk_text:
-                        accumulated_text += chunk_text
-                        tokens_generated += 1
-
-                        yield {
-                            "type": "chunk",
-                            "content": chunk_text,
-                            "accumulated": accumulated_text,
-                            "tokens_so_far": tokens_generated,
-                        }
-
-            # Final response
-            end_time = time.time()
-            processing_time = end_time - start_time
-
-            # Parse final response
-            agent_response = self._parse_agent_response(accumulated_text)
-            agent_response.tokens_used = tokens_generated
-            agent_response.processing_time = processing_time
-
-            # Update performance tracking
-            self._update_performance_metrics(tokens_generated, processing_time)
-
-            metrics = {
-                "tokens_generated": tokens_generated,
-                "processing_time": processing_time,
-                "tokens_per_second": self.avg_tokens_per_second,
-            }
-
-            yield {
-                "type": "complete",
-                "response": agent_response,
-                "metrics": metrics,
-            }
+            # Process stream
+            for result in self._process_streaming_output(stream, stream_context):
+                yield result
 
         except Exception as e:
             logger.error(f"Streaming generation failed: {e}")
             yield {"type": "error", "message": f"Streaming failed: {e!s}"}
+
+    def _initialize_streaming_context(self, temperature, max_tokens, stop_sequences):
+        """Initialize context for streaming"""
+        return {
+            "temperature": temperature or self.config.temperature,
+            "max_tokens": max_tokens or self.config.max_tokens,
+            "stop_sequences": stop_sequences or ["</s>", "<|im_end|>", "<|endoftext|>"],
+            "start_time": time.time(),
+            "accumulated_text": "",
+            "tokens_generated": 0,
+        }
+
+    def _create_llm_stream(self, prompt, context):
+        """Create LLM streaming generator"""
+        return self.llm(
+            prompt,
+            max_tokens=context["max_tokens"],
+            temperature=context["temperature"],
+            stop=context["stop_sequences"],
+            stream=True,
+            echo=False,
+        )
+
+    def _process_streaming_output(self, stream, context):
+        """Process streaming output and yield results"""
+        # Yield chunks
+        for output in stream:
+            chunk_result = self._handle_stream_chunk(output, context)
+            if chunk_result:
+                yield chunk_result
+
+        # Yield final result
+        yield self._create_streaming_final_result(context)
+
+    def _handle_stream_chunk(self, output, context):
+        """Handle individual stream chunk"""
+        if not output.get("choices"):
+            return None
+
+        chunk_text = output["choices"][0].get("text", "")
+        if not chunk_text:
+            return None
+
+        # Update context
+        context["accumulated_text"] += chunk_text
+        context["tokens_generated"] += 1
+
+        return {
+            "type": "chunk",
+            "content": chunk_text,
+            "accumulated": context["accumulated_text"],
+            "tokens_so_far": context["tokens_generated"],
+        }
+
+    def _create_streaming_final_result(self, context):
+        """Create final streaming result"""
+        processing_time = time.time() - context["start_time"]
+
+        agent_response = self._parse_agent_response(context["accumulated_text"])
+        agent_response.tokens_used = context["tokens_generated"]
+        agent_response.processing_time = processing_time
+
+        self._update_performance_metrics(context["tokens_generated"], processing_time)
+
+        return {
+            "type": "complete",
+            "response": agent_response,
+            "metrics": {
+                "tokens_generated": context["tokens_generated"],
+                "processing_time": processing_time,
+                "tokens_per_second": self.avg_tokens_per_second,
+            },
+        }
 
     def get_model_info(self) -> dict[str, Any]:
         """Get model information and configuration"""

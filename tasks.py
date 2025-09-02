@@ -159,32 +159,72 @@ def status(ctx):
     print("📊 Agent Persistence Status")
     print("=" * 40)
 
-    state_exists = os.path.exists("./state")
-    workspaces_exists = os.path.exists("./workspaces")
+    # Check directory existence
+    directory_status = _check_directories()
+    _print_directory_status(directory_status)
 
-    print(f"State directory: {'✅ Exists' if state_exists else '❌ Missing'}")
-    print(f"Workspaces directory: {'✅ Exists' if workspaces_exists else '❌ Missing'}")
+    # Check agent data if available
+    if directory_status["state_exists"]:
+        agent_info = _get_agent_information()
+        _print_agent_information(agent_info)
 
-    if state_exists:
-        agents_file = "./state/agents.json"
-        if os.path.exists(agents_file):
-            import json
+    if directory_status["workspaces_exists"]:
+        workspace_info = _get_workspace_information()
+        _print_workspace_information(workspace_info)
 
-            try:
-                with open(agents_file) as f:
-                    data = json.load(f)
-                agent_count = len(data.get("agents", []))
-                print(f"Saved agents: {agent_count}")
-            except Exception:
-                print("Saved agents: Error reading file")
-        else:
-            print("Saved agents: No agents.json file")
 
-    if workspaces_exists:
+def _check_directories():
+    """Check if required directories exist"""
+    return {"state_exists": os.path.exists("./state"), "workspaces_exists": os.path.exists("./workspaces")}
+
+
+def _print_directory_status(directory_status):
+    """Print directory existence status"""
+    state_status = "✅ Exists" if directory_status["state_exists"] else "❌ Missing"
+    workspaces_status = "✅ Exists" if directory_status["workspaces_exists"] else "❌ Missing"
+
+    print(f"State directory: {state_status}")
+    print(f"Workspaces directory: {workspaces_status}")
+
+
+def _get_agent_information():
+    """Get information about saved agents"""
+    agents_file = "./state/agents.json"
+    if not os.path.exists(agents_file):
+        return {"count": "No agents.json file", "error": True}
+
+    try:
+        import json
+
+        with open(agents_file) as f:
+            data = json.load(f)
+        agent_count = len(data.get("agents", []))
+        return {"count": agent_count, "error": False}
+    except Exception:
+        return {"count": "Error reading file", "error": True}
+
+
+def _print_agent_information(agent_info):
+    """Print agent information"""
+    print(f"Saved agents: {agent_info['count']}")
+
+
+def _get_workspace_information():
+    """Get information about workspace directories"""
+    try:
         workspace_dirs = [d for d in os.listdir("./workspaces") if os.path.isdir(f"./workspaces/{d}")]
-        print(f"Agent workspaces: {len(workspace_dirs)}")
-        if workspace_dirs:
-            print(
-                "Workspace IDs:",
-                ", ".join(workspace_dirs[:5]) + ("..." if len(workspace_dirs) > 5 else ""),
-            )
+        return {"dirs": workspace_dirs, "count": len(workspace_dirs)}
+    except Exception:
+        return {"dirs": [], "count": 0}
+
+
+def _print_workspace_information(workspace_info):
+    """Print workspace information"""
+    count = workspace_info["count"]
+    dirs = workspace_info["dirs"]
+
+    print(f"Agent workspaces: {count}")
+    if dirs:
+        displayed_dirs = dirs[:5]
+        suffix = "..." if len(dirs) > 5 else ""
+        print("Workspace IDs:", ", ".join(displayed_dirs) + suffix)
