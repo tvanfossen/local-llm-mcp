@@ -162,7 +162,7 @@ class LLMManager:
             return error_response, {"error": str(e)}
 
     def _parse_agent_response(self, response_text: str) -> AgentResponse:
-        """Parse agent response - simplified to reduce complexity"""
+        """Parse agent response with improved JSON handling for multiline content"""
         try:
             logger.info(f"Attempting to parse response: {response_text[:200]!r}")
 
@@ -172,7 +172,7 @@ class LLMManager:
 
             if json_bounds:
                 json_text = cleaned_text[json_bounds[0] : json_bounds[1] + 1]
-                return self._try_parse_json_response(json_text)
+                return self._try_parse_json_response_with_fixes(json_text)
             else:
                 logger.error("No JSON boundaries found")
                 return self._create_fallback_response(response_text)

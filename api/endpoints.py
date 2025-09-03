@@ -229,24 +229,49 @@ class APIEndpoints:
         }
 
     def _handle_file_content(self, agent, agent_response):
-        """Handle file content writing"""
+        """Handle file content writing with better logging - simplified complexity"""
         try:
-            if agent_response.file_content.filename == agent.state.managed_file:
-                success = agent.write_managed_file(agent_response.file_content.content)
-                if success:
-                    logger.info(f"Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
-                    agent_response.changes_made.append("File written to disk")
-                else:
-                    logger.error(f"Agent {agent.state.agent_id} failed to write file")
-                    agent_response.warnings.append("File content generated but disk write failed")
-            else:
-                agent_response.warnings.append(
-                    f"Filename mismatch: generated {agent_response.file_content.filename}, "
-                    f"manages {agent.state.managed_file}"
-                )
+            self._process_file_content_write_operation(agent, agent_response)
         except Exception as e:
             logger.error(f"File writing error for agent {agent.state.agent_id}: {e}")
             agent_response.warnings.append(f"File write failed: {e!s}")
+
+    def _process_file_content_write_operation(self, agent, agent_response):
+        """Process the file content writing operation"""
+        # Handle filename mismatch by auto-correcting
+        if agent_response.file_content.filename != agent.state.managed_file:
+            self._correct_filename_mismatch(agent, agent_response)
+
+        # Attempt to write the file
+        success = agent.write_managed_file(agent_response.file_content.content)
+        self._handle_write_result(agent, agent_response, success)
+
+    def _correct_filename_mismatch(self, agent, agent_response):
+        """Correct filename mismatch and log the correction"""
+        logger.warning(
+            f"Filename mismatch: generated {agent_response.file_content.filename}, manages {agent.state.managed_file}"
+        )
+        agent_response.file_content.filename = agent.state.managed_file
+        logger.info("Filename automatically corrected")
+
+    def _handle_write_result(self, agent, agent_response, success):
+        """Handle the result of the file write operation"""
+        if success:
+            self._log_successful_write(agent, agent_response)
+            agent_response.changes_made.append("File written to disk")
+        else:
+            self._log_failed_write(agent)
+            agent_response.warnings.append("File content generated but disk write failed")
+
+    def _log_successful_write(self, agent, agent_response):
+        """Log successful file write with details"""
+        logger.info(f"✅ Agent {agent.state.agent_id} wrote file: {agent.state.managed_file}")
+        logger.info(f"   File size: {len(agent_response.file_content.content)} characters")
+        logger.info(f"   File path: {agent.get_managed_file_path()}")
+
+    def _log_failed_write(self, agent):
+        """Log failed file write"""
+        logger.error(f"❌ Agent {agent.state.agent_id} failed to write file")
 
     def _update_agent_state(self, agent, agent_request, agent_response):
         """Update agent state after processing"""

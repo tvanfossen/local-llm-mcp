@@ -332,31 +332,51 @@ class OrchestratorAPI:
         return self._perform_deployment_validation(request, data)
 
     def _perform_deployment_validation(self, request: Request, data: dict) -> dict:
-        """Perform deployment validation with consolidated logic"""
+        """Perform deployment validation with consolidated logic - simplified complexity"""
         # Validate authentication
         session_token = self._extract_session_token(request)
         if not session_token:
             return {"error": "Authentication required", "status": 401}
 
-        # Consolidate parameter and agent validation
-        validation_issues = []
+        # Validate required parameters
+        validation_result = self._validate_required_deployment_params(data)
+        if validation_result["error"]:
+            return validation_result
 
+        # Process target path mapping
+        target_mapping = self._process_target_path_mapping(validation_result["target_path"])
+
+        return {
+            "session_token": session_token,
+            "agent": validation_result["agent"],
+            "target_path": target_mapping["mapped_path"],
+            "original_target_path": target_mapping["original_path"],
+        }
+
+    def _validate_required_deployment_params(self, data: dict) -> dict:
+        """Validate required deployment parameters"""
         agent_id = data.get("agent_id")
         target_path = data.get("target_path")
 
         if not agent_id or not target_path:
-            validation_issues.append(("agent_id and target_path required", 400))
+            return {"error": "agent_id and target_path required", "status": 400}
 
-        agent = self.agent_registry.get_agent(agent_id) if agent_id else None
-        if agent_id and not agent:
-            validation_issues.append((f"Agent {agent_id} not found", 404))
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            return {"error": f"Agent {agent_id} not found", "status": 404}
 
-        # Return first issue if any exist
-        if validation_issues:
-            error_msg, status = validation_issues[0]
-            return {"error": error_msg, "status": status}
+        return {"error": False, "agent": agent, "target_path": target_path}
 
-        return {"session_token": session_token, "agent": agent, "target_path": target_path}
+    def _process_target_path_mapping(self, target_path: str) -> dict:
+        """Process target path mapping for container filesystem"""
+        if target_path.startswith("/"):
+            # Map absolute paths to the mounted host directory
+            mapped_path = f"/host/repo{target_path}"
+        else:
+            # Relative paths go into /host/repo
+            mapped_path = f"/host/repo/{target_path}"
+
+        return {"mapped_path": mapped_path, "original_path": target_path}
 
     def _validate_rollback_request(self, request: Request, data: dict) -> dict:
         """Validate rollback request and return validation result - consolidated"""

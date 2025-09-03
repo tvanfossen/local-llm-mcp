@@ -16,7 +16,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }
 
@@ -98,12 +98,12 @@
 
         .main-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 30px;
             margin-bottom: 30px;
         }
 
-        .agents-panel, .deployment-panel {
+        .agents-panel, .deployment-panel, .control-panel {
             background: rgba(26, 31, 58, 0.6);
             border: 1px solid #2d3561;
             border-radius: 8px;
@@ -126,6 +126,7 @@
             padding: 15px;
             margin-bottom: 15px;
             transition: all 0.3s;
+            cursor: pointer;
         }
 
         .agent-card:hover {
@@ -136,6 +137,11 @@
         .agent-card.selected {
             border-color: #7b2ff7;
             background: rgba(123, 47, 247, 0.1);
+        }
+
+        .agent-card.active-control {
+            border-color: #00d4ff;
+            background: rgba(0, 212, 255, 0.1);
         }
 
         .agent-name {
@@ -211,6 +217,163 @@
 
         .queue-item.failed {
             border-left: 3px solid #ff5555;
+        }
+
+        .deployment-item {
+            background: rgba(26, 31, 58, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .deployment-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .skip-testing {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85em;
+        }
+
+        .skip-testing input[type="checkbox"] {
+            accent-color: #7b2ff7;
+        }
+
+        .tool-selector {
+            width: 100%;
+            padding: 10px;
+            background: rgba(10, 14, 39, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            color: #e0e6ed;
+            margin-bottom: 15px;
+        }
+
+        .action-queue {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            min-height: 200px;
+            margin-bottom: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .action-item {
+            background: rgba(26, 31, 58, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .action-item.queued {
+            border-left: 3px solid #ffb86c;
+        }
+
+        .action-item.executing {
+            border-left: 3px solid #00d4ff;
+            animation: pulse 2s infinite;
+        }
+
+        .action-item.completed {
+            border-left: 3px solid #50fa7b;
+        }
+
+        .action-item.failed {
+            border-left: 3px solid #ff5555;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .action-details {
+            flex-grow: 1;
+        }
+
+        .action-title {
+            font-weight: bold;
+            color: #00d4ff;
+            margin-bottom: 4px;
+        }
+
+        .action-description {
+            font-size: 0.85em;
+            color: #8892b0;
+        }
+
+        .action-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 0.8em;
+            background: #6272a4;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+        }
+
+        .btn-small:hover {
+            background: #7b8bb2;
+        }
+
+        .btn-small.danger {
+            background: #ff5555;
+        }
+
+        .btn-small.danger:hover {
+            background: #ff6b6b;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #8892b0;
+            font-size: 0.9em;
+        }
+
+        .text-area {
+            width: 100%;
+            padding: 10px;
+            background: rgba(10, 14, 39, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            color: #e0e6ed;
+            font-family: monospace;
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .queue-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: rgba(10, 14, 39, 0.4);
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
         }
 
         .terminal {
@@ -345,7 +508,7 @@
     <div class="container">
         <div class="header">
             <h1>🤖 Agent Orchestrator</h1>
-            <p>Secure Test-Driven Deployment Pipeline</p>
+            <p>Secure Test-Driven Deployment Pipeline with Manual Control</p>
         </div>
 
         <div class="auth-section">
@@ -364,6 +527,52 @@
                     <button class="btn" onclick="refreshAgents()">Refresh</button>
                 </div>
                 <div id="agentsList"></div>
+            </div>
+
+            <div class="control-panel">
+                <div class="panel-header">
+                    <h3>🎮 Manual Control</h3>
+                    <span id="selectedAgentName">No agent selected</span>
+                </div>
+
+                <div class="form-group">
+                    <label>MCP Tool:</label>
+                    <select class="tool-selector" id="toolSelector" onchange="updateToolInputs(); updateManualControlUI();">
+                        <option value="">Select a tool...</option>
+                        <option value="create_agent">Create Agent</option>
+                        <option value="list_agents">List Agents</option>
+                        <option value="get_agent_info">Get Agent Info</option>
+                        <option value="delete_agent">Delete Agent</option>
+                        <option value="chat_with_agent">Chat with Agent</option>
+                        <option value="agent_update_file">Update File</option>
+                        <option value="get_agent_file">Get File Content</option>
+                        <option value="agent_write_file">Write File</option>
+                        <option value="validate_agent_file">Validate File</option>
+                    </select>
+                </div>
+
+                <div id="toolInputs">
+                    <!-- Dynamic tool inputs will be inserted here -->
+                </div>
+
+                <div class="controls">
+                    <button class="btn" onclick="queueAction()" disabled id="queueActionBtn">Queue Action</button>
+                    <button class="btn" onclick="executeNow()" disabled id="executeNowBtn">Execute Now</button>
+                </div>
+
+                <div class="queue-stats">
+                    <span>Queue: <span id="queueCount">0</span> actions</span>
+                    <span>Status: <span id="queueStatus">Idle</span></span>
+                </div>
+
+                <div class="action-queue" id="actionQueue">
+                    <p style="opacity: 0.5; text-align: center;">No actions in queue</p>
+                </div>
+
+                <div class="controls">
+                    <button class="btn" onclick="processQueue()" disabled id="processQueueBtn">Process Queue</button>
+                    <button class="btn" onclick="clearActionQueue()" style="background: #ff5555;">Clear Queue</button>
+                </div>
             </div>
 
             <div class="deployment-panel">
@@ -417,6 +626,9 @@
         let deploymentQueue = [];
         let privateKeyData = null;
         let sessionToken = null;
+        let currentSelectedAgent = null;
+        let actionQueue = [];
+        let isProcessingQueue = false;
 
         // Initialize WebSocket connection
         function initWebSocket() {
@@ -467,7 +679,7 @@
                     const data = await response.json();
                     authenticated = true;
 
-                    // CRITICAL FIX: Store the session token, not the private key!
+                    // Store the session token
                     sessionToken = data.session_token;
 
                     document.getElementById('authIndicator').classList.add('authenticated');
@@ -531,6 +743,7 @@
         }
 
         function toggleAgentSelection(agent, card) {
+            // Handle deployment queue selection
             if (selectedAgents.has(agent.id)) {
                 selectedAgents.delete(agent.id);
                 card.classList.remove('selected');
@@ -541,6 +754,173 @@
                 addToQueue(agent);
             }
             updateQueueDisplay();
+
+            // Handle manual control selection (single agent)
+            // First remove active-control class from all cards
+            document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active-control'));
+
+            if (currentSelectedAgent && currentSelectedAgent.id === agent.id) {
+                // Deselect if clicking the same agent
+                currentSelectedAgent = null;
+                updateManualControlUI();
+            } else {
+                // Select this agent for manual control
+                currentSelectedAgent = agent;
+                card.classList.add('active-control');
+                updateManualControlUI();
+            }
+        }
+
+        function updateToolInputs() {
+            const tool = document.getElementById('toolSelector').value;
+            const container = document.getElementById('toolInputs');
+
+            if (!tool) {
+                container.innerHTML = '';
+                return;
+            }
+
+            const toolInputs = {
+                'create_agent': `
+                    <div class="form-group">
+                        <label>Agent Name:</label>
+                        <input type="text" class="repo-input" id="agent_name" placeholder="readme-agent" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description:</label>
+                        <input type="text" class="repo-input" id="agent_description" placeholder="Manages project README documentation" required>
+                    </div>
+                    <div class="form-group">
+                        <label>System Prompt:</label>
+                        <textarea class="text-area" id="agent_system_prompt" placeholder="You are a documentation expert..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Managed File:</label>
+                        <input type="text" class="repo-input" id="agent_managed_file" placeholder="README.md" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Initial Context (optional):</label>
+                        <textarea class="text-area" id="agent_initial_context" placeholder="Optional starting context..."></textarea>
+                    </div>
+                `,
+                'list_agents': `
+                    <p style="color: #8892b0; font-style: italic;">No parameters required</p>
+                `,
+                'get_agent_info': `
+                    <div class="form-group">
+                        <label>Agent ID:</label>
+                        <input type="text" class="repo-input" id="target_agent_id" placeholder="e1f8d6fd" required>
+                    </div>
+                `,
+                'delete_agent': `
+                    <div class="form-group">
+                        <label>Agent ID:</label>
+                        <input type="text" class="repo-input" id="target_agent_id" placeholder="e1f8d6fd" required>
+                    </div>
+                    <p style="color: #ff5555; font-size: 0.9em;">⚠️ Warning: This will permanently delete the agent and free up its managed file.</p>
+                `,
+                'chat_with_agent': `
+                    <div class="form-group">
+                        <label>Message:</label>
+                        <textarea class="text-area" id="chat_message" placeholder="Your instruction to the agent..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Task Type:</label>
+                        <select class="tool-selector" id="chat_task_type">
+                            <option value="update">Update</option>
+                            <option value="create">Create</option>
+                            <option value="analyze">Analyze</option>
+                            <option value="refactor">Refactor</option>
+                            <option value="debug">Debug</option>
+                            <option value="document">Document</option>
+                            <option value="test">Test</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Context (optional):</label>
+                        <textarea class="text-area" id="chat_context" placeholder="Additional context..."></textarea>
+                    </div>
+                `,
+                'agent_update_file': `
+                    <div class="form-group">
+                        <label>Update Instructions:</label>
+                        <textarea class="text-area" id="update_instruction" placeholder="Specific instructions for updating the file..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Current Content (optional):</label>
+                        <textarea class="text-area" id="current_content" placeholder="Leave empty to let agent read current content..."></textarea>
+                    </div>
+                `,
+                'get_agent_file': `
+                    <p style="color: #8892b0; font-style: italic;">No parameters required - will return the agent's managed file content</p>
+                `,
+                'agent_write_file': `
+                    <div class="form-group">
+                        <label>File Content:</label>
+                        <textarea class="text-area" id="write_content" placeholder="Complete file content to write..." required style="min-height: 120px;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="validation_required" style="margin-right: 8px;">
+                            Require validation after writing
+                        </label>
+                    </div>
+                `,
+                'validate_agent_file': `
+                    <div class="form-group">
+                        <label>Validation Type:</label>
+                        <select class="tool-selector" id="validation_type">
+                            <option value="syntax">Syntax</option>
+                            <option value="formatting">Formatting</option>
+                            <option value="structure">Structure</option>
+                            <option value="all">All</option>
+                        </select>
+                    </div>
+                `
+            };
+
+            container.innerHTML = toolInputs[tool] || '<p style="color: #ff5555;">Unknown tool selected</p>';
+        }
+
+        function buildParametersFromInputs() {
+            const tool = document.getElementById('toolSelector').value;
+
+            const builders = {
+                'create_agent': () => ({
+                    name: document.getElementById('agent_name').value,
+                    description: document.getElementById('agent_description').value,
+                    system_prompt: document.getElementById('agent_system_prompt').value,
+                    managed_file: document.getElementById('agent_managed_file').value,
+                    initial_context: document.getElementById('agent_initial_context').value
+                }),
+                'list_agents': () => ({}),
+                'get_agent_info': () => ({
+                    agent_id: document.getElementById('target_agent_id').value
+                }),
+                'delete_agent': () => ({
+                    agent_id: document.getElementById('target_agent_id').value
+                }),
+                'chat_with_agent': () => ({
+                    message: document.getElementById('chat_message').value,
+                    task_type: document.getElementById('chat_task_type').value,
+                    context: document.getElementById('chat_context').value
+                }),
+                'agent_update_file': () => ({
+                    instruction: document.getElementById('update_instruction').value,
+                    current_content: document.getElementById('current_content').value
+                }),
+                'get_agent_file': () => ({}),
+                'agent_write_file': () => ({
+                    content: document.getElementById('write_content').value,
+                    validation_required: document.getElementById('validation_required').checked
+                }),
+                'validate_agent_file': () => ({
+                    validation_type: document.getElementById('validation_type').value
+                })
+            };
+
+            const builder = builders[tool];
+            return builder ? builder() : {};
         }
 
         function addToQueue(agent) {
@@ -550,7 +930,8 @@
                     name: agent.name,
                     file: agent.managed_file,
                     status: 'pending',
-                    coverage: 0
+                    coverage: 0,
+                    skipTesting: false
                 });
             }
         }
@@ -568,16 +949,469 @@
             }
 
             container.innerHTML = deploymentQueue.map(item => `
-                <div class="queue-item ${item.status}">
-                    <div>
-                        <strong>${item.name}</strong>
-                        <span style="color: #8892b0; margin-left: 10px;">${item.file}</span>
+                <div class="deployment-item">
+                    <div class="deployment-item-header">
+                        <div>
+                            <strong>${item.name}</strong>
+                            <span style="color: #8892b0; margin-left: 10px;">${item.file}</span>
+                        </div>
+                        <div class="skip-testing">
+                            <input type="checkbox" id="skip-${item.id}" onchange="toggleSkipTesting('${item.id}')" ${item.skipTesting ? 'checked' : ''}>
+                            <label for="skip-${item.id}">Skip testing</label>
+                        </div>
                     </div>
-                    <div>
-                        ${item.coverage}% coverage
+                    <div class="${item.status}" style="font-size: 0.85em; color: #8892b0;">
+                        Status: ${item.status} | Coverage: ${item.coverage}%
+                        ${item.skipTesting ? ' | Testing skipped' : ''}
                     </div>
                 </div>
             `).join('');
+        }
+
+        function toggleSkipTesting(agentId) {
+            const item = deploymentQueue.find(i => i.id === agentId);
+            if (item) {
+                item.skipTesting = document.getElementById(`skip-${agentId}`).checked;
+                addTerminalLine(`${item.skipTesting ? 'Enabled' : 'Disabled'} skip testing for ${item.name}`, 'info');
+            }
+        }
+
+        function updateManualControlUI() {
+            const selectedNameEl = document.getElementById('selectedAgentName');
+            const queueActionBtn = document.getElementById('queueActionBtn');
+            const executeNowBtn = document.getElementById('executeNowBtn');
+            const tool = document.getElementById('toolSelector').value;
+
+            // Check if tool requires an agent to be selected
+            const agentRequiredTools = ['chat_with_agent', 'agent_update_file', 'get_agent_file', 'agent_write_file', 'validate_agent_file'];
+            const needsAgent = agentRequiredTools.includes(tool);
+
+            if (currentSelectedAgent) {
+                selectedNameEl.textContent = `${currentSelectedAgent.name} (${currentSelectedAgent.managed_file})`;
+                selectedNameEl.style.color = '#00d4ff';
+            } else {
+                selectedNameEl.textContent = 'No agent selected';
+                selectedNameEl.style.color = '#8892b0';
+            }
+
+            // Enable buttons based on tool requirements
+            const canExecute = tool && (!needsAgent || currentSelectedAgent);
+            queueActionBtn.disabled = !canExecute;
+            executeNowBtn.disabled = !canExecute;
+        }
+
+        function queueAction() {
+            const tool = document.getElementById('toolSelector').value;
+            if (!tool) {
+                addTerminalLine('Please select a tool', 'warning');
+                return;
+            }
+
+            // Build parameters from form inputs
+            const parameters = buildParametersFromInputs();
+
+            // Validate required fields
+            if (!validateToolParameters(tool, parameters)) {
+                return;
+            }
+
+            const action = {
+                id: Date.now().toString(),
+                tool: tool,
+                agentId: currentSelectedAgent?.id,
+                agentName: currentSelectedAgent?.name || 'System',
+                parameters: parameters,
+                status: 'queued',
+                timestamp: new Date().toLocaleTimeString()
+            };
+
+            actionQueue.push(action);
+            updateActionQueueDisplay();
+            addTerminalLine(`Queued ${tool} ${currentSelectedAgent ? `for ${currentSelectedAgent.name}` : ''}`, 'info');
+
+            // Clear form inputs
+            clearToolInputs();
+
+            // Enable process queue button
+            document.getElementById('processQueueBtn').disabled = false;
+        }
+
+        async function executeNow() {
+            const tool = document.getElementById('toolSelector').value;
+            if (!tool) {
+                addTerminalLine('Please select a tool', 'warning');
+                return;
+            }
+
+            // Build parameters from form inputs
+            const parameters = buildParametersFromInputs();
+
+            // Validate required fields
+            if (!validateToolParameters(tool, parameters)) {
+                return;
+            }
+
+            const actionName = currentSelectedAgent ? `${tool} for ${currentSelectedAgent.name}` : tool;
+            addTerminalLine(`Executing ${actionName}...`, 'info');
+
+            try {
+                const result = await executeAction({
+                    tool: tool,
+                    agentId: currentSelectedAgent?.id,
+                    parameters: parameters
+                });
+
+                if (result.success) {
+                    addTerminalLine(`✅ ${actionName} completed`, 'success');
+                    if (result.response && result.response.message) {
+                        addTerminalLine(`Response: ${result.response.message}`, 'info');
+                    }
+
+                    // Refresh agents list if we created/deleted an agent
+                    if (['create_agent', 'delete_agent'].includes(tool)) {
+                        refreshAgents();
+                    }
+                } else {
+                    addTerminalLine(`❌ ${actionName} failed: ${result.error}`, 'error');
+                }
+
+                // Clear form inputs
+                clearToolInputs();
+            } catch (error) {
+                addTerminalLine(`❌ Execution error: ${error}`, 'error');
+            }
+        }
+
+        function validateToolParameters(tool, parameters) {
+            const validators = {
+                'create_agent': (p) => p.name && p.description && p.system_prompt && p.managed_file,
+                'get_agent_info': (p) => p.agent_id,
+                'delete_agent': (p) => p.agent_id,
+                'chat_with_agent': (p) => p.message,
+                'agent_update_file': (p) => p.instruction,
+                'agent_write_file': (p) => p.content,
+                'validate_agent_file': (p) => true,
+                'get_agent_file': (p) => true,
+                'list_agents': (p) => true
+            };
+
+            const validator = validators[tool];
+            if (validator && !validator(parameters)) {
+                addTerminalLine('Please fill in all required fields', 'warning');
+                return false;
+            }
+            return true;
+        }
+
+        function clearToolInputs() {
+            // Clear all form inputs in the tool inputs container
+            const container = document.getElementById('toolInputs');
+            const inputs = container.querySelectorAll('input, textarea, select');
+            inputs.forEach(input => {
+                if (input.type === 'checkbox') {
+                    input.checked = false;
+                } else {
+                    input.value = '';
+                }
+            });
+        }
+
+        function updateActionQueueDisplay() {
+            const container = document.getElementById('actionQueue');
+            const queueCountEl = document.getElementById('queueCount');
+
+            queueCountEl.textContent = actionQueue.length;
+
+            if (actionQueue.length === 0) {
+                container.innerHTML = '<p style="opacity: 0.5; text-align: center;">No actions in queue</p>';
+                document.getElementById('processQueueBtn').disabled = true;
+                return;
+            }
+
+            container.innerHTML = actionQueue.map((action, index) => `
+                <div class="action-item ${action.status}">
+                    <div class="action-details">
+                        <div class="action-title">${action.tool} → ${action.agentName}</div>
+                        <div class="action-description">
+                            ${action.parameters.message || JSON.stringify(action.parameters).substring(0, 50)}...
+                        </div>
+                        <div style="font-size: 0.8em; color: #6272a4;">Queued: ${action.timestamp}</div>
+                    </div>
+                    <div class="action-controls">
+                        ${action.status === 'queued' ? `
+                            <button class="btn-small" onclick="moveActionUp(${index})" ${index === 0 ? 'disabled' : ''}>↑</button>
+                            <button class="btn-small" onclick="moveActionDown(${index})" ${index === actionQueue.length - 1 ? 'disabled' : ''}>↓</button>
+                            <button class="btn-small danger" onclick="removeAction(${index})">✕</button>
+                        ` : ''}
+                        ${action.status === 'completed' && action.result ? `
+                            <button class="btn-small" onclick="showActionResult('${action.id}')">View</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function moveActionUp(index) {
+            if (index > 0) {
+                [actionQueue[index], actionQueue[index - 1]] = [actionQueue[index - 1], actionQueue[index]];
+                updateActionQueueDisplay();
+            }
+        }
+
+        function moveActionDown(index) {
+            if (index < actionQueue.length - 1) {
+                [actionQueue[index], actionQueue[index + 1]] = [actionQueue[index + 1], actionQueue[index]];
+                updateActionQueueDisplay();
+            }
+        }
+
+        function removeAction(index) {
+            actionQueue.splice(index, 1);
+            updateActionQueueDisplay();
+            addTerminalLine(`Removed action from queue`, 'info');
+        }
+
+        function clearActionQueue() {
+            actionQueue = [];
+            updateActionQueueDisplay();
+            document.getElementById('queueStatus').textContent = 'Idle';
+            addTerminalLine('Action queue cleared', 'info');
+        }
+
+        async function processQueue() {
+            if (actionQueue.length === 0) {
+                addTerminalLine('No actions to process', 'warning');
+                return;
+            }
+
+            if (isProcessingQueue) {
+                addTerminalLine('Queue is already being processed', 'warning');
+                return;
+            }
+
+            isProcessingQueue = true;
+            document.getElementById('queueStatus').textContent = 'Processing';
+            document.getElementById('processQueueBtn').disabled = true;
+
+            addTerminalLine(`Processing ${actionQueue.length} queued actions...`, 'info');
+
+            for (let i = 0; i < actionQueue.length; i++) {
+                const action = actionQueue[i];
+                if (action.status !== 'queued') continue;
+
+                action.status = 'executing';
+                updateActionQueueDisplay();
+
+                addTerminalLine(`[${i + 1}/${actionQueue.length}] Executing ${action.tool} for ${action.agentName}...`, 'info');
+
+                try {
+                    const result = await executeAction(action);
+
+                    if (result.success) {
+                        action.status = 'completed';
+                        action.result = result;
+                        addTerminalLine(`✅ ${action.tool} completed for ${action.agentName}`, 'success');
+
+                        if (result.response && result.response.message) {
+                            addTerminalLine(`   Response: ${result.response.message.substring(0, 100)}...`, 'info');
+                        }
+                    } else {
+                        action.status = 'failed';
+                        action.error = result.error;
+                        addTerminalLine(`❌ ${action.tool} failed for ${action.agentName}: ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    action.status = 'failed';
+                    action.error = error.message;
+                    addTerminalLine(`❌ Execution error: ${error.message}`, 'error');
+                }
+
+                updateActionQueueDisplay();
+
+                // Small delay between actions
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            const completed = actionQueue.filter(a => a.status === 'completed').length;
+            const failed = actionQueue.filter(a => a.status === 'failed').length;
+
+            addTerminalLine(`Queue processing complete: ${completed} successful, ${failed} failed`, 'info');
+
+            isProcessingQueue = false;
+            document.getElementById('queueStatus').textContent = 'Idle';
+            document.getElementById('processQueueBtn').disabled = false;
+        }
+
+        async function executeAction(action) {
+            if (!authenticated || !sessionToken) {
+                throw new Error('Authentication required');
+            }
+
+            // Handle different tool types
+            if (['create_agent', 'list_agents', 'delete_agent'].includes(action.tool)) {
+                return await executeAgentManagementTool(action);
+            } else if (['get_agent_info', 'chat_with_agent', 'agent_update_file', 'get_agent_file', 'agent_write_file', 'validate_agent_file'].includes(action.tool)) {
+                return await executeAgentOperationTool(action);
+            } else {
+                throw new Error(`Unknown tool: ${action.tool}`);
+            }
+        }
+
+        async function executeAgentManagementTool(action) {
+            const endpoints = {
+                'create_agent': { method: 'POST', url: '/api/agents' },
+                'list_agents': { method: 'GET', url: '/api/agents' },
+                'delete_agent': { method: 'DELETE', url: `/api/agents/${action.parameters.agent_id}` }
+            };
+
+            const endpoint = endpoints[action.tool];
+            if (!endpoint) {
+                throw new Error(`Unknown agent management tool: ${action.tool}`);
+            }
+
+            const requestOptions = {
+                method: endpoint.method,
+                headers: {
+                    'Authorization': `Bearer ${sessionToken}`
+                }
+            };
+
+            if (endpoint.method === 'POST') {
+                requestOptions.headers['Content-Type'] = 'application/json';
+                requestOptions.body = JSON.stringify(action.parameters);
+            }
+
+            const response = await fetch(endpoint.url, requestOptions);
+
+            if (response.ok) {
+                const data = await response.json();
+                return {
+                    success: true,
+                    response: data
+                };
+            } else {
+                const error = await response.json();
+                return { success: false, error: error.error || 'Request failed' };
+            }
+        }
+
+        async function executeAgentOperationTool(action) {
+            if (!action.agentId && action.tool !== 'get_agent_info') {
+                throw new Error('Agent ID required for this tool');
+            }
+
+            // Map tool names to MCP endpoints
+            const toolEndpoints = {
+                'get_agent_info': `/api/agents/${action.parameters.agent_id || action.agentId}`,
+                'chat_with_agent': `/api/agents/${action.agentId}/chat`,
+                'agent_update_file': `/api/agents/${action.agentId}/chat`,
+                'get_agent_file': `/api/agents/${action.agentId}/file`,
+                'agent_write_file': `/api/agents/${action.agentId}/chat`,
+                'validate_agent_file': `/api/agents/${action.agentId}/chat`
+            };
+
+            const endpoint = toolEndpoints[action.tool];
+            if (!endpoint) {
+                throw new Error(`Unknown tool: ${action.tool}`);
+            }
+
+            // Prepare request based on tool type
+            if (action.tool === 'get_agent_file' || action.tool === 'get_agent_info') {
+                // GET request, no body
+                const response = await fetch(endpoint, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    return {
+                        success: true,
+                        response: { message: `Data retrieved successfully`, data: data }
+                    };
+                } else {
+                    const error = await response.json();
+                    return { success: false, error: error.error || 'Request failed' };
+                }
+            } else {
+                // POST request with chat-like body
+                let requestData;
+
+                if (action.tool === 'chat_with_agent') {
+                    requestData = {
+                        message: action.parameters.message,
+                        task_type: action.parameters.task_type || 'update',
+                        context: action.parameters.context,
+                        parameters: action.parameters
+                    };
+                } else {
+                    // Convert other tools to chat-like requests
+                    requestData = {
+                        message: buildChatMessageForTool(action.tool, action.parameters),
+                        task_type: getTaskTypeForTool(action.tool),
+                        parameters: action.parameters
+                    };
+                }
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${sessionToken}`
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    return {
+                        success: true,
+                        response: data.response || data
+                    };
+                } else {
+                    const error = await response.json();
+                    return { success: false, error: error.error || 'Request failed' };
+                }
+            }
+        }
+
+        function buildChatMessageForTool(tool, parameters) {
+            const messageBuilders = {
+                'agent_update_file': (p) => `Update your managed file with these instructions: ${p.instruction}${p.current_content ? `\n\nCurrent content:\n${p.current_content}` : ''}`,
+                'agent_write_file': (p) => `Write the following content to your managed file:\n\n${p.content}`,
+                'validate_agent_file': (p) => `Validate your managed file with ${p.validation_type} validation`
+            };
+
+            const builder = messageBuilders[tool];
+            return builder ? builder(parameters) : JSON.stringify(parameters);
+        }
+
+        function getTaskTypeForTool(tool) {
+            const taskTypes = {
+                'chat_with_agent': 'update',
+                'agent_update_file': 'update',
+                'agent_write_file': 'create',
+                'validate_agent_file': 'analyze'
+            };
+            return taskTypes[tool] || 'update';
+        }
+
+        function showActionResult(actionId) {
+            const action = actionQueue.find(a => a.id === actionId);
+            if (action && action.result) {
+                addTerminalLine('=== Action Result ===', 'info');
+                addTerminalLine(`Tool: ${action.tool}`, 'info');
+                addTerminalLine(`Agent: ${action.agentName}`, 'info');
+                if (action.result.response.message) {
+                    addTerminalLine(`Response: ${action.result.response.message}`, 'info');
+                }
+                if (action.result.response.content) {
+                    addTerminalLine(`Content: ${action.result.response.content.substring(0, 200)}...`, 'info');
+                }
+                addTerminalLine('=== End Result ===', 'info');
+            }
         }
 
         async function runTests() {
@@ -594,6 +1428,14 @@
             addTerminalLine('Starting test suite...', 'info');
 
             for (let item of deploymentQueue) {
+                if (item.skipTesting) {
+                    item.status = 'ready';
+                    item.coverage = 100; // Mark as ready since testing is skipped
+                    addTerminalLine(`⏭️ ${item.name}: Testing skipped by user`, 'warning');
+                    updateQueueDisplay();
+                    continue;
+                }
+
                 item.status = 'testing';
                 updateQueueDisplay();
 
@@ -602,7 +1444,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${sessionToken}`  // FIX: Use sessionToken
+                            'Authorization': `Bearer ${sessionToken}`
                         }
                     });
 
@@ -626,7 +1468,8 @@
             }
 
             const readyCount = deploymentQueue.filter(item => item.status === 'ready').length;
-            addTerminalLine(`Testing complete: ${readyCount}/${deploymentQueue.length} files ready for deployment`,
+            const skippedCount = deploymentQueue.filter(item => item.skipTesting).length;
+            addTerminalLine(`Testing complete: ${readyCount}/${deploymentQueue.length} files ready for deployment (${skippedCount} skipped)`,
                         readyCount === deploymentQueue.length ? 'success' : 'warning');
         }
 
@@ -644,8 +1487,13 @@
 
             const readyItems = deploymentQueue.filter(item => item.status === 'ready');
             if (readyItems.length === 0) {
-                addTerminalLine('No files ready for deployment (require 100% test coverage)', 'warning');
+                addTerminalLine('No files ready for deployment (require 100% test coverage or skip testing)', 'warning');
                 return;
+            }
+
+            const skippedCount = readyItems.filter(item => item.skipTesting).length;
+            if (skippedCount > 0) {
+                addTerminalLine(`⚠️ Deploying ${skippedCount} files without testing`, 'warning');
             }
 
             addTerminalLine(`Deploying ${readyItems.length} files to ${repoPath}...`, 'info');
@@ -656,17 +1504,18 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${sessionToken}`  // FIX: Use sessionToken
+                            'Authorization': `Bearer ${sessionToken}`
                         },
                         body: JSON.stringify({
                             agent_id: item.id,
                             target_path: repoPath,
-                            file_path: item.file
+                            file_path: item.file,
+                            skip_testing: item.skipTesting || false
                         })
                     });
 
                     if (response.ok) {
-                        addTerminalLine(`✅ Deployed: ${item.file}`, 'success');
+                        addTerminalLine(`✅ Deployed: ${item.file}${item.skipTesting ? ' (no tests)' : ''}`, 'success');
                         removeFromQueue({id: item.id});
                     } else {
                         const error = await response.json();
@@ -719,7 +1568,10 @@
         // Initialize on load
         window.onload = () => {
             initWebSocket();
-            addTerminalLine('Orchestrator initialized', 'info');
+            updateManualControlUI();
+            updateActionQueueDisplay();
+            updateToolInputs(); // Initialize tool inputs
+            addTerminalLine('Orchestrator initialized with manual control and CRUD operations', 'info');
         };
     </script>
 </body>
