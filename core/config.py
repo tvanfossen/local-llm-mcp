@@ -1,11 +1,13 @@
 # File: ~/Projects/local-llm-mcp/core/config.py
-"""Configuration Management
+"""Configuration Management with Repository Integration
 
 Responsibilities:
 - Model configuration (CUDA settings, paths, parameters)
 - Server configuration (host, port, logging)
-- Environment variable handling
+- Repository path detection and workspace management
+- Container environment detection for /workspace integration
 - Hardware optimization settings for RTX 1080ti + CUDA 12.9
+Workspace: Container /workspace or host-based paths with .mcp-agents/ structure
 """
 
 import os
@@ -91,7 +93,7 @@ class ServerConfig:
     def from_env(cls) -> "ServerConfig":
         """Create config from environment variables"""
         return cls(
-            host=os.getenv("SERVER_HOST", "0.0.0.0"),  # Change from "localhost"
+            host=os.getenv("SERVER_HOST", "0.0.0.0"),
             port=int(os.getenv("SERVER_PORT", "8000")),
             log_level=os.getenv("LOG_LEVEL", "info"),
             access_log=os.getenv("ACCESS_LOG", "true").lower() == "true",
@@ -104,13 +106,16 @@ class ServerConfig:
 
 @dataclass
 class SystemConfig:
-    """System-wide configuration"""
+    """System-wide configuration with repository integration"""
 
-    # Directory paths
+    # Base directory paths
     base_dir: Path
     state_dir: Path
     workspaces_dir: Path
     logs_dir: Path
+
+    # Repository integration
+    repo_path: Path | None = None
 
     # Agent settings
     max_agents: int = 100
@@ -120,11 +125,15 @@ class SystemConfig:
     max_file_size: int = 1024 * 1024  # 1MB
     allowed_extensions: list = None
 
-    def __init__(self, base_dir: Path | None = None):
+    def __init__(self, base_dir: Path | None = None, repo_path: Path | None = None):
         self.base_dir = base_dir or Path(__file__).parent.parent
-        self.state_dir = self.base_dir / "state"
-        self.workspaces_dir = self.base_dir / "workspaces"
-        self.logs_dir = self.base_dir / "logs"
+        self.repo_path = repo_path
+
+        # Set up directory structure based on environment
+        if self.is_container_environment():
+            self._setup_container_directories()
+        else:
+            self._setup_host_directories()
 
         if self.allowed_extensions is None:
             self.allowed_extensions = [
@@ -139,19 +148,81 @@ class SystemConfig:
                 ".toml",
             ]
 
+    def _setup_container_directories(self):
+        """Setup directories for container environment"""
+        # In container: workspace is /workspace, state/logs are in /app
+        self.state_dir = self.base_dir / "state"
+        self.logs_dir = self.base_dir / "logs"
+        # Workspaces now managed in repository .mcp-agents directory
+        workspace_root = self.get_workspace_root()
+        self.workspaces_dir = workspace_root / ".mcp-agents"
+
+    def _setup_host_directories(self):
+        """Setup directories for host environment (backward compatibility)"""
+        # Host environment: traditional structure
+        self.state_dir = self.base_dir / "state"
+        self.workspaces_dir = self.base_dir / "workspaces"
+        self.logs_dir = self.base_dir / "logs"
+
+    def is_container_environment(self) -> bool:
+        """Detect if running in container environment"""
+        workspace_path = Path("/workspace")
+        return workspace_path.exists() and workspace_path.is_dir()
+
+    def get_workspace_root(self) -> Path:
+        """Get workspace root directory"""
+        if self.is_container_environment():
+            return Path("/workspace")
+        elif self.repo_path:
+            return self.repo_path
+        else:
+            return self.base_dir
+
+    def get_agents_metadata_dir(self) -> Path:
+        """Get .mcp-agents directory for agent metadata"""
+        return self.get_workspace_root() / ".mcp-agents"
+
+    def get_registry_file(self) -> Path:
+        """Get agent registry file location"""
+        if self.is_container_environment():
+            # In container: registry in .mcp-agents for persistence
+            return self.get_agents_metadata_dir() / "registry.json"
+        else:
+            # Host: traditional location for backward compatibility
+            return self.state_dir / "agents.json"
+
     def ensure_directories(self):
         """Ensure all required directories exist"""
-        for directory in [self.state_dir, self.workspaces_dir, self.logs_dir]:
+        directories_to_create = [self.state_dir, self.logs_dir]
+
+        # Always create .mcp-agents structure
+        agents_dir = self.get_agents_metadata_dir()
+        directories_to_create.append(agents_dir)
+
+        # Create workspaces_dir only in host mode for backward compatibility
+        if not self.is_container_environment():
+            directories_to_create.append(self.workspaces_dir)
+
+        for directory in directories_to_create:
             directory.mkdir(parents=True, exist_ok=True)
+
+    def get_agent_workspace_dir(self, agent_id: str) -> Path:
+        """Get workspace directory for specific agent"""
+        if self.is_container_environment():
+            # Container: agent metadata in .mcp-agents, files in workspace root
+            return self.get_agents_metadata_dir() / agent_id
+        else:
+            # Host: traditional workspace structure
+            return self.workspaces_dir / agent_id
 
 
 class ConfigManager:
-    """Centralized configuration management"""
+    """Centralized configuration management with repository integration"""
 
-    def __init__(self):
+    def __init__(self, repo_path: Path | None = None):
         self.model = ModelConfig.from_env()
         self.server = ServerConfig.from_env()
-        self.system = SystemConfig()
+        self.system = SystemConfig(repo_path=repo_path)
 
         # Ensure directories exist
         self.system.ensure_directories()
@@ -165,6 +236,12 @@ class ConfigManager:
 
         if not (1 <= self.server.port <= 65535):
             errors.append(f"Invalid port: {self.server.port}")
+
+        # Validate workspace access in container environment
+        if self.system.is_container_environment():
+            workspace_root = self.system.get_workspace_root()
+            if not workspace_root.exists():
+                errors.append(f"Workspace root not accessible: {workspace_root}")
 
         return len(errors) == 0, errors
 
@@ -186,4 +263,14 @@ class ConfigManager:
             "port": self.server.port,
             "cors_enabled": len(self.server.allow_origins) > 0,
             "websocket_enabled": True,
+        }
+
+    def get_environment_info(self) -> dict:
+        """Get environment and workspace information"""
+        return {
+            "container_environment": self.system.is_container_environment(),
+            "workspace_root": str(self.system.get_workspace_root()),
+            "agents_metadata_dir": str(self.system.get_agents_metadata_dir()),
+            "registry_file": str(self.system.get_registry_file()),
+            "repo_integration": self.system.repo_path is not None,
         }

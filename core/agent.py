@@ -1,12 +1,14 @@
 # File: ~/Projects/local-llm-mcp/core/agent.py
-"""Agent Class and State Management
+"""Agent Class with Direct Repository File Access
 
 Responsibilities:
-- Individual agent state and behavior
+- Individual agent state and behavior with direct workspace file access
 - JSON schema-compliant conversation management
-- Workspace and file management
+- Direct file editing in workspace root (not agent subdirectories)
+- Agent metadata storage in .mcp-agents/{agent_id}/ structure
 - Context building for LLM prompts
-- Persistence and serialization
+- Persistence and serialization with environment detection
+Workspace: Direct file access via SystemConfig workspace root detection
 """
 
 import json
@@ -16,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core.config import SystemConfig
 from schemas.agent_schemas import (
     AgentRequest,
     AgentResponse,
@@ -36,27 +39,31 @@ class AgentCreateParams:
     description: str
     system_prompt: str
     managed_file: str
-    workspace_dir: Path
+    system_config: SystemConfig
     initial_context: str = ""
 
 
 class Agent:
-    """Individual agent with standardized JSON schema communication
+    """Individual agent with direct repository file access
 
-    Each agent manages exactly one file and maintains its own context,
-    conversation history, and workspace state.
+    Each agent manages exactly one file directly in the workspace root,
+    while storing metadata in .mcp-agents/{agent_id}/ directory.
     """
 
-    def __init__(self, state: AgentState, workspace_dir: Path):
+    def __init__(self, state: AgentState, system_config: SystemConfig):
         self.state = state
-        self.workspace_dir = workspace_dir
+        self.system_config = system_config
         self.conversation_history: list[ConversationEntry] = []
 
-        # Create workspace structure
-        self.context_dir = workspace_dir / "context"
-        self.files_dir = workspace_dir / "files"
+        # Get agent metadata directory from system config
+        self.metadata_dir = self.system_config.get_agent_workspace_dir(self.state.agent_id)
 
-        for directory in [self.context_dir, self.files_dir]:
+        # Create metadata subdirectories
+        self.context_dir = self.metadata_dir / "context"
+        self.history_dir = self.metadata_dir / "history"
+
+        # Ensure metadata directories exist
+        for directory in [self.context_dir, self.history_dir]:
             directory.mkdir(parents=True, exist_ok=True)
 
         # Set up agent-specific logging
@@ -68,7 +75,7 @@ class Agent:
 
         # Avoid duplicate handlers
         if not agent_logger.handlers:
-            log_file = self.workspace_dir.parent.parent / "logs" / f"agent_{self.state.agent_id}.log"
+            log_file = self.system_config.logs_dir / f"agent_{self.state.agent_id}.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)
 
             handler = logging.FileHandler(log_file)
@@ -96,17 +103,17 @@ class Agent:
             success_rate=1.0,
         )
 
-        agent = cls(state, params.workspace_dir)
+        agent = cls(state, params.system_config)
         agent.save_context()
 
         agent.logger.info(f"Created new agent: {params.name} -> {params.managed_file}")
         return agent
 
     @classmethod
-    def from_json(cls, data: dict[str, Any], workspace_dir: Path) -> "Agent":
+    def from_json(cls, data: dict[str, Any], system_config: SystemConfig) -> "Agent":
         """Load agent from JSON data"""
         state = AgentState.model_validate(data)
-        agent = cls(state, workspace_dir)
+        agent = cls(state, system_config)
         agent.load_conversation_history()
         return agent
 
@@ -157,15 +164,19 @@ class Agent:
         self.logger.info("Context updated")
 
     def save_context(self):
-        """Save agent context as JSON"""
+        """Save agent context as JSON to metadata directory"""
         context_file = self.context_dir / "agent_context.json"
         context_data = {
             "agent_state": self.state.model_dump(),
             "workspace_info": {
-                "workspace_path": str(self.workspace_dir),
-                "managed_file_path": str(self.files_dir / self.state.managed_file),
-                "managed_file_exists": (self.files_dir / self.state.managed_file).exists(),
+                "metadata_dir": str(self.metadata_dir),
+                "managed_file_path": str(self.get_managed_file_path()),
+                "managed_file_exists": self.get_managed_file_path().exists(),
                 "file_size": self._get_managed_file_size(),
+            },
+            "environment_info": {
+                "container_environment": self.system_config.is_container_environment(),
+                "workspace_root": str(self.system_config.get_workspace_root()),
             },
             "metadata": {
                 "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -182,7 +193,7 @@ class Agent:
 
     def load_conversation_history(self):
         """Load conversation history from JSON Lines"""
-        history_file = self.workspace_dir / "history.jsonl"
+        history_file = self.history_dir / "conversation.jsonl"
         if not history_file.exists():
             return
 
@@ -201,7 +212,7 @@ class Agent:
 
     def save_conversation_history(self):
         """Save conversation history as JSON Lines"""
-        history_file = self.workspace_dir / "history.jsonl"
+        history_file = self.history_dir / "conversation.jsonl"
 
         try:
             with open(history_file, "w") as f:
@@ -211,7 +222,7 @@ class Agent:
             self.logger.error(f"Failed to save conversation history: {e}")
 
     def build_context_prompt(self, request: AgentRequest) -> str:
-        """Build context prompt with simple file content approach"""
+        """Build context prompt with direct file access approach"""
         # Read current file content if it exists
         current_content = self.read_managed_file()
         current_file_info = ""
@@ -291,11 +302,12 @@ CURRENT FILE STATUS:
         return lang_map.get(ext, "text")
 
     def get_managed_file_path(self) -> Path:
-        """Get the full path to the managed file"""
-        return self.files_dir / self.state.managed_file
+        """Get the full path to the managed file in workspace root"""
+        workspace_root = self.system_config.get_workspace_root()
+        return workspace_root / self.state.managed_file
 
     def read_managed_file(self) -> str | None:
-        """Read the content of the managed file"""
+        """Read the content of the managed file from workspace root"""
         file_path = self.get_managed_file_path()
 
         if not file_path.exists():
@@ -309,17 +321,17 @@ CURRENT FILE STATUS:
             return None
 
     def write_managed_file(self, content: str) -> bool:
-        """Write content to the managed file"""
+        """Write content to the managed file in workspace root"""
         file_path = self.get_managed_file_path()
 
         try:
-            # Create parent directories if they don't exist
+            # Ensure parent directories exist (in case of nested file paths)
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
-            self.logger.info(f"Updated managed file: {self.state.managed_file}")
+            self.logger.info(f"Updated managed file: {self.state.managed_file} at {file_path}")
             return True
 
         except Exception as e:
@@ -348,4 +360,9 @@ CURRENT FILE STATUS:
             "success_rate": self.state.success_rate,
             "conversation_entries": len(self.conversation_history),
             "context_length": len(self.state.context),
+            "environment": {
+                "container_mode": self.system_config.is_container_environment(),
+                "workspace_root": str(self.system_config.get_workspace_root()),
+                "metadata_dir": str(self.metadata_dir),
+            },
         }

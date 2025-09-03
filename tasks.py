@@ -1,8 +1,9 @@
 """Invoke tasks for local-llm-mcp project
-Handles Docker build and run operations with persistent agent storage
+Handles Docker build and run operations with direct repository integration
+Workspace: Container /workspace -> Host repository (direct mount)
 """
 
-import os
+from pathlib import Path
 
 from invoke import task
 
@@ -16,48 +17,134 @@ def build(ctx):
 
 
 @task
-def run(ctx, port=8000, models_path=None, state_path=None, workspaces_path=None, project_path=None):
-    """Run the local-llm-mcp container with persistent agent storage
+def run(ctx, port=8000, models_path=None, state_path=None, repo=None):
+    """Run the local-llm-mcp container with direct repository integration
 
     Args:
         port: Port to expose (default: 8000)
         models_path: Path to models directory (default: ~/models)
         state_path: Path to state directory (default: ./state)
-        workspaces_path: Path to workspaces directory (default: ./workspaces)
+        repo: Path to target repository (required for direct file access)
     """
-    if models_path is None:
-        models_path = os.path.expanduser("~/models")
+    # Validate repository path
+    if repo is None:
+        print("❌ Error: --repo parameter is required")
+        print("Example: inv run --repo=/home/user/my-project")
+        print("         inv run --repo=~/Projects/my-app")
+        return
 
-    if state_path is None:
-        state_path = os.path.abspath("./state")
+    # Resolve and validate paths
+    paths = _resolve_container_paths(models_path, state_path, repo)
+    if not _validate_paths(paths):
+        return
 
-    if workspaces_path is None:
-        workspaces_path = os.path.abspath("./workspaces")
+    # Prepare repository for MCP agent integration
+    _prepare_repository(paths["repo"])
 
-    # Ensure all directories exist
-    os.makedirs(models_path, exist_ok=True)
-    os.makedirs(state_path, exist_ok=True)
-    os.makedirs(workspaces_path, exist_ok=True)
+    # Start container
+    _start_container(ctx, port, paths)
 
+
+def _resolve_container_paths(models_path, state_path, repo):
+    """Resolve all required paths for container mounting"""
+    return {
+        "models": Path(models_path or "~/models").expanduser().resolve(),
+        "state": Path(state_path or "./state").resolve(),
+        "repo": Path(repo).expanduser().resolve(),
+    }
+
+
+def _validate_paths(paths):
+    """Validate all paths exist or can be created"""
+    for path_type, path in paths.items():
+        if path_type == "repo":
+            if not _validate_repository_path(path):
+                return False
+        else:
+            _ensure_directory_exists(path)
+    return True
+
+
+def _validate_repository_path(repo_path):
+    """Validate repository path exists and is a directory"""
+    if not repo_path.exists():
+        print(f"❌ Repository path does not exist: {repo_path}")
+        return False
+
+    if not repo_path.is_dir():
+        print(f"❌ Repository path is not a directory: {repo_path}")
+        return False
+
+    return True
+
+
+def _ensure_directory_exists(path):
+    """Create directory if it doesn't exist"""
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _prepare_repository(repo_path):
+    """Prepare repository for MCP agent integration"""
+    mcp_agents_dir = repo_path / ".mcp-agents"
+    mcp_agents_dir.mkdir(exist_ok=True)
+
+    # Create .gitignore entry for MCP agents directory
+    gitignore_path = repo_path / ".gitignore"
+    gitignore_entry = ".mcp-agents/"
+
+    _ensure_gitignore_entry(gitignore_path, gitignore_entry)
+
+    print(f"📁 Repository prepared: {repo_path}")
+    print(f"🤖 Agent metadata: {mcp_agents_dir}")
+
+
+def _ensure_gitignore_entry(gitignore_path, entry):
+    """Ensure .gitignore contains the MCP agents directory"""
+    if gitignore_path.exists():
+        content = gitignore_path.read_text()
+        if entry not in content:
+            _append_gitignore_entry(gitignore_path, entry)
+    else:
+        _create_gitignore_with_entry(gitignore_path, entry)
+
+
+def _append_gitignore_entry(gitignore_path, entry):
+    """Append entry to existing .gitignore"""
+    with open(gitignore_path, "a") as f:
+        f.write(f"\n# MCP Agent metadata\n{entry}\n")
+    print(f"✅ Added {entry} to .gitignore")
+
+
+def _create_gitignore_with_entry(gitignore_path, entry):
+    """Create new .gitignore with MCP entry"""
+    gitignore_path.write_text(f"# MCP Agent metadata\n{entry}\n")
+    print(f"✅ Created .gitignore with {entry}")
+
+
+def _start_container(ctx, port, paths):
+    """Start the Docker container with proper volume mounts"""
     print("Starting local-llm-mcp server...")
     print(f"Port: {port}")
-    print(f"Models: {models_path}")
-    print(f"State: {state_path}")
-    print(f"Workspaces: {workspaces_path}")
+    print(f"Models: {paths['models']}")
+    print(f"State: {paths['state']}")
+    print(f"Repository: {paths['repo']}")
     print("GPU: Enabled")
 
-    # Mount models, state, and workspaces directories
-    cmd = (
+    # Build Docker command with proper volume mounts
+    cmd = _build_docker_command(port, paths)
+    ctx.run(cmd, pty=True)
+
+
+def _build_docker_command(port, paths):
+    """Build the Docker run command with all volume mounts"""
+    return (
         f"docker run --gpus all "
         f"-p {port}:8000 "
-        f"-v {models_path}:/app/models "
-        f"-v {state_path}:/app/state "
-        f"-v {workspaces_path}:/app/workspaces "
-        f"-v ~/{project_path}:/host/repo:rw "
+        f"-v {paths['models']}:/app/models "
+        f"-v {paths['state']}:/app/state "
+        f"-v {paths['repo']}:/workspace "
         f"local-llm-mcp"
     )
-
-    ctx.run(cmd, pty=True)
 
 
 @task
@@ -101,16 +188,31 @@ def test(ctx):
 
 
 @task
-def dev(ctx):
+def dev(ctx, repo=None):
     """Development mode - build and run with immediate feedback"""
+    if repo is None:
+        print("❌ Error: --repo parameter is required for dev mode")
+        return
+
     build(ctx)
-    run(ctx)
+    run(ctx, repo=repo)
 
 
 @task
-def backup_agents(ctx):
-    """Backup agent state and workspaces"""
+def backup_agents(ctx, repo=None):
+    """Backup agent state from repository .mcp-agents directory"""
     import datetime
+
+    if repo is None:
+        print("❌ Error: --repo parameter is required")
+        return
+
+    repo_path = Path(repo).expanduser().resolve()
+    mcp_agents_dir = repo_path / ".mcp-agents"
+
+    if not mcp_agents_dir.exists():
+        print(f"❌ No .mcp-agents directory found in {repo_path}")
+        return
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = f"backups/agents_{timestamp}"
@@ -118,113 +220,133 @@ def backup_agents(ctx):
     print(f"Creating backup: {backup_dir}")
     ctx.run(f"mkdir -p {backup_dir}")
 
-    if os.path.exists("./state"):
-        ctx.run(f"cp -r ./state {backup_dir}/")
-        print("✅ State backed up")
+    # Backup MCP agents directory from repository
+    ctx.run(f"cp -r {mcp_agents_dir} {backup_dir}/mcp-agents")
+    print("✅ Agent metadata backed up")
 
-    if os.path.exists("./workspaces"):
-        ctx.run(f"cp -r ./workspaces {backup_dir}/")
-        print("✅ Workspaces backed up")
+    # Backup local state if it exists
+    if Path("./state").exists():
+        ctx.run(f"cp -r ./state {backup_dir}/")
+        print("✅ Local state backed up")
 
     print(f"Backup complete: {backup_dir}")
 
 
 @task
-def restore_agents(ctx, backup_dir):
-    """Restore agent state from backup"""
-    if not os.path.exists(backup_dir):
+def restore_agents(ctx, backup_dir, repo=None):
+    """Restore agent state to repository .mcp-agents directory"""
+    if repo is None:
+        print("❌ Error: --repo parameter is required")
+        return
+
+    backup_path = Path(backup_dir)
+    if not backup_path.exists():
         print(f"❌ Backup directory not found: {backup_dir}")
         return
+
+    repo_path = Path(repo).expanduser().resolve()
 
     # Stop container if running
     ctx.run("docker stop $(docker ps -q --filter ancestor=local-llm-mcp) 2>/dev/null || true", pty=True)
 
-    state_backup = os.path.join(backup_dir, "state")
-    workspaces_backup = os.path.join(backup_dir, "workspaces")
+    # Restore MCP agents to repository
+    agents_backup = backup_path / "mcp-agents"
+    if agents_backup.exists():
+        mcp_agents_dir = repo_path / ".mcp-agents"
+        ctx.run(f"rm -rf {mcp_agents_dir} && cp -r {agents_backup} {mcp_agents_dir}")
+        print("✅ Agent metadata restored to repository")
 
-    if os.path.exists(state_backup):
+    # Restore local state
+    state_backup = backup_path / "state"
+    if state_backup.exists():
         ctx.run(f"rm -rf ./state && cp -r {state_backup} ./state")
-        print("✅ State restored")
+        print("✅ Local state restored")
 
-    if os.path.exists(workspaces_backup):
-        ctx.run(f"rm -rf ./workspaces && cp -r {workspaces_backup} ./workspaces")
-        print("✅ Workspaces restored")
-
-    print("Restore complete! Start server with 'inv run'")
+    print("Restore complete! Start server with 'inv run --repo=<path>'")
 
 
 @task
-def status(ctx):
-    """Show agent persistence status"""
+def status(ctx, repo=None):
+    """Show agent persistence status for repository"""
     print("📊 Agent Persistence Status")
     print("=" * 40)
 
-    # Check directory existence
-    directory_status = _check_directories()
-    _print_directory_status(directory_status)
+    if repo:
+        _show_repository_status(repo)
+    else:
+        print("❌ No repository specified")
+        print("Usage: inv status --repo=/path/to/repo")
 
-    # Check agent data if available
-    if directory_status["state_exists"]:
-        agent_info = _get_agent_information()
-        _print_agent_information(agent_info)
-
-    if directory_status["workspaces_exists"]:
-        workspace_info = _get_workspace_information()
-        _print_workspace_information(workspace_info)
+    # Show local state status
+    _show_local_status()
 
 
-def _check_directories():
-    """Check if required directories exist"""
-    return {"state_exists": os.path.exists("./state"), "workspaces_exists": os.path.exists("./workspaces")}
+def _show_repository_status(repo):
+    """Show status of repository MCP integration"""
+    repo_path = Path(repo).expanduser().resolve()
+
+    if not repo_path.exists():
+        print(f"❌ Repository not found: {repo_path}")
+        return
+
+    mcp_agents_dir = repo_path / ".mcp-agents"
+    print(f"Repository: {repo_path}")
+    print(f"MCP Agents Directory: {'✅ Exists' if mcp_agents_dir.exists() else '❌ Missing'}")
+
+    if mcp_agents_dir.exists():
+        agent_info = _get_repository_agent_info(mcp_agents_dir)
+        print(f"Agent Workspaces: {agent_info['count']}")
+
+        # Show registry status
+        registry_file = mcp_agents_dir / "registry.json"
+        if registry_file.exists():
+            registry_info = _get_registry_info(registry_file)
+            print(f"Registry: ✅ {registry_info['agent_count']} agents registered")
+        else:
+            print("Registry: ❌ No registry.json found")
 
 
-def _print_directory_status(directory_status):
-    """Print directory existence status"""
-    state_status = "✅ Exists" if directory_status["state_exists"] else "❌ Missing"
-    workspaces_status = "✅ Exists" if directory_status["workspaces_exists"] else "❌ Missing"
+def _show_local_status():
+    """Show local state directory status"""
+    print("\nLocal State:")
+    state_dir = Path("./state")
+    print(f"State Directory: {'✅ Exists' if state_dir.exists() else '❌ Missing'}")
 
-    print(f"State directory: {state_status}")
-    print(f"Workspaces directory: {workspaces_status}")
+    if state_dir.exists():
+        agents_file = state_dir / "agents.json"
+        if agents_file.exists():
+            local_info = _get_local_agent_info(agents_file)
+            print(f"Local Registry: {local_info['count']}")
 
 
-def _get_agent_information():
-    """Get information about saved agents"""
-    agents_file = "./state/agents.json"
-    if not os.path.exists(agents_file):
-        return {"count": "No agents.json file", "error": True}
+def _get_repository_agent_info(mcp_agents_dir):
+    """Get agent information from repository"""
+    try:
+        workspace_dirs = [d for d in mcp_agents_dir.iterdir() if d.is_dir() and d.name != "registry.json"]
+        return {"count": len(workspace_dirs)}
+    except Exception:
+        return {"count": "Error reading directory"}
 
+
+def _get_registry_info(registry_file):
+    """Get information from registry.json"""
+    try:
+        import json
+
+        with open(registry_file) as f:
+            data = json.load(f)
+        return {"agent_count": len(data.get("agents", []))}
+    except Exception:
+        return {"agent_count": "Error reading registry"}
+
+
+def _get_local_agent_info(agents_file):
+    """Get local agent information"""
     try:
         import json
 
         with open(agents_file) as f:
             data = json.load(f)
-        agent_count = len(data.get("agents", []))
-        return {"count": agent_count, "error": False}
+        return {"count": len(data.get("agents", []))}
     except Exception:
-        return {"count": "Error reading file", "error": True}
-
-
-def _print_agent_information(agent_info):
-    """Print agent information"""
-    print(f"Saved agents: {agent_info['count']}")
-
-
-def _get_workspace_information():
-    """Get information about workspace directories"""
-    try:
-        workspace_dirs = [d for d in os.listdir("./workspaces") if os.path.isdir(f"./workspaces/{d}")]
-        return {"dirs": workspace_dirs, "count": len(workspace_dirs)}
-    except Exception:
-        return {"dirs": [], "count": 0}
-
-
-def _print_workspace_information(workspace_info):
-    """Print workspace information"""
-    count = workspace_info["count"]
-    dirs = workspace_info["dirs"]
-
-    print(f"Agent workspaces: {count}")
-    if dirs:
-        displayed_dirs = dirs[:5]
-        suffix = "..." if len(dirs) > 5 else ""
-        print("Workspace IDs:", ", ".join(displayed_dirs) + suffix)
+        return {"count": "Error reading file"}

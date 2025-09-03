@@ -1,12 +1,14 @@
 # File: ~/Projects/local-llm-mcp/core/agent_registry.py
-"""Agent Registry and File Ownership Management
+"""Agent Registry with Direct Repository Integration
 
 Responsibilities:
-- Agent lifecycle management (create, load, save, delete)
-- File ownership tracking and conflict prevention
-- Agent discovery and retrieval
-- Persistence of agent registry state
-- Workspace management
+- Agent lifecycle management with SystemConfig integration
+- File ownership tracking with workspace-relative paths
+- Agent discovery and retrieval using environment-aware paths
+- Registry persistence in appropriate locations per environment
+- Workspace management via SystemConfig
+- Backward compatibility with existing agent data
+Workspace: Uses SystemConfig for container/host environment detection and paths
 """
 
 import json
@@ -14,25 +16,26 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from core.agent import Agent
+from core.agent import Agent, AgentCreateParams
 from core.config import SystemConfig
 
 logger = logging.getLogger(__name__)
 
 
 class AgentRegistry:
-    """Centralized registry for agent management and file ownership tracking
+    """Centralized registry for agent management with repository integration
 
     Enforces the core rule: One agent per file, one file per agent
+    Uses SystemConfig for environment-aware path management
     """
 
     def __init__(self, system_config: SystemConfig):
-        self.config = system_config
+        self.system_config = system_config
         self.agents: dict[str, Agent] = {}
         self.file_to_agent: dict[str, str] = {}  # filename -> agent_id
 
-        # Registry state file
-        self.registry_file = system_config.state_dir / "agents.json"
+        # Registry state file location depends on environment
+        self.registry_file = system_config.get_registry_file()
 
         # Load existing agents
         self.load_registry()
@@ -52,7 +55,7 @@ class AgentRegistry:
             if conflict_result[0]:  # Conflict exists
                 return False, None, conflict_result[1]
 
-            # Create agent
+            # Create agent with SystemConfig
             agent = self._create_and_register_agent(name, description, system_prompt, managed_file, initial_context)
 
             # Persist registry
@@ -78,19 +81,17 @@ class AgentRegistry:
         # Generate unique agent ID
         agent_id = self._generate_agent_id()
 
-        # Create workspace
-        workspace_dir = self.config.workspaces_dir / agent_id
-        workspace_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create agent
+        # Create agent with SystemConfig
         agent = Agent.create(
-            agent_id=agent_id,
-            name=name,
-            description=description,
-            system_prompt=system_prompt,
-            managed_file=managed_file,
-            workspace_dir=workspace_dir,
-            initial_context=initial_context,
+            AgentCreateParams(
+                agent_id=agent_id,
+                name=name,
+                description=description,
+                system_prompt=system_prompt,
+                managed_file=managed_file,
+                system_config=self.system_config,
+                initial_context=initial_context,
+            )
         )
 
         # Register agent and file ownership
@@ -123,14 +124,14 @@ class AgentRegistry:
             agent = self.agents[agent_id]
             managed_file = agent.state.managed_file
 
+            # Save final state before deletion
+            agent.save_context()
+            agent.save_conversation_history()
+
             # Remove from registry
             del self.agents[agent_id]
             if managed_file in self.file_to_agent:
                 del self.file_to_agent[managed_file]
-
-            # Save final state before deletion
-            agent.save_context()
-            agent.save_conversation_history()
 
             # Persist registry
             self.save_registry()
@@ -192,6 +193,7 @@ class AgentRegistry:
             "average_success_rate": round(avg_success_rate, 3),
             "most_active_agent": most_active_agent,
             "file_ownership_integrity": len(self.file_to_agent) == len(set(self.file_to_agent.values())),
+            "environment_info": self.system_config.get_environment_info(),
         }
 
     def _calculate_average_success_rate(self, active_agents: int) -> float:
@@ -293,34 +295,33 @@ class AgentRegistry:
                 actions.append(f"Added missing file mapping: {managed_file} -> {agent_id}")
 
     def save_registry(self) -> bool:
-        """Save registry state to file"""
+        """Save registry state to file using SystemConfig location"""
         try:
-            print(f"DEBUG: Attempting to save to {self.registry_file}")
-            print(f"DEBUG: Registry file parent exists: {self.registry_file.parent.exists()}")
-            print(f"DEBUG: Number of agents to save: {len(self.agents)}")
+            logger.debug(f"Attempting to save registry to {self.registry_file}")
+            logger.debug(f"Registry file parent exists: {self.registry_file.parent.exists()}")
+            logger.debug(f"Number of agents to save: {len(self.agents)}")
 
-            # Ensure state directory exists
+            # Ensure parent directory exists
             self.registry_file.parent.mkdir(parents=True, exist_ok=True)
-            print(f"DEBUG: State directory created/verified: {self.registry_file.parent}")
+            logger.debug(f"Registry directory created/verified: {self.registry_file.parent}")
 
             registry_data = self._build_registry_data()
 
-            print("DEBUG: Registry data prepared, writing to file...")
+            logger.debug("Registry data prepared, writing to file...")
 
             with open(self.registry_file, "w") as f:
                 json.dump(registry_data, f, indent=2)
 
-            print(f"DEBUG: Registry saved successfully to {self.registry_file}")
+            logger.debug(f"Registry saved successfully to {self.registry_file}")
 
             # Save individual agent states
             self._save_all_agent_states()
 
-            print("DEBUG: All agent states saved")
+            logger.debug("All agent states saved")
             return True
 
         except Exception as e:
-            print(f"DEBUG: Save registry failed: {e}")
-            logger.error(f"Failed to save registry: {e}")
+            logger.error(f"Save registry failed: {e}")
             return False
 
     def _build_registry_data(self) -> dict:
@@ -329,6 +330,7 @@ class AgentRegistry:
             "schema_version": "1.0",
             "agents": [agent.to_json() for agent in self.agents.values()],
             "file_mappings": self.file_to_agent.copy(),
+            "environment_info": self.system_config.get_environment_info(),
             "metadata": {
                 "total_agents": len(self.agents),
                 "total_files": len(self.file_to_agent),
@@ -340,12 +342,12 @@ class AgentRegistry:
     def _save_all_agent_states(self):
         """Save all agent states"""
         for agent in self.agents.values():
-            print(f"DEBUG: Saving agent {agent.state.agent_id} context...")
+            logger.debug(f"Saving agent {agent.state.agent_id} context...")
             agent.save_context()
             agent.save_conversation_history()
 
     def load_registry(self) -> bool:
-        """Load registry state from file"""
+        """Load registry state from file using SystemConfig location"""
         if not self.registry_file.exists():
             logger.info("No existing registry found, starting fresh")
             return True
@@ -354,7 +356,7 @@ class AgentRegistry:
             with open(self.registry_file) as f:
                 registry_data = json.load(f)
 
-            # Load agents
+            # Load agents with SystemConfig
             agents_loaded = self._load_agents_from_data(registry_data)
 
             # Load file mappings
@@ -379,16 +381,12 @@ class AgentRegistry:
         return agents_loaded
 
     def _load_single_agent(self, agent_data: dict) -> bool:
-        """Load a single agent from data"""
+        """Load a single agent from data with SystemConfig"""
         try:
             agent_id = agent_data["agent_id"]
-            workspace_dir = self.config.workspaces_dir / agent_id
 
-            # Create workspace if it doesn't exist
-            workspace_dir.mkdir(parents=True, exist_ok=True)
-
-            # Load agent
-            agent = Agent.from_json(agent_data, workspace_dir)
+            # Load agent with SystemConfig
+            agent = Agent.from_json(agent_data, self.system_config)
             self.agents[agent_id] = agent
             return True
 
