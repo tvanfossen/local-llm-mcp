@@ -39,190 +39,143 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 
 ## Implementation Plan
 
-### Phase 1: Docker & Volume Management (tasks.py)
+### Phase 1: Docker & Volume Management (tasks.py) ✅ COMPLETED
 **File:** `tasks.py`
 **Focus:** Update Docker volume mounting strategy
 
-**Current:**
-```python
-inv run --project_path=relative/path
-```
+**Status:** ✅ COMPLETED
+- Updated `run()` task to accept `--repo` parameter
+- Changed volume mount to `/workspace`
+- Ensured `.mcp-agents/` directory creation
+- Updated backup/restore to handle new structure
 
-**Target:**
-```python
-inv run --repo=/absolute/path/to/target/repo
-# Mounts: /absolute/path/to/target/repo:/workspace
-# Creates: /workspace/.mcp-agents/ for agent metadata
-```
-
-**Changes Required:**
-- Update `run()` task to accept `--repo` parameter
-- Change volume mount from `/host/repo` to `/workspace`
-- Ensure `.mcp-agents/` directory creation
-- Update backup/restore to handle new structure
-
-### Phase 2: Agent Workspace Restructuring (core/agent.py)
+### Phase 2: Agent Workspace Restructuring (core/agent.py) ✅ COMPLETED
 **File:** `core/agent.py`
 **Focus:** Modify agent file management to work with repo-relative paths
 
-**Current Structure:**
-```
-workspaces/{agent_id}/files/{managed_file}
-```
+**Status:** ✅ COMPLETED
+- Updated `get_managed_file_path()` to return `/workspace/{managed_file}`
+- Modified `read_managed_file()` and `write_managed_file()` for direct access
+- Updated context and history storage to `.mcp-agents/{agent_id}/`
+- Implemented file creation/backup workflows
 
-**Target Structure:**
-```
-/workspace/{managed_file}  (actual file)
-/workspace/.mcp-agents/{agent_id}/  (agent metadata)
-```
-
-**Changes Required:**
-- Update `get_managed_file_path()` to return `/workspace/{managed_file}`
-- Modify `read_managed_file()` and `write_managed_file()` for direct access
-- Update context and history storage to `.mcp-agents/{agent_id}/`
-- Handle file creation/backup workflows
-
-### Phase 3: Path Resolution Updates (core/agent_registry.py)
+### Phase 3: Path Resolution Updates (core/agent_registry.py) ✅ COMPLETED
 **File:** `core/agent_registry.py`
 **Focus:** Update agent creation and file conflict detection
 
-**Changes Required:**
+**Status:** ✅ COMPLETED
 - File conflict detection based on repo-relative paths
 - Agent workspace creation in `.mcp-agents/{agent_id}/`
 - Registry persistence in `.mcp-agents/registry.json`
 - File ownership tracking with repo-relative paths
 
-### Phase 4: Configuration Management (core/config.py)
+### Phase 4: Configuration Management (core/config.py) ✅ COMPLETED
 **File:** `core/config.py`
 **Focus:** Add repository path configuration
 
-**Changes Required:**
-- Add `repo_path` to SystemConfig
-- Update directory initialization for new structure
-- Ensure `.mcp-agents/` is in .gitignore
-- Handle container vs host path resolution
+**Status:** ✅ COMPLETED
+- Added `repo_path` to SystemConfig
+- Updated directory initialization for new structure
+- Ensured `.mcp-agents/` is in .gitignore
+- Implemented container vs host path resolution
 
-### Phase 5: Deployment Simplification (core/deployment.py, api/orchestrator.py)
-**Files:** `core/deployment.py`, `api/orchestrator.py`
+### Phase 5: Deployment Simplification (core/deployment.py) 🔄 IN PROGRESS
+**Files:** `core/deployment.py`
 **Focus:** Simplify deployment since files are already in place
 
+**Status:** 🔄 IN PROGRESS - CURRENT FOCUS
 **Changes Required:**
-- Deployment becomes a git commit/push operation
-- Remove complex file copying logic
-- Focus on validation and testing workflows
-- Update diff generation for git-based changes
+- Replace file-based deployment with git-based operations (add/commit/push)
+- Implement git diff generation instead of file copying
+- Update test coverage validation for direct file access in repository
+- Git-based rollback using git checkout/revert instead of file backups
+- Repository-context test execution and code quality validation
+- Maintain security features and audit logging for git operations
+- Simplify deployment workflow: validate tests → git add → commit → push
 
-### Phase 6: HTML Interface Updates (static/orchestrator.html)
+### Phase 6: Deployment API Updates (api/orchestrator.py) ⏳ PENDING
+**File:** `api/orchestrator.py`
+**Focus:** Update deployment API for simplified git workflow
+
+**Changes Required:**
+- Update deployment endpoints to use new GitDeploymentManager
+- Replace file-copying deployment logic with git operations
+- Simplify staging API since files are already in repository
+- Update WebSocket messaging for git-based status updates
+- Remove complex file path mapping since files are in place
+
+### Phase 7: HTML Interface Updates (static/orchestrator.html) ⏳ PENDING
 **File:** `static/orchestrator.html`
-**Focus:** Update UI to reflect new workflow
+**Focus:** Update UI to reflect new git-based workflow
 
 **Changes Required:**
-- Remove manual path specification
-- Show git status integration
-- Update deployment UI to focus on commit/push
-- Add real-time file change detection
+- Update deployment UI to show git status and diffs
+- Remove manual path specification UI (no longer needed)
+- Add git commit message input fields
+- Show real-time git status updates via WebSocket
+- Display git-based deployment history and rollback options
 
-## Implementation Order
-
-### Sprint 1: Core Infrastructure
-1. **tasks.py** - Docker volume mounting
-2. **core/config.py** - Repository path configuration
-3. **Test basic volume mounting and path resolution**
-
-### Sprint 2: Agent File Management
-1. **core/agent.py** - Direct file access
-2. **core/agent_registry.py** - New workspace structure
-3. **Test agent creation and file operations**
-
-### Sprint 3: Deployment & Interface
-1. **core/deployment.py** - Simplified deployment
-2. **static/orchestrator.html** - UI updates
-3. **Integration testing**
-
-## File Change Summary
+## Updated File Change Summary
 
 | File | Priority | Changes | Complexity | Status |
 |------|----------|---------|------------|--------|
 | `tasks.py` | HIGH | Volume mounting, repo parameter | LOW | ✅ COMPLETED |
-| `core/config.py` | HIGH | Repository configuration | LOW | 🔄 NEXT |
-| `core/agent.py` | HIGH | Direct file access | MEDIUM | ⏳ PENDING |
-| `core/agent_registry.py` | MEDIUM | Workspace structure | MEDIUM | ⏳ PENDING |
-| `core/deployment.py` | LOW | Simplified deployment | HIGH | ⏳ PENDING |
-| `api/orchestrator.py` | LOW | Deployment API updates | MEDIUM | ⏳ PENDING |
-| `static/orchestrator.html` | LOW | UI workflow updates | MEDIUM | ⏳ PENDING |
+| `core/config.py` | HIGH | Repository configuration | LOW | ✅ COMPLETED |
+| `core/agent.py` | HIGH | Direct file access | MEDIUM | ✅ COMPLETED |
+| `core/agent_registry.py` | MEDIUM | Workspace structure | MEDIUM | ✅ COMPLETED |
+| `core/deployment.py` | HIGH | Git-based deployment | HIGH | 🔄 IN PROGRESS |
+| `api/orchestrator.py` | HIGH | API updates for git workflow | MEDIUM | ⏳ PENDING |
+| `static/orchestrator.html` | MEDIUM | UI updates for git workflow | MEDIUM | ⏳ PENDING |
 
-## Testing Strategy
+## Current Focus: Phase 5 - Deployment Simplification
 
-### Unit Tests (Per Sprint)
-- File path resolution
-- Agent workspace creation
-- Direct file read/write operations
-- Registry persistence
+**Objective:** Since agents now write directly to the target repository, deployment should be simplified to git operations rather than file copying.
 
-### Integration Tests (Final)
-- End-to-end agent creation → file editing → git status
-- Docker container with real repository
-- HTML interface with real workflows
+**Key Changes Needed in core/deployment.py:**
+1. **Git Integration**: Use git commands for diff generation and status checking
+2. **Simplified Validation**: Test coverage validation adapted for direct file access
+3. **Remove File Copying**: Eliminate complex file staging since files are already in place
+4. **Git-based Deployment**: Deploy = git add + commit + push workflow
+5. **Rollback via Git**: Use git revert instead of file backup/restore
 
-## Migration Strategy
-
-### Backward Compatibility
-1. Support both old and new workspace structures during transition
-2. Migration script for existing agent workspaces
-3. Gradual rollout with feature flags
-
-### Data Preservation
-1. Agent conversation history
-2. Agent configurations
-3. File ownership mappings
-
-## Risk Mitigation
-
-### High Risk Areas
-1. **File path resolution** - Extensive testing required
-2. **Container volume mounting** - Docker expertise needed
-3. **File ownership conflicts** - Robust conflict detection
-
-### Rollback Plan
-1. Keep current Docker image as fallback
-2. Backup all agent state before migration
-3. Quick rollback script for volume mounting
-
-## Communication Protocol
-
-When working on a specific component, provide:
-1. **Component focus**: Which file(s) and phase
-2. **Dependencies**: What other components are affected
-3. **Testing approach**: How to validate changes
-4. **Integration points**: How this connects to other phases
-
-Example:
-```
-COMPONENT: Phase 1 - tasks.py Docker volume mounting
-DEPENDENCIES: Requires core/config.py updates for repo_path
-TESTING: Docker run with real repository, verify file access
-INTEGRATION: Must work with Phase 2 agent file operations
-```
+**Implementation Strategy:**
+- Maintain test coverage validation (100% requirement)
+- Replace file diff generation with git diff
+- Simplify deployment to git operations
+- Update rollback to use git history
+- Preserve security and audit logging
 
 ## Success Criteria
 
-### Phase 1 Complete
-- [ ] `inv run --repo=/path/to/repo` works
-- [ ] Container can access host files
-- [ ] `.mcp-agents/` directory created
+### Current Phase (5) Complete
+- [ ] Deployment uses git diff instead of file copying
+- [ ] Test validation works with direct file access
+- [ ] Deploy operation is git add/commit/push
+- [ ] Rollback uses git revert
+- [ ] All existing security features preserved
 
-### Phase 2 Complete
-- [ ] Agents can read/write files directly
-- [ ] Agent metadata stored in `.mcp-agents/`
-- [ ] File conflict detection works
-
-### Final Success
-- [ ] Agent creates/edits files in target repository
-- [ ] Changes visible in git status immediately
+### Final Success (All Phases)
+- [x] Agent creates/edits files in target repository
+- [x] Changes visible in git status immediately
 - [ ] Deployment is simplified git workflow
-- [ ] No manual path specification required
-- [ ] Backward compatibility maintained
+- [x] No manual path specification required
+- [x] Backward compatibility maintained
+
+## Testing Strategy
+
+### Current Phase Testing
+- Test coverage validation with direct file access
+- Git diff generation and status checking
+- Git-based deployment workflow (add/commit/push)
+- Git rollback functionality using git history
+- Security feature preservation with git operations
+
+### Integration Testing
+- End-to-end agent creation → file editing → git deployment
+- Docker container with real repository and git operations
+- HTML interface with git-based deployment workflow
+- Complete test coverage validation in repository context
 
 ---
 
-**Next Step:** Choose Phase 1 component (tasks.py) and implement Docker volume mounting with repository parameter.
+**Current Task:** Implement Phase 5 - Replace file-based `core/deployment.py` with git-based deployment operations while maintaining test coverage requirements and security features.

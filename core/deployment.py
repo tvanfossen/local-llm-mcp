@@ -1,19 +1,18 @@
 # File: ~/Projects/local-llm-mcp/core/deployment.py
-"""Deployment Manager
+"""Git-Based Deployment Manager
 
 Responsibilities:
-- Test coverage validation
-- File diff generation
-- Secure file deployment to host repositories
-- Rollback capabilities
+- Test coverage validation for direct file access in repository
+- Git-based diff generation and status checking
+- Simplified deployment via git operations (add/commit/push)
+- Git-based rollback capabilities using git history
+- Security audit logging for all git operations
+- Code quality validation in repository context
 """
 
-import difflib
 import json
 import logging
-import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,16 +25,15 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class DeploymentInfo:
-    """Container for deployment information to reduce parameter count"""
+class GitDeploymentInfo:
+    """Container for git deployment information"""
 
     agent_id: str
     agent_name: str
     managed_file: str
-    source_path: str
-    target_path: str
-    target_repo: str
+    repo_path: Path
     has_changes: bool
+    git_status: str
     diff_text: str
     coverage_percent: float
     coverage_ok: bool
@@ -45,7 +43,7 @@ class DeploymentInfo:
 
 @dataclass
 class ValidationResult:
-    """Container for validation results to reduce complexity"""
+    """Container for validation results"""
 
     success: bool
     error_message: str = ""
@@ -57,238 +55,247 @@ class ValidationResult:
 
 
 class DeploymentManager:
-    """Manages the deployment pipeline from agent workspace to production repository"""
+    """Git-based deployment manager for agents working directly in repository"""
 
     def __init__(self, security_manager: SecurityManager, workspace_root: Path):
         self.security_manager = security_manager
         self.workspace_root = workspace_root
-        self.deployments_dir = workspace_root / "deployments"
+        self.deployments_dir = workspace_root / ".mcp-agents" / "deployments"
         self.deployments_dir.mkdir(parents=True, exist_ok=True)
-
-        # Deployment history
-        self.history_file = self.deployments_dir / "deployment_history.json"
+        self.history_file = self.deployments_dir / "git_deployment_history.json"
         self.pending_deployments: dict[str, dict[str, Any]] = {}
 
     def validate_test_coverage(self, agent: Agent) -> tuple[bool, float, str]:
-        """Validate test coverage for agent's file - simplified error handling"""
-        # Validate prerequisites
-        validation_result = self._validate_coverage_prerequisites(agent)
-        if not validation_result.success:
-            return False, 0.0, validation_result.error_message
-
-        test_file = self._get_test_file_path(agent)
-        main_file = agent.get_managed_file_path()
-
-        # Execute coverage test
-        return self._execute_coverage_test(test_file, main_file)
-
-    def _validate_coverage_prerequisites(self, agent: Agent) -> ValidationResult:
-        """Validate prerequisites for coverage testing"""
-        test_file = self._get_test_file_path(agent)
-        if not test_file.exists():
-            return ValidationResult(False, "No test file found")
-
+        """Validate test coverage for agent's file using direct repository access"""
         main_file = agent.get_managed_file_path()
         if not main_file.exists():
-            return ValidationResult(False, "Managed file not found")
+            return False, 0.0, "Managed file not found in repository"
 
-        return ValidationResult(True)
+        test_file = self._find_test_file(agent)
+        return self._execute_coverage_test(test_file, main_file)
+
+    def _find_test_file(self, agent: Agent) -> Path:
+        """Find test file for agent's managed file"""
+        managed_file = Path(agent.state.managed_file)
+        test_name = f"test_{managed_file.stem}{managed_file.suffix}"
+
+        locations = [
+            self.workspace_root / "tests" / test_name,
+            self.workspace_root / "test" / test_name,
+            self.workspace_root / test_name,
+        ]
+
+        for test_path in locations:
+            if test_path.exists():
+                return test_path
+
+        return self.workspace_root / "tests" / test_name
 
     def _execute_coverage_test(self, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
-        """Execute the actual coverage test - simplified complexity"""
+        """Execute coverage test in repository directory"""
+        if not test_file.exists():
+            return False, 0.0, f"Test file not found: {test_file}"
+
         try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                return self._run_coverage_in_temp_dir(temp_dir, test_file, main_file)
+            result = self._run_pytest_with_coverage(test_file, main_file)
+            return self._parse_coverage_results(result)
         except Exception as e:
-            logger.error(f"Coverage validation failed: {e}")
-            return False, 0.0, f"Error: {e!s}"
+            return False, 0.0, f"Coverage test error: {e!s}"
 
-    def _run_coverage_in_temp_dir(self, temp_dir: str, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
-        """Run coverage test in temporary directory"""
-        temp_path = Path(temp_dir)
-        self._setup_test_environment(test_file, main_file, temp_path)
-        result = self._run_pytest_coverage(test_file, temp_path)
-        return self._parse_coverage_results(temp_path, result)
-
-    def _setup_test_environment(self, test_file: Path, main_file: Path, temp_path: Path):
-        """Setup test environment by copying necessary files"""
-        shutil.copy(main_file, temp_path / main_file.name)
-        shutil.copy(test_file, temp_path / test_file.name)
-
-    def _run_pytest_coverage(self, test_file: Path, temp_path: Path):
+    def _run_pytest_with_coverage(self, test_file: Path, main_file: Path):
         """Run pytest with coverage"""
         return subprocess.run(
             [
+                "python",
+                "-m",
                 "pytest",
-                str(test_file.name),
-                f"--cov={test_file.stem.replace('test_', '')}",
+                str(test_file.relative_to(self.workspace_root)),
+                f"--cov={main_file.stem}",
                 "--cov-report=json",
                 "--cov-report=term",
                 "-v",
             ],
-            check=False,
-            cwd=temp_path,
+            cwd=self.workspace_root,
             capture_output=True,
             text=True,
+            check=False,
         )
 
-    def _parse_coverage_results(self, temp_path: Path, result) -> tuple[bool, float, str]:
+    def _parse_coverage_results(self, result) -> tuple[bool, float, str]:
         """Parse coverage test results"""
-        coverage_json = temp_path / "coverage.json"
+        coverage_json = self.workspace_root / "coverage.json"
+
         if coverage_json.exists():
             return self._parse_json_coverage(coverage_json, result.stdout)
 
-        # Fallback: parse from stdout
-        coverage_percent = self._parse_coverage_from_output(result.stdout)
+        coverage_percent = self._parse_coverage_from_stdout(result.stdout)
         return coverage_percent == 100, coverage_percent, result.stdout
 
     def _parse_json_coverage(self, coverage_json: Path, stdout: str) -> tuple[bool, float, str]:
         """Parse coverage from JSON file"""
-        with open(coverage_json) as f:
-            coverage_data = json.load(f)
+        try:
+            with open(coverage_json) as f:
+                coverage_data = json.load(f)
 
-        totals = coverage_data.get("totals", {})
-        coverage_percent = totals.get("percent_covered", 0)
-        report = self._build_coverage_report(stdout, coverage_percent, coverage_data)
-        return coverage_percent == 100, coverage_percent, report
+            coverage_json.unlink()  # Clean up
+            coverage_percent = coverage_data.get("totals", {}).get("percent_covered", 0)
+            report = self._build_coverage_report(stdout, coverage_percent, coverage_data)
+            return coverage_percent == 100, coverage_percent, report
+        except Exception as e:
+            logger.error(f"JSON coverage parse failed: {e}")
+            coverage_percent = self._parse_coverage_from_stdout(stdout)
+            return coverage_percent == 100, coverage_percent, stdout
+
+    def _parse_coverage_from_stdout(self, output: str) -> float:
+        """Parse coverage percentage from pytest output"""
+        for line in output.split("\n"):
+            if "TOTAL" in line and "%" in line:
+                for part in line.split():
+                    if part.endswith("%"):
+                        try:
+                            return float(part.rstrip("%"))
+                        except ValueError:
+                            continue
+        return 0.0
 
     def _build_coverage_report(self, stdout: str, coverage_percent: float, coverage_data: dict) -> str:
         """Build detailed coverage report"""
-        report = f"Test Results:\n{stdout}\n\n"
-        report += f"Coverage: {coverage_percent:.1f}%\n"
+        report = f"Repository Test Results:\n{stdout}\n\nCoverage: {coverage_percent:.1f}%\n"
 
         if coverage_percent == 100:
-            report += "✅ 100% coverage achieved!"
-        else:
-            report += self._build_uncovered_lines_report(coverage_data)
+            return report + "✅ 100% coverage achieved!"
 
-        return report
-
-    def _build_uncovered_lines_report(self, coverage_data: dict) -> str:
-        """Build report for uncovered lines"""
-        report = ""
-        files = coverage_data.get("files", {})
-        for filename, file_data in files.items():
+        # Show uncovered lines
+        for filename, file_data in coverage_data.get("files", {}).items():
             uncovered = file_data.get("missing_lines", [])
             if uncovered:
                 report += f"\nUncovered lines in {filename}: {uncovered}"
+
         return report
 
-    def _parse_coverage_from_output(self, output: str) -> float:
-        """Parse coverage percentage from pytest output"""
-        try:
-            lines = output.split("\n")
-            total_line = self._find_total_coverage_line(lines)
-            if total_line:
-                return self._extract_percentage_from_line(total_line)
-        except Exception:
-            pass
-        return 0.0
-
-    def _find_total_coverage_line(self, lines: list[str]) -> str | None:
-        """Find the line containing total coverage information"""
-        for line in lines:
-            if "TOTAL" in line and "%" in line:
-                return line
-        return None
-
-    def _extract_percentage_from_line(self, line: str) -> float:
-        """Extract percentage value from a coverage line"""
-        parts = line.split()
-        for part in parts:
-            if part.endswith("%"):
-                return float(part.rstrip("%"))
-        return 0.0
-
-    def _get_test_file_path(self, agent: Agent) -> Path:
-        """Get the test file path for an agent's managed file"""
-        managed_file = Path(agent.state.managed_file)
-        test_name = f"test_{managed_file.stem}{managed_file.suffix}"
-
-        # Look for test agent managing this file
-        test_file_path = agent.workspace_dir.parent / "test_agents" / agent.state.agent_id / "files" / test_name
-        if test_file_path.exists():
-            return test_file_path
-
-        # Alternative: look in same directory
-        return agent.files_dir / test_name
-
     def generate_diff(self, agent: Agent, target_repo: Path) -> tuple[bool, str, str]:
-        """Generate diff between agent's file and target repository"""
+        """Generate git diff for agent's managed file"""
         try:
-            source_file = agent.get_managed_file_path()
-            if not source_file.exists():
-                return False, "", ""
-
-            target_file = target_repo / agent.state.managed_file
-            source_content = self._read_file_lines(source_file)
-            target_content = self._read_file_lines(target_file) if target_file.exists() else []
-
-            diff_text = self._generate_unified_diff(source_content, target_content, agent.state.managed_file)
-            has_changes = len(diff_text) > 0
-
-            return has_changes, diff_text, str(target_file)
-
+            return self._get_git_diff(agent.state.managed_file)
         except Exception as e:
-            logger.error(f"Diff generation failed: {e}")
-            return False, f"Error: {e!s}", ""
+            logger.error(f"Git diff failed: {e}")
+            return False, f"Git diff error: {e!s}", f"Error checking {agent.state.managed_file}"
 
-    def _read_file_lines(self, file_path: Path) -> list[str]:
-        """Read file and return lines"""
-        with open(file_path) as f:
-            return f.readlines()
-
-    def _generate_unified_diff(self, source_content: list[str], target_content: list[str], filename: str) -> str:
-        """Generate unified diff between source and target content"""
-        diff = difflib.unified_diff(
-            target_content,
-            source_content,
-            fromfile=f"a/{filename}",
-            tofile=f"b/{filename}",
-            lineterm="",
+    def _get_git_diff(self, managed_file: str) -> tuple[bool, str, str]:
+        """Get git diff for managed file"""
+        result = subprocess.run(
+            ["git", "diff", "HEAD", "--", managed_file],
+            cwd=self.workspace_root,
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        return "\n".join(diff)
 
-    def stage_deployment(
-        self,
-        agent: Agent,
-        target_repo: Path,
-        session_token: str,
-    ) -> tuple[bool, str, dict[str, Any]]:
-        """Stage a deployment for approval"""
+        if result.returncode == 0:
+            has_changes = bool(result.stdout.strip())
+            return has_changes, result.stdout, f"git diff for {managed_file}"
+
+        return self._handle_untracked_file(managed_file)
+
+    def _handle_untracked_file(self, managed_file: str) -> tuple[bool, str, str]:
+        """Handle untracked file diff generation"""
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain", managed_file],
+            cwd=self.workspace_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if not status_result.stdout.strip():
+            return False, "", f"No changes detected for {managed_file}"
+
+        return self._create_new_file_diff(managed_file)
+
+    def _create_new_file_diff(self, managed_file: str) -> tuple[bool, str, str]:
+        """Create diff for new file"""
+        file_path = self.workspace_root / managed_file
+        if not file_path.exists():
+            return False, "", f"File not found: {managed_file}"
+
+        content = file_path.read_text()
+        diff_text = f"New file: {managed_file}\n+++ {managed_file}\n"
+        for line_num, line in enumerate(content.split("\n"), 1):
+            diff_text += f"+{line_num:4d}: {line}\n"
+
+        return True, diff_text, f"New file: {managed_file}"
+
+    def get_git_status(self, agent: Agent = None) -> dict[str, Any]:
+        """Get git status for repository or specific agent file"""
         try:
-            # Validate session
-            valid, session = self.security_manager.validate_session(session_token)
-            if not valid:
-                return False, "", {"error": "Invalid session"}
+            if agent:
+                return self._get_agent_git_status(agent)
+            return self._get_repo_git_status()
+        except Exception as e:
+            logger.error(f"Git status check failed: {e}")
+            return {"error": str(e), "has_changes": False}
 
-            deployment_data = self._gather_deployment_data(agent, target_repo, session)
+    def _get_agent_git_status(self, agent: Agent) -> dict[str, Any]:
+        """Get git status for specific agent file"""
+        result = subprocess.run(
+            ["git", "status", "--porcelain", agent.state.managed_file],
+            cwd=self.workspace_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return {
+            "file": agent.state.managed_file,
+            "status": result.stdout.strip(),
+            "has_changes": bool(result.stdout.strip()),
+        }
+
+    def _get_repo_git_status(self) -> dict[str, Any]:
+        """Get overall repository git status"""
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=self.workspace_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        changes = result.stdout.strip().split("\n") if result.stdout.strip() else []
+        return {
+            "total_changes": len(changes),
+            "changes": changes,
+            "has_changes": bool(changes),
+        }
+
+    def stage_deployment(self, agent: Agent, target_repo: Path, session_token: str) -> tuple[bool, str, dict[str, Any]]:
+        """Stage a git-based deployment for approval"""
+        valid, session = self.security_manager.validate_session(session_token)
+        if not valid:
+            return False, "", {"error": "Invalid session"}
+
+        try:
+            deployment_data = self._gather_deployment_data(agent, session)
             deployment_record = self._create_deployment_record(deployment_data)
             deployment_id = deployment_record["deployment_id"]
             self.pending_deployments[deployment_id] = deployment_record
-
             return True, deployment_id, deployment_record
-
         except Exception as e:
-            logger.error(f"Staging failed: {e}")
+            logger.error(f"Deployment staging failed: {e}")
             return False, "", {"error": str(e)}
 
-    def _gather_deployment_data(self, agent: Agent, target_repo: Path, session: dict) -> DeploymentInfo:
-        """Gather all data needed for deployment"""
-        # Validate test coverage
+    def _gather_deployment_data(self, agent: Agent, session: dict) -> GitDeploymentInfo:
+        """Gather all data needed for git deployment"""
         coverage_ok, coverage_percent, coverage_report = self.validate_test_coverage(agent)
+        git_status_info = self.get_git_status(agent)
+        has_changes, diff_text, diff_summary = self.generate_diff(agent, self.workspace_root)
 
-        # Generate diff
-        has_changes, diff_text, target_path = self.generate_diff(agent, target_repo)
-
-        return DeploymentInfo(
+        return GitDeploymentInfo(
             agent_id=agent.state.agent_id,
             agent_name=agent.state.name,
             managed_file=agent.state.managed_file,
-            source_path=str(agent.get_managed_file_path()),
-            target_path=target_path,
-            target_repo=str(target_repo),
+            repo_path=self.workspace_root,
             has_changes=has_changes,
+            git_status=git_status_info.get("status", ""),
             diff_text=diff_text,
             coverage_percent=coverage_percent,
             coverage_ok=coverage_ok,
@@ -296,19 +303,18 @@ class DeploymentManager:
             staged_by=session["client_name"],
         )
 
-    def _create_deployment_record(self, info: DeploymentInfo) -> dict[str, Any]:
-        """Create deployment record"""
-        deployment_id = f"{info.agent_id}_{datetime.now().timestamp()}"
-
+    def _create_deployment_record(self, info: GitDeploymentInfo) -> dict[str, Any]:
+        """Create git deployment record"""
+        deployment_id = f"git_{info.agent_id}_{int(datetime.now().timestamp())}"
         return {
             "deployment_id": deployment_id,
+            "deployment_type": "git",
             "agent_id": info.agent_id,
             "agent_name": info.agent_name,
             "managed_file": info.managed_file,
-            "source_path": info.source_path,
-            "target_path": info.target_path,
-            "target_repo": info.target_repo,
+            "repo_path": str(info.repo_path),
             "has_changes": info.has_changes,
+            "git_status": info.git_status,
             "diff": info.diff_text,
             "coverage_percent": info.coverage_percent,
             "coverage_ok": info.coverage_ok,
@@ -316,40 +322,33 @@ class DeploymentManager:
             "staged_by": info.staged_by,
             "staged_at": datetime.now(timezone.utc).isoformat(),
             "status": "staged" if info.coverage_ok else "failed_coverage",
+            "commit_message": f"Update {info.managed_file} via agent {info.agent_name}",
         }
 
-    def execute_deployment(
-        self,
-        deployment_id: str,
-        session_token: str,
-    ) -> tuple[bool, str]:
-        """Execute a staged deployment"""
-        validation_result = self._validate_deployment_prerequisites(deployment_id, session_token)
+    def execute_deployment(self, deployment_id: str, session_token: str) -> tuple[bool, str]:
+        """Execute git deployment: add -> commit -> push"""
+        validation_result = self._validate_deployment(deployment_id, session_token)
         if not validation_result.success:
             return False, validation_result.error_message
 
         deployment = validation_result.data["deployment"]
         session = validation_result.data["session"]
 
-        workflow_result = self._execute_deployment_workflow(deployment, session, session_token)
-        return workflow_result["success"], workflow_result["message"]
+        try:
+            success, message = self._execute_git_workflow(deployment, session)
+            if success:
+                self._finalize_deployment(deployment, session)
+            return success, message
+        except Exception as e:
+            logger.error(f"Deployment execution failed: {e}")
+            return False, f"Git deployment failed: {e!s}"
 
-    def _validate_deployment_prerequisites(self, deployment_id: str, session_token: str) -> ValidationResult:
+    def _validate_deployment(self, deployment_id: str, session_token: str) -> ValidationResult:
         """Validate deployment prerequisites"""
-        # Check session validity
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
             return ValidationResult(False, "Invalid session")
 
-        # Check deployment exists and coverage
-        deployment_check = self._check_deployment_readiness(deployment_id)
-        if not deployment_check.success:
-            return deployment_check
-
-        return ValidationResult(True, data={"deployment": deployment_check.data["deployment"], "session": session})
-
-    def _check_deployment_readiness(self, deployment_id: str) -> ValidationResult:
-        """Check if deployment exists and meets coverage requirements"""
         if deployment_id not in self.pending_deployments:
             return ValidationResult(False, "Deployment not found")
 
@@ -358,113 +357,187 @@ class DeploymentManager:
             error_msg = f"Coverage requirement not met: {deployment['coverage_percent']}%"
             return ValidationResult(False, error_msg)
 
-        return ValidationResult(True, data={"deployment": deployment})
+        return ValidationResult(True, data={"deployment": deployment, "session": session})
 
-    def _execute_deployment_workflow(self, deployment: dict, session: dict, session_token: str) -> dict:
-        """Execute the deployment workflow"""
+    def _execute_git_workflow(self, deployment: dict, session: dict) -> tuple[bool, str]:
+        """Execute the git add -> commit -> push workflow"""
+        managed_file = deployment["managed_file"]
+        commit_message = deployment["commit_message"]
+
         try:
-            auth_result = self._authorize_deployment(deployment, session_token)
-            if not auth_result["success"]:
-                return auth_result
+            self._git_add_file(managed_file)
+            commit_hash = self._git_commit_changes(commit_message, session)
+            push_result = self._git_push_changes()
 
-            # Create backup and deploy
-            backup_path = self._create_backup_if_needed(deployment)
-            self._copy_deployment_file(deployment, backup_path)
-            self._update_deployment_record(deployment, session, backup_path)
-            self._save_deployment_history(deployment)
+            message = f"Git deployment successful: {managed_file}"
+            if commit_hash:
+                message += f" (commit: {commit_hash[:8]})"
+            if push_result:
+                message += " - pushed to remote"
 
-            logger.info(f"Deployment successful: {deployment['managed_file']} -> {deployment['target_path']}")
-            return {
-                "success": True,
-                "message": f"Successfully deployed {deployment['managed_file']}",
-            }
-
+            logger.info(message)
+            return True, message
         except Exception as e:
-            return {"success": False, "message": f"Deployment workflow failed: {e!s}"}
+            logger.error(f"Git workflow failed: {e}")
+            return False, f"Git workflow failed: {e!s}"
 
-    def _authorize_deployment(self, deployment: dict, session_token: str) -> dict:
-        """Authorize deployment with security manager"""
-        authorized, error = self.security_manager.authorize_deployment(
-            session_token,
-            deployment["agent_id"],
-            Path(deployment["source_path"]),
-            Path(deployment["target_path"]),
-        )
-
-        if authorized:
-            return {"success": True}
-        else:
-            return {"success": False, "message": f"Authorization failed: {error}"}
-
-    def _create_backup_if_needed(self, deployment: dict) -> Path | None:
-        """Create backup if target file exists"""
-        target_path = Path(deployment["target_path"])
-        if target_path.exists():
-            backup_path = self.deployments_dir / f"backup_{deployment['deployment_id']}_{target_path.name}"
-            shutil.copy2(target_path, backup_path)
-            logger.info(f"Created backup: {backup_path}")
-            return backup_path
-        return None
-
-    def _copy_deployment_file(self, deployment: dict, backup_path: Path | None):
-        """Copy the deployment file to target location"""
-        target_path = Path(deployment["target_path"])
-        source_path = Path(deployment["source_path"])
-
-        # Ensure target directory exists
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Copy file
-        shutil.copy2(source_path, target_path)
-
-    def _update_deployment_record(self, deployment: dict, session: dict, backup_path: Path | None):
-        """Update deployment record with execution details"""
+    def _finalize_deployment(self, deployment: dict, session: dict):
+        """Finalize deployment record"""
         deployment["status"] = "deployed"
         deployment["deployed_at"] = datetime.now(timezone.utc).isoformat()
         deployment["deployed_by"] = session["client_name"]
-        deployment["backup_path"] = str(backup_path) if backup_path else None
+        self._save_deployment_history(deployment)
 
-    def rollback_deployment(
-        self,
-        deployment_id: str,
-        session_token: str,
-    ) -> tuple[bool, str]:
-        """Rollback a deployment"""
-        # Validate session
+    def _git_add_file(self, managed_file: str):
+        """Add file to git staging area"""
+        subprocess.run(
+            ["git", "add", managed_file],
+            cwd=self.workspace_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        logger.info(f"Git add successful: {managed_file}")
+
+    def _git_commit_changes(self, commit_message: str, session: dict) -> str:
+        """Commit staged changes"""
+        env = {
+            "GIT_AUTHOR_NAME": session.get("client_name", "MCP Agent"),
+            "GIT_AUTHOR_EMAIL": f"{session.get('client_name', 'agent')}@mcp-local",
+            "GIT_COMMITTER_NAME": "MCP Deployment System",
+            "GIT_COMMITTER_EMAIL": "mcp-deployment@local",
+        }
+
+        subprocess.run(
+            ["git", "commit", "-m", commit_message],
+            cwd=self.workspace_root,
+            capture_output=True,
+            text=True,
+            env={**subprocess.os.environ, **env},
+            check=True,
+        )
+
+        commit_hash = self._get_latest_commit_hash()
+        logger.info(f"Git commit successful: {commit_hash}")
+        return commit_hash
+
+    def _get_latest_commit_hash(self) -> str:
+        """Get the latest commit hash"""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return result.stdout.strip()[:8]
+        except Exception:
+            return ""
+
+    def _git_push_changes(self) -> bool:
+        """Push changes to remote if available"""
+        try:
+            if not self._has_git_remote():
+                return False
+
+            push_result = subprocess.run(
+                ["git", "push"],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            success = push_result.returncode == 0
+            if success:
+                logger.info("Git push successful")
+            else:
+                logger.warning(f"Git push failed: {push_result.stderr}")
+
+            return success
+        except Exception as e:
+            logger.warning(f"Git push failed: {e}")
+            return False
+
+    def _has_git_remote(self) -> bool:
+        """Check if git remote exists"""
+        result = subprocess.run(
+            ["git", "remote"],
+            cwd=self.workspace_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        has_remote = bool(result.stdout.strip())
+        if not has_remote:
+            logger.info("No git remote configured, skipping push")
+
+        return has_remote
+
+    def rollback_deployment(self, deployment_id: str, session_token: str) -> tuple[bool, str]:
+        """Rollback deployment using git revert"""
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
             return False, "Invalid session"
 
-        # Find and validate deployment
-        rollback_validation = self._validate_rollback_deployment(deployment_id)
-        if not rollback_validation.success:
-            return False, rollback_validation.error_message
+        try:
+            return self._execute_rollback(deployment_id, session)
+        except Exception as e:
+            logger.error(f"Rollback failed: {e}")
+            return False, f"Rollback failed: {e!s}"
 
-        # Execute the rollback
-        deployment = rollback_validation.data["deployment"]
-        return self._execute_rollback(deployment, session)
-
-    def _validate_rollback_deployment(self, deployment_id: str) -> ValidationResult:
-        """Validate deployment for rollback"""
-        # Find deployment in history
+    def _execute_rollback(self, deployment_id: str, session: dict) -> tuple[bool, str]:
+        """Execute rollback workflow"""
         deployment = self._find_deployment_in_history(deployment_id)
         if not deployment:
-            return ValidationResult(False, "Deployment not found in history")
+            return False, "Deployment not found in history"
 
-        # Check eligibility and backup availability
-        eligibility_check = self._check_rollback_eligibility(deployment)
-        return eligibility_check
-
-    def _check_rollback_eligibility(self, deployment: dict) -> ValidationResult:
-        """Check if deployment is eligible for rollback"""
         if deployment.get("status") != "deployed":
-            return ValidationResult(False, "Deployment was not successfully deployed")
+            return False, "Only deployed commits can be rolled back"
 
-        backup_path = deployment.get("backup_path")
-        if not backup_path or not Path(backup_path).exists():
-            return ValidationResult(False, "No backup available for rollback")
+        managed_file = deployment.get("managed_file", "")
+        success = self._perform_git_rollback(managed_file)
 
-        return ValidationResult(True, data={"deployment": deployment})
+        if success:
+            self._finalize_rollback(managed_file, deployment, session)
+            return True, f"Successfully rolled back {managed_file}"
+
+        return False, "Git rollback operation failed"
+
+    def _perform_git_rollback(self, managed_file: str) -> bool:
+        """Perform git rollback operation"""
+        try:
+            revert_result = subprocess.run(
+                ["git", "checkout", "HEAD~1", "--", managed_file],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            success = revert_result.returncode == 0
+            if not success:
+                logger.error(f"Git rollback failed: {revert_result.stderr}")
+
+            return success
+        except Exception as e:
+            logger.error(f"Git rollback operation failed: {e}")
+            return False
+
+    def _finalize_rollback(self, managed_file: str, deployment: dict, session: dict):
+        """Finalize rollback by committing and updating records"""
+        revert_commit_message = f"Revert: {deployment.get('commit_message', '')}"
+        self._git_add_file(managed_file)
+        self._git_commit_changes(revert_commit_message, session)
+
+        deployment["status"] = "rolled_back"
+        deployment["rolled_back_at"] = datetime.now(timezone.utc).isoformat()
+        deployment["rolled_back_by"] = session["client_name"]
+
+        self._save_deployment_history(deployment)
+        logger.info(f"Rollback finalized: {managed_file}")
 
     def _find_deployment_in_history(self, deployment_id: str) -> dict | None:
         """Find deployment in history"""
@@ -474,53 +547,25 @@ class DeploymentManager:
                 return entry
         return None
 
-    def _execute_rollback(self, deployment: dict, session: dict) -> tuple[bool, str]:
-        """Execute the actual rollback"""
-        try:
-            backup_path = deployment["backup_path"]
-            target_path = Path(deployment["target_path"])
-
-            # Restore from backup
-            shutil.copy2(backup_path, target_path)
-
-            # Update deployment record
-            deployment["status"] = "rolled_back"
-            deployment["rolled_back_at"] = datetime.now(timezone.utc).isoformat()
-            deployment["rolled_back_by"] = session["client_name"]
-
-            # Save updated history
-            self._save_deployment_history(deployment)
-
-            logger.info(f"Rollback successful: {deployment['managed_file']}")
-            return True, f"Successfully rolled back {deployment['managed_file']}"
-
-        except Exception as e:
-            logger.error(f"Rollback execution failed: {e}")
-            return False, f"Rollback execution failed: {e!s}"
-
     def _save_deployment_history(self, deployment: dict[str, Any]):
         """Save deployment to history"""
         history = self._load_deployment_history()
-        history = self._update_deployment_in_history(history, deployment)
 
-        # Keep only last 1000 entries
-        if len(history) > 1000:
-            history = history[-1000:]
-
-        self._write_deployment_history(history)
-
-    def _update_deployment_in_history(self, history: list, deployment: dict) -> list:
-        """Update or add deployment in history"""
+        # Update existing or add new
+        updated = False
         for i, entry in enumerate(history):
             if entry.get("deployment_id") == deployment["deployment_id"]:
                 history[i] = deployment
-                return history
+                updated = True
+                break
 
-        history.append(deployment)
-        return history
+        if not updated:
+            history.append(deployment)
 
-    def _write_deployment_history(self, history: list):
-        """Write deployment history to file"""
+        # Keep last 1000 entries
+        if len(history) > 1000:
+            history = history[-1000:]
+
         try:
             with open(self.history_file, "w") as f:
                 json.dump(history, f, indent=2)
@@ -542,16 +587,20 @@ class DeploymentManager:
     def get_deployment_status(self) -> dict[str, Any]:
         """Get current deployment status"""
         history = self._load_deployment_history()
-        status_counts = self._count_deployment_statuses(history)
+        status_counts = self._count_statuses(history)
+        repo_status = self.get_git_status()
 
         return {
+            "deployment_type": "git-based",
             "pending_deployments": len(self.pending_deployments),
-            "total_deployments": len(history),
+            "total_git_deployments": len(history),
             "status_breakdown": status_counts,
             "recent_deployments": history[-10:] if history else [],
+            "repository_status": repo_status,
+            "git_enabled": self._check_git_repository(),
         }
 
-    def _count_deployment_statuses(self, history: list) -> dict[str, int]:
+    def _count_statuses(self, history: list) -> dict[str, int]:
         """Count deployments by status"""
         status_counts = {}
         for entry in history:
@@ -559,317 +608,77 @@ class DeploymentManager:
             status_counts[status] = status_counts.get(status, 0) + 1
         return status_counts
 
-    def validate_code_quality(self, agent: Agent) -> tuple[bool, dict[str, Any], str]:
-        """Run pre-commit quality gates on agent's file"""
+    def _check_git_repository(self) -> bool:
+        """Check if workspace is a git repository"""
         try:
-            file_path = agent.get_managed_file_path()
-            if not file_path.exists():
-                return False, {}, "File not found"
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
 
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
-                quality_results = self._run_quality_checks(file_path, temp_path)
-                report = self._build_quality_report(quality_results)
-                all_passed = quality_results.get("returncode", 1) == 0
+    def validate_code_quality(self, agent: Agent) -> tuple[bool, dict[str, Any], str]:
+        """Run code quality checks in repository"""
+        file_path = agent.get_managed_file_path()
+        if not file_path.exists():
+            return False, {}, "File not found in repository"
 
-                return all_passed, quality_results, report
-
+        try:
+            quality_results = self._run_quality_checks(agent.state.managed_file)
+            report = self._build_quality_report(quality_results)
+            all_passed = quality_results.get("returncode", 1) == 0
+            return all_passed, quality_results, report
         except Exception as e:
             logger.error(f"Quality validation failed: {e}")
             return False, {"error": str(e)}, f"Error running quality checks: {e!s}"
 
-    def _run_quality_checks(self, file_path: Path, temp_path: Path) -> dict[str, Any]:
-        """Run quality checks in temporary repo"""
-        self._prepare_quality_check_environment(file_path, temp_path)
-        result = self._execute_precommit_hooks(temp_path)
-        return self._parse_precommit_output(result.stdout, result.stderr, result.returncode)
+    def _run_quality_checks(self, managed_file: str) -> dict[str, Any]:
+        """Run quality checks on file"""
+        precommit_config = self.workspace_root / ".pre-commit-config.yaml"
 
-    def _prepare_quality_check_environment(self, file_path: Path, temp_path: Path):
-        """Prepare environment for quality checks"""
-        self._setup_temp_git_repo(temp_path, file_path)
-
-    def _setup_temp_git_repo(self, temp_path: Path, file_path: Path):
-        """Setup temporary git repository"""
-        self._initialize_git_repo(temp_path)
-        self._setup_git_config(temp_path)
-        self._prepare_test_files(temp_path, file_path)
-        self._stage_files_for_git(temp_path)
-
-    def _initialize_git_repo(self, temp_path: Path):
-        """Initialize git repository"""
-        self._run_git_command(temp_path, ["init"])
-
-    def _setup_git_config(self, temp_path: Path):
-        """Configure git user settings"""
-        self._run_git_command(temp_path, ["config", "user.email", "test@test.com"])
-        self._run_git_command(temp_path, ["config", "user.name", "Test User"])
-
-    def _prepare_test_files(self, temp_path: Path, file_path: Path):
-        """Copy necessary files for testing"""
-        target_file = temp_path / file_path.name
-        shutil.copy(file_path, target_file)
-        self._copy_precommit_config(temp_path)
-
-    def _stage_files_for_git(self, temp_path: Path):
-        """Stage all files in git"""
-        self._run_git_command(temp_path, ["add", "."])
-
-    def _run_git_command(self, cwd: Path, args: list[str]):
-        """Run git command in specified directory"""
-        subprocess.run(["git"] + args, cwd=cwd, check=True, capture_output=True)
-
-    def _copy_precommit_config(self, temp_path: Path):
-        """Copy pre-commit configuration if it exists"""
-        precommit_config = Path(__file__).parent.parent / ".pre-commit-config.yaml"
         if precommit_config.exists():
-            shutil.copy(precommit_config, temp_path / ".pre-commit-config.yaml")
+            result = subprocess.run(
+                ["pre-commit", "run", "--files", managed_file],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            tool = "pre-commit"
+        else:
+            result = subprocess.run(
+                ["python", "-m", "py_compile", managed_file],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            tool = "py_compile"
 
-    def _execute_precommit_hooks(self, temp_path: Path):
-        """Execute pre-commit hooks"""
-        return subprocess.run(
-            ["pre-commit", "run", "--all-files", "--verbose"],
-            check=False,
-            cwd=temp_path,
-            capture_output=True,
-            text=True,
-        )
-
-    def _parse_precommit_output(self, stdout: str, stderr: str, returncode: int) -> dict[str, Any]:
-        """Parse pre-commit output into structured results"""
-        results = self._initialize_precommit_results(returncode)
-        self._extract_hook_results(stdout, results)
-        self._calculate_precommit_summary(results)
-        return results
-
-    def _initialize_precommit_results(self, returncode: int) -> dict[str, Any]:
-        """Initialize pre-commit results structure"""
         return {
-            "checks_run": [],
-            "passed": [],
-            "failed": [],
-            "skipped": [],
-            "details": {},
-            "returncode": returncode,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "quality_tool": tool,
         }
-
-    def _extract_hook_results(self, stdout: str, results: dict):
-        """Extract hook results from stdout"""
-        lines = stdout.split("\n")
-        for line in lines:
-            if "......................." in line:
-                hook_info = self._parse_hook_line(line)
-                if hook_info:
-                    self._categorize_hook_result(hook_info, results, stdout)
-
-    def _parse_hook_line(self, line: str) -> dict | None:
-        """Parse individual hook result line"""
-        parts = line.split(".")
-        if len(parts) >= 2:
-            return {"name": parts[0].strip(), "status": parts[-1].strip()}
-        return None
-
-    def _categorize_hook_result(self, hook_info: dict, results: dict, stdout: str):
-        """Categorize hook result into passed/failed/skipped"""
-        hook_name = hook_info["name"]
-        status = hook_info["status"]
-
-        results["checks_run"].append(hook_name)
-
-        status_handlers = {
-            "passed": lambda: self._handle_passed_check(hook_name, results),
-            "failed": lambda: self._handle_failed_check(hook_name, results, stdout),
-            "skipped": lambda: self._handle_skipped_check(hook_name, results),
-        }
-
-        status_type = self._determine_status_type(status)
-        handler = status_handlers.get(status_type, lambda: None)
-        handler()
-
-    def _determine_status_type(self, status: str) -> str:
-        """Determine the type of status from status string"""
-        if "Passed" in status or "✓" in status:
-            return "passed"
-        elif "Failed" in status or "✗" in status:
-            return "failed"
-
-        # Handle skipped or unknown statuses
-        return "skipped" if "Skipped" in status else "unknown"
-
-    def _handle_passed_check(self, hook_name: str, results: dict):
-        """Handle passed check result"""
-        results["passed"].append(hook_name)
-
-    def _handle_failed_check(self, hook_name: str, results: dict, stdout: str):
-        """Handle failed check result"""
-        results["failed"].append(hook_name)
-        results["details"][hook_name] = self._extract_failure_details(stdout, hook_name)
-
-    def _handle_skipped_check(self, hook_name: str, results: dict):
-        """Handle skipped check result"""
-        results["skipped"].append(hook_name)
-
-    def _calculate_precommit_summary(self, results: dict):
-        """Calculate summary statistics for pre-commit results"""
-        total_checks = len(results["checks_run"])
-        passed_checks = len(results["passed"])
-
-        results["summary"] = {
-            "total": total_checks,
-            "passed": passed_checks,
-            "failed": len(results["failed"]),
-            "skipped": len(results["skipped"]),
-            "pass_rate": (passed_checks / total_checks if total_checks > 0 else 0),
-        }
-
-    def _extract_failure_details(self, output: str, hook_name: str) -> dict[str, Any]:
-        """Extract detailed failure information for a specific hook"""
-        details = {"issues": [], "suggestions": []}
-
-        # Use hook-specific parsers
-        parser = self._get_hook_parser(hook_name)
-        if parser:
-            parser(output, details)
-
-        return details
-
-    def _get_hook_parser(self, hook_name: str):
-        """Get the appropriate parser for a hook"""
-        hook_parsers = {
-            "ruff": self._parse_ruff_errors,
-            "mypy": self._parse_mypy_errors,
-            "bandit": self._parse_bandit_errors,
-            "complexity": self._parse_complexity_errors,
-        }
-
-        for hook_type, parser in hook_parsers.items():
-            if hook_type in hook_name.lower():
-                return parser
-
-        return None
-
-    def _parse_ruff_errors(self, output: str, details: dict):
-        """Parse ruff-specific errors"""
-        for line in output.split("\n"):
-            if " | " in line and "error" in line.lower():
-                details["issues"].append(line.strip())
-
-    def _parse_mypy_errors(self, output: str, details: dict):
-        """Parse mypy-specific errors"""
-        for line in output.split("\n"):
-            if "error:" in line.lower():
-                details["issues"].append(line.strip())
-
-    def _parse_bandit_errors(self, output: str, details: dict):
-        """Parse bandit security issues"""
-        in_issue = False
-        for line in output.split("\n"):
-            if "Issue:" in line:
-                in_issue = True
-                details["issues"].append(line.strip())
-            elif in_issue and line.strip():
-                details["issues"][-1] += " " + line.strip()
-            else:
-                in_issue = False
-
-    def _parse_complexity_errors(self, output: str, details: dict):
-        """Parse complexity issues"""
-        for line in output.split("\n"):
-            if "complexity" in line.lower() and any(char.isdigit() for char in line):
-                details["issues"].append(line.strip())
 
     def _build_quality_report(self, results: dict[str, Any]) -> str:
-        """Build human-readable quality report"""
-        report_sections = []
+        """Build quality report"""
+        tool = results.get("quality_tool", "unknown")
+        returncode = results.get("returncode", 1)
 
-        # Header
-        report_sections.extend(["=" * 60, "CODE QUALITY VALIDATION REPORT", "=" * 60])
+        if returncode == 0:
+            return f"✅ All {tool} checks passed!"
 
-        # Summary section
-        report_sections.append(self._build_summary_section(results))
+        report = f"❌ {tool} checks failed:\n"
+        if results.get("stderr"):
+            report += f"\nErrors:\n{results['stderr']}\n"
+        if results.get("stdout"):
+            report += f"\nOutput:\n{results['stdout']}\n"
 
-        # Detailed sections
-        report_sections.append(self._build_passed_checks_section(results))
-        report_sections.append(self._build_failed_checks_section(results))
-        report_sections.append(self._build_recommendations_section(results))
-
-        # Footer
-        report_sections.append("\n" + "=" * 60)
-
-        return "\n".join(filter(None, report_sections))
-
-    def _build_summary_section(self, results: dict) -> str:
-        """Build summary section of quality report"""
-        summary = results.get("summary", {})
-        return f"""
-📊 Summary:
-  Total Checks: {summary.get("total", 0)}
-  ✅ Passed: {summary.get("passed", 0)}
-  ❌ Failed: {summary.get("failed", 0)}
-  ⏭️  Skipped: {summary.get("skipped", 0)}
-  📈 Pass Rate: {summary.get("pass_rate", 0):.1%}"""
-
-    def _build_passed_checks_section(self, results: dict) -> str:
-        """Build passed checks section"""
-        if not results.get("passed"):
-            return ""
-
-        passed_list = "\n".join(f"  • {check}" for check in results["passed"])
-        return f"\n✅ Passed Checks:\n{passed_list}"
-
-    def _build_failed_checks_section(self, results: dict) -> str:
-        """Build failed checks section"""
-        if not results.get("failed"):
-            return ""
-
-        failed_section = "\n❌ Failed Checks:"
-        for check in results["failed"]:
-            failed_section += self._build_single_failed_check(check, results)
-
-        return failed_section
-
-    def _build_single_failed_check(self, check: str, results: dict) -> str:
-        """Build section for a single failed check"""
-        check_section = f"\n  • {check}"
-        details = results.get("details", {}).get(check, {})
-
-        if details.get("issues"):
-            check_section += self._build_issues_list(details["issues"])
-
-        return check_section
-
-    def _build_issues_list(self, issues: list[str]) -> str:
-        """Build list of issues with optional truncation"""
-        issues_section = ""
-        displayed_issues = issues[:5]  # Limit to first 5 issues
-
-        for issue in displayed_issues:
-            issues_section += f"\n    → {issue}"
-
-        if len(issues) > 5:
-            remaining_count = len(issues) - 5
-            issues_section += f"\n    ... and {remaining_count} more issues"
-
-        return issues_section
-
-    def _build_recommendations_section(self, results: dict) -> str:
-        """Build recommendations section"""
-        if not results.get("failed"):
-            return ""
-
-        recommendations = ["\n💡 Recommendations:"]
-        failed_checks = str(results.get("failed", []))
-
-        for check_type, recommendation in self._get_recommendation_map().items():
-            if check_type in failed_checks:
-                recommendations.append(recommendation)
-
-        return "\n".join(recommendations) if len(recommendations) > 1 else ""
-
-    def _get_recommendation_map(self) -> dict[str, str]:
-        """Get mapping of check types to recommendations"""
-        return {
-            "ruff": "  • Run 'ruff check --fix' to auto-fix formatting issues",
-            "mypy": "  • Add type hints to resolve mypy errors",
-            "bandit": "  • Review security issues and add '# nosec' for false positives",
-            "complexity": "  • Refactor complex functions to reduce cyclomatic complexity",
-        }
+        return report
