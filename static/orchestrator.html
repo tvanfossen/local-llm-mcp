@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM Agent Orchestrator - Secure Deployment</title>
+    <title>LLM Agent Orchestrator - Git-Based Deployment</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -183,6 +183,33 @@
             transition: width 0.5s;
         }
 
+        .git-status-panel {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .git-status-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .git-status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            font-size: 0.9em;
+        }
+
+        .git-changes {
+            color: #ffb86c;
+        }
+
         .deployment-queue {
             background: rgba(10, 14, 39, 0.6);
             border: 1px solid #2d3561;
@@ -219,6 +246,14 @@
             border-left: 3px solid #ff5555;
         }
 
+        .queue-item.staged {
+            border-left: 3px solid #bd93f9;
+        }
+
+        .queue-item.deployed {
+            border-left: 3px solid #50fa7b;
+        }
+
         .deployment-item {
             background: rgba(26, 31, 58, 0.8);
             border: 1px solid #2d3561;
@@ -234,6 +269,29 @@
             margin-bottom: 5px;
         }
 
+        .git-status-badge {
+            font-size: 0.75em;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(0, 212, 255, 0.2);
+            color: #00d4ff;
+        }
+
+        .git-status-badge.modified {
+            background: rgba(255, 184, 108, 0.2);
+            color: #ffb86c;
+        }
+
+        .git-status-badge.staged {
+            background: rgba(189, 147, 249, 0.2);
+            color: #bd93f9;
+        }
+
+        .git-status-badge.committed {
+            background: rgba(80, 250, 123, 0.2);
+            color: #50fa7b;
+        }
+
         .skip-testing {
             display: flex;
             align-items: center;
@@ -243,6 +301,25 @@
 
         .skip-testing input[type="checkbox"] {
             accent-color: #7b2ff7;
+        }
+
+        .commit-message-section {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .commit-input {
+            width: 100%;
+            padding: 10px;
+            background: rgba(10, 14, 39, 0.8);
+            border: 1px solid #2d3561;
+            border-radius: 4px;
+            color: #e0e6ed;
+            margin-top: 10px;
+            font-family: monospace;
         }
 
         .tool-selector {
@@ -419,24 +496,6 @@
             margin-top: 20px;
         }
 
-        .repo-config {
-            background: rgba(10, 14, 39, 0.6);
-            border: 1px solid #2d3561;
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-
-        .repo-input {
-            width: 100%;
-            padding: 10px;
-            background: rgba(10, 14, 39, 0.8);
-            border: 1px solid #2d3561;
-            border-radius: 4px;
-            color: #e0e6ed;
-            margin-top: 10px;
-        }
-
         .modal {
             display: none;
             position: fixed;
@@ -459,8 +518,10 @@
             border: 1px solid #2d3561;
             border-radius: 12px;
             padding: 30px;
-            max-width: 600px;
+            max-width: 800px;
             width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
         }
 
         .diff-viewer {
@@ -490,6 +551,11 @@
             color: #ff5555;
         }
 
+        .diff-header {
+            color: #bd93f9;
+            font-weight: bold;
+        }
+
         .websocket-status {
             position: fixed;
             bottom: 20px;
@@ -502,13 +568,40 @@
             align-items: center;
             gap: 10px;
         }
+
+        .deployment-history {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background: rgba(26, 31, 58, 0.4);
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        .history-item .commit-hash {
+            color: #bd93f9;
+            font-family: monospace;
+        }
+
+        .history-item .timestamp {
+            color: #6272a4;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 Agent Orchestrator</h1>
-            <p>Secure Test-Driven Deployment Pipeline with Manual Control</p>
+            <h1>🤖 Agent Orchestrator - Git Integration</h1>
+            <p>Direct Repository Editing with Git-Based Deployment Pipeline</p>
         </div>
 
         <div class="auth-section">
@@ -577,29 +670,55 @@
 
             <div class="deployment-panel">
                 <div class="panel-header">
-                    <h3>🚀 Deployment Pipeline</h3>
+                    <h3>🚀 Git Deployment Pipeline</h3>
                     <span id="deploymentStatus">Ready</span>
                 </div>
 
-                <div class="repo-config">
-                    <label>Target Repository Path:</label>
-                    <input type="text" class="repo-input" id="repoPath" placeholder="/home/user/my-project">
+                <div class="git-status-panel">
+                    <div class="git-status-header">
+                        <strong>📊 Repository Status</strong>
+                        <button class="btn-small" onclick="refreshGitStatus()">Refresh</button>
+                    </div>
+                    <div id="gitStatusDisplay">
+                        <div class="git-status-item">
+                            <span>Repository:</span>
+                            <span>/workspace (direct edit)</span>
+                        </div>
+                        <div class="git-status-item">
+                            <span>Changes:</span>
+                            <span id="gitChangesCount" class="git-changes">Loading...</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="deployment-queue" id="deploymentQueue">
-                    <p style="opacity: 0.5; text-align: center;">No files in deployment queue</p>
+                    <p style="opacity: 0.5; text-align: center;">No files selected for deployment</p>
+                </div>
+
+                <div class="commit-message-section">
+                    <label>📝 Commit Message:</label>
+                    <input type="text" class="commit-input" id="commitMessage" placeholder="Update files via agent deployment" maxlength="100">
+                    <textarea class="commit-input" id="commitDescription" placeholder="Optional detailed description..." rows="2"></textarea>
                 </div>
 
                 <div class="controls">
-                    <button class="btn" onclick="runTests()" disabled id="runTestsBtn">Run Tests</button>
-                    <button class="btn" onclick="deploySelected()" disabled id="deployBtn">Deploy to Repo</button>
+                    <button class="btn" onclick="runTests()" disabled id="runTestsBtn">Run Coverage Tests</button>
+                    <button class="btn" onclick="stageDeployment()" disabled id="stageBtn">Stage Changes</button>
+                    <button class="btn" onclick="deployToGit()" disabled id="deployBtn">Commit & Push</button>
                     <button class="btn" onclick="clearQueue()" style="background: #ff5555;">Clear Queue</button>
+                </div>
+
+                <div class="deployment-history" id="deploymentHistory">
+                    <strong>Recent Git History:</strong>
+                    <div id="gitHistoryList">
+                        <p style="opacity: 0.5; text-align: center;">Loading git history...</p>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div class="terminal" id="terminal">
-            <div class="terminal-line info">System ready. Authenticate to begin.</div>
+            <div class="terminal-line info">Git-based orchestrator ready. Authenticate to begin.</div>
         </div>
     </div>
 
@@ -610,11 +729,12 @@
 
     <div class="modal" id="diffModal">
         <div class="modal-content">
-            <h3>Review Changes</h3>
+            <h3>📋 Review Git Changes</h3>
+            <div id="diffMetadata" style="margin-bottom: 15px; font-size: 0.9em; color: #8892b0;"></div>
             <div class="diff-viewer" id="diffViewer"></div>
             <div class="controls">
-                <button class="btn" onclick="approveDiff()">Approve & Deploy</button>
-                <button class="btn" onclick="closeDiffModal()" style="background: #6272a4;">Cancel</button>
+                <button class="btn" onclick="approveDiff()">✅ Approve & Commit</button>
+                <button class="btn" onclick="closeDiffModal()" style="background: #6272a4;">❌ Cancel</button>
             </div>
         </div>
     </div>
@@ -629,14 +749,17 @@
         let currentSelectedAgent = null;
         let actionQueue = [];
         let isProcessingQueue = false;
+        let currentGitStatus = {};
+        let pendingDeployment = null;
 
         // Initialize WebSocket connection
         function initWebSocket() {
-            ws = new WebSocket('ws://localhost:8000/ws');
+            const wsUrl = `ws://${window.location.host}/ws`;
+            ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
                 updateWSStatus('Connected', true);
-                addTerminalLine('WebSocket connected', 'success');
+                addTerminalLine('WebSocket connected for git operations', 'success');
             };
 
             ws.onmessage = (event) => {
@@ -660,6 +783,75 @@
             document.getElementById('wsIndicator').style.background = connected ? '#50fa7b' : '#ff5555';
         }
 
+        function handleWSMessage(data) {
+            switch(data.type) {
+                case 'git_test_update':
+                    handleGitTestUpdate(data);
+                    break;
+                case 'git_staging_update':
+                    handleGitStagingUpdate(data);
+                    break;
+                case 'git_deployment_complete':
+                    handleGitDeploymentComplete(data);
+                    break;
+                case 'git_rollback_complete':
+                    handleGitRollbackComplete(data);
+                    break;
+                case 'coverage_update':
+                    handleCoverageUpdate(data);
+                    break;
+                default:
+                    // Handle other message types
+                    if (data.message) {
+                        addTerminalLine(data.message, data.level || 'info');
+                    }
+            }
+        }
+
+        function handleGitTestUpdate(data) {
+            const item = deploymentQueue.find(i => i.id === data.agent_id);
+            if (item) {
+                item.coverage = data.coverage;
+                item.status = data.passed ? 'ready' : 'failed';
+                updateQueueDisplay();
+                addTerminalLine(`🧪 Git test results: ${item.name} - ${data.coverage}% coverage`,
+                              data.passed ? 'success' : 'error');
+            }
+        }
+
+        function handleGitStagingUpdate(data) {
+            const item = deploymentQueue.find(i => i.id === data.agent_id);
+            if (item) {
+                item.gitStatus = data.has_changes ? 'staged' : 'no-changes';
+                item.status = data.status;
+                updateQueueDisplay();
+                addTerminalLine(`📦 Git staging: ${item.name} - ${data.status}`, 'info');
+            }
+        }
+
+        function handleGitDeploymentComplete(data) {
+            addTerminalLine(`🚀 Git deployment complete: ${data.git_status}`, 'success');
+            if (data.deployment_id) {
+                addTerminalLine(`📝 Deployment ID: ${data.deployment_id}`, 'info');
+            }
+            refreshGitStatus();
+            loadGitHistory();
+        }
+
+        function handleGitRollbackComplete(data) {
+            addTerminalLine(`⏪ Git rollback complete: ${data.git_status}`, 'info');
+            refreshGitStatus();
+            loadGitHistory();
+        }
+
+        function handleCoverageUpdate(data) {
+            const item = deploymentQueue.find(i => i.id === data.agent_id);
+            if (item) {
+                item.coverage = data.coverage;
+                updateQueueDisplay();
+            }
+        }
+
         async function authenticate() {
             const keyInput = document.getElementById('privateKey').value;
             if (!keyInput) {
@@ -668,7 +860,6 @@
             }
 
             try {
-                // Send authentication request to server
                 const response = await fetch('/api/orchestrator/authenticate', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -678,28 +869,98 @@
                 if (response.ok) {
                     const data = await response.json();
                     authenticated = true;
-
-                    // Store the session token
                     sessionToken = data.session_token;
 
                     document.getElementById('authIndicator').classList.add('authenticated');
                     document.getElementById('authStatusText').textContent = 'Authenticated';
                     document.getElementById('runTestsBtn').disabled = false;
+                    document.getElementById('stageBtn').disabled = false;
                     document.getElementById('deployBtn').disabled = false;
-                    addTerminalLine('Authentication successful', 'success');
-                    addTerminalLine(`Session expires in ${data.expires_in} seconds`, 'info');
 
-                    // Clear the private key from the input for security
+                    addTerminalLine('🔐 Authentication successful', 'success');
+                    addTerminalLine(`⏰ Session expires in ${data.expires_in} seconds`, 'info');
+
                     document.getElementById('privateKey').value = '';
 
+                    // Initialize git-based data
                     refreshAgents();
+                    refreshGitStatus();
+                    loadGitHistory();
                 } else {
                     const error = await response.json();
-                    addTerminalLine(`Authentication failed: ${error.error || error.message}`, 'error');
+                    addTerminalLine(`❌ Authentication failed: ${error.error || error.message}`, 'error');
                 }
             } catch (error) {
-                addTerminalLine(`Authentication error: ${error}`, 'error');
+                addTerminalLine(`🚫 Authentication error: ${error}`, 'error');
             }
+        }
+
+        async function refreshGitStatus() {
+            if (!authenticated) return;
+
+            try {
+                const response = await fetch('/api/orchestrator/history', {
+                    headers: {'Authorization': `Bearer ${sessionToken}`}
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    currentGitStatus = data.status.repository_status;
+                    updateGitStatusDisplay();
+                }
+            } catch (error) {
+                addTerminalLine(`Failed to refresh git status: ${error}`, 'error');
+            }
+        }
+
+        function updateGitStatusDisplay() {
+            const changesElement = document.getElementById('gitChangesCount');
+            if (currentGitStatus.has_changes) {
+                changesElement.textContent = `${currentGitStatus.total_changes} files changed`;
+                changesElement.className = 'git-changes';
+            } else {
+                changesElement.textContent = 'Working tree clean';
+                changesElement.className = '';
+            }
+        }
+
+        async function loadGitHistory() {
+            if (!authenticated) return;
+
+            try {
+                const response = await fetch('/api/orchestrator/history', {
+                    headers: {'Authorization': `Bearer ${sessionToken}`}
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayGitHistory(data.status.recent_deployments || []);
+                }
+            } catch (error) {
+                addTerminalLine(`Failed to load git history: ${error}`, 'error');
+            }
+        }
+
+        function displayGitHistory(history) {
+            const container = document.getElementById('gitHistoryList');
+
+            if (history.length === 0) {
+                container.innerHTML = '<p style="opacity: 0.5; text-align: center;">No recent deployments</p>';
+                return;
+            }
+
+            container.innerHTML = history.slice(-10).reverse().map(item => `
+                <div class="history-item">
+                    <div>
+                        <span class="commit-hash">${item.deployment_id || 'N/A'}</span>
+                        <span style="margin-left: 10px;">${item.message || item.commit_message || 'No message'}</span>
+                    </div>
+                    <div class="timestamp">
+                        ${item.deployed_at ? new Date(item.deployed_at).toLocaleString() : 'Unknown time'}
+                        ${item.status === 'rolled_back' ? ' (rolled back)' : ''}
+                    </div>
+                </div>
+            `).join('');
         }
 
         async function refreshAgents() {
@@ -712,7 +973,7 @@
                 const response = await fetch('/api/agents');
                 const data = await response.json();
                 displayAgents(data.agents);
-                addTerminalLine(`Loaded ${data.agents.length} agents`, 'info');
+                addTerminalLine(`📚 Loaded ${data.agents.length} agents from workspace`, 'info');
             } catch (error) {
                 addTerminalLine(`Failed to load agents: ${error}`, 'error');
             }
@@ -727,7 +988,7 @@
                 card.className = 'agent-card';
                 card.innerHTML = `
                     <div class="agent-name">${agent.name}</div>
-                    <div class="agent-file">📄 ${agent.managed_file}</div>
+                    <div class="agent-file">📄 /workspace/${agent.managed_file}</div>
                     <div class="agent-stats">
                         <span class="stat">📊 ${agent.total_interactions} interactions</span>
                         <span class="stat">✅ ${(agent.success_rate * 100).toFixed(0)}%</span>
@@ -756,19 +1017,346 @@
             updateQueueDisplay();
 
             // Handle manual control selection (single agent)
-            // First remove active-control class from all cards
             document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active-control'));
 
             if (currentSelectedAgent && currentSelectedAgent.id === agent.id) {
-                // Deselect if clicking the same agent
                 currentSelectedAgent = null;
                 updateManualControlUI();
             } else {
-                // Select this agent for manual control
                 currentSelectedAgent = agent;
                 card.classList.add('active-control');
                 updateManualControlUI();
             }
+        }
+
+        function addToQueue(agent) {
+            if (!deploymentQueue.find(item => item.id === agent.id)) {
+                deploymentQueue.push({
+                    id: agent.id,
+                    name: agent.name,
+                    file: agent.managed_file,
+                    status: 'pending',
+                    gitStatus: 'unknown',
+                    coverage: 0,
+                    skipTesting: false
+                });
+            }
+        }
+
+        function removeFromQueue(agent) {
+            deploymentQueue = deploymentQueue.filter(item => item.id !== agent.id);
+        }
+
+        function updateQueueDisplay() {
+            const container = document.getElementById('deploymentQueue');
+
+            if (deploymentQueue.length === 0) {
+                container.innerHTML = '<p style="opacity: 0.5; text-align: center;">No files selected for deployment</p>';
+                return;
+            }
+
+            container.innerHTML = deploymentQueue.map(item => `
+                <div class="deployment-item">
+                    <div class="deployment-item-header">
+                        <div>
+                            <strong>${item.name}</strong>
+                            <span style="color: #8892b0; margin-left: 10px;">/workspace/${item.file}</span>
+                            <span class="git-status-badge ${item.gitStatus}">${getGitStatusText(item.gitStatus)}</span>
+                        </div>
+                        <div class="skip-testing">
+                            <input type="checkbox" id="skip-${item.id}" onchange="toggleSkipTesting('${item.id}')" ${item.skipTesting ? 'checked' : ''}>
+                            <label for="skip-${item.id}">Skip testing</label>
+                        </div>
+                    </div>
+                    <div class="${item.status}" style="font-size: 0.85em; color: #8892b0;">
+                        Status: ${item.status} | Coverage: ${item.coverage}% | Git: ${getGitStatusText(item.gitStatus)}
+                        ${item.skipTesting ? ' | Testing skipped' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getGitStatusText(gitStatus) {
+            const statusMap = {
+                'unknown': '❓ Unknown',
+                'modified': '📝 Modified',
+                'staged': '📦 Staged',
+                'committed': '✅ Committed',
+                'no-changes': '⚪ No Changes'
+            };
+            return statusMap[gitStatus] || gitStatus;
+        }
+
+        function toggleSkipTesting(agentId) {
+            const item = deploymentQueue.find(i => i.id === agentId);
+            if (item) {
+                item.skipTesting = document.getElementById(`skip-${agentId}`).checked;
+                addTerminalLine(`${item.skipTesting ? '⏭️ Enabled' : '🧪 Disabled'} skip testing for ${item.name}`, 'info');
+            }
+        }
+
+        async function runTests() {
+            if (!authenticated || !sessionToken) {
+                addTerminalLine('🔐 Authentication required', 'error');
+                return;
+            }
+
+            if (deploymentQueue.length === 0) {
+                addTerminalLine('📂 No files in deployment queue', 'warning');
+                return;
+            }
+
+            addTerminalLine('🧪 Starting git-based test suite...', 'info');
+
+            for (let item of deploymentQueue) {
+                if (item.skipTesting) {
+                    item.status = 'ready';
+                    item.coverage = 100;
+                    addTerminalLine(`⏭️ ${item.name}: Testing skipped by user`, 'warning');
+                    updateQueueDisplay();
+                    continue;
+                }
+
+                item.status = 'testing';
+                updateQueueDisplay();
+
+                try {
+                    const response = await fetch(`/api/orchestrator/test/${item.id}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${sessionToken}`
+                        }
+                    });
+
+                    const result = await response.json();
+
+                    if (result.coverage_ok) {
+                        item.status = 'ready';
+                        item.coverage = result.coverage || 100;
+                        addTerminalLine(`✅ ${item.name}: Repository tests passed - ${item.coverage}% coverage`, 'success');
+                    } else {
+                        item.status = 'failed';
+                        item.coverage = result.coverage || 0;
+                        addTerminalLine(`❌ ${item.name}: Repository tests failed - ${item.coverage}% coverage`, 'error');
+                    }
+                } catch (error) {
+                    item.status = 'failed';
+                    addTerminalLine(`🚫 Test error for ${item.name}: ${error}`, 'error');
+                }
+
+                updateQueueDisplay();
+            }
+
+            const readyCount = deploymentQueue.filter(item => item.status === 'ready').length;
+            const skippedCount = deploymentQueue.filter(item => item.skipTesting).length;
+            addTerminalLine(
+                `🏁 Testing complete: ${readyCount}/${deploymentQueue.length} files ready (${skippedCount} skipped)`,
+                readyCount === deploymentQueue.length ? 'success' : 'warning'
+            );
+        }
+
+        async function stageDeployment() {
+            if (!authenticated || !sessionToken) {
+                addTerminalLine('🔐 Authentication required', 'error');
+                return;
+            }
+
+            const readyItems = deploymentQueue.filter(item => item.status === 'ready');
+            if (readyItems.length === 0) {
+                addTerminalLine('⚠️ No files ready for staging (require 100% test coverage or skip testing)', 'warning');
+                return;
+            }
+
+            addTerminalLine(`📦 Staging ${readyItems.length} files for git deployment...`, 'info');
+
+            // Stage each ready item
+            for (let item of readyItems) {
+                try {
+                    const response = await fetch('/api/orchestrator/stage', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${sessionToken}`
+                        },
+                        body: JSON.stringify({
+                            agent_id: item.id,
+                            skip_testing: item.skipTesting || false
+                        })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        item.status = 'staged';
+                        item.gitStatus = 'staged';
+                        pendingDeployment = result.deployment_id;
+                        addTerminalLine(`📦 Staged: ${item.file}${item.skipTesting ? ' (no tests)' : ''}`, 'success');
+
+                        // Show diff preview if available
+                        if (result.deployment && result.deployment.diff) {
+                            showDiffPreview(result.deployment);
+                        }
+                    } else {
+                        const error = await response.json();
+                        addTerminalLine(`❌ Failed to stage ${item.file}: ${error.error}`, 'error');
+                    }
+                } catch (error) {
+                    addTerminalLine(`🚫 Staging error for ${item.file}: ${error}`, 'error');
+                }
+            }
+
+            updateQueueDisplay();
+            refreshGitStatus();
+        }
+
+        function showDiffPreview(deployment) {
+            const modal = document.getElementById('diffModal');
+            const metadata = document.getElementById('diffMetadata');
+            const viewer = document.getElementById('diffViewer');
+
+            metadata.innerHTML = `
+                <div><strong>File:</strong> ${deployment.managed_file}</div>
+                <div><strong>Agent:</strong> ${deployment.agent_name}</div>
+                <div><strong>Coverage:</strong> ${deployment.coverage_percent}%</div>
+                <div><strong>Status:</strong> ${deployment.has_changes ? 'Modified' : 'No changes'}</div>
+            `;
+
+            if (deployment.diff) {
+                const diffLines = deployment.diff.split('\n').map(line => {
+                    let className = '';
+                    if (line.startsWith('+')) className = 'added';
+                    else if (line.startsWith('-')) className = 'removed';
+                    else if (line.startsWith('@@')) className = 'diff-header';
+
+                    return `<div class="diff-line ${className}">${escapeHtml(line)}</div>`;
+                }).join('');
+
+                viewer.innerHTML = diffLines;
+            } else {
+                viewer.innerHTML = '<div class="diff-line">No changes detected</div>';
+            }
+
+            modal.classList.add('active');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function closeDiffModal() {
+            document.getElementById('diffModal').classList.remove('active');
+        }
+
+        async function approveDiff() {
+            closeDiffModal();
+            await deployToGit();
+        }
+
+        async function deployToGit() {
+            if (!authenticated || !sessionToken) {
+                addTerminalLine('🔐 Authentication required', 'error');
+                return;
+            }
+
+            const commitMessage = document.getElementById('commitMessage').value || 'Update files via agent deployment';
+            const commitDescription = document.getElementById('commitDescription').value;
+
+            const stagedItems = deploymentQueue.filter(item => item.status === 'staged');
+            if (stagedItems.length === 0 && !pendingDeployment) {
+                addTerminalLine('📦 No staged changes ready for deployment', 'warning');
+                return;
+            }
+
+            const fullMessage = commitDescription ? `${commitMessage}\n\n${commitDescription}` : commitMessage;
+            addTerminalLine(`🚀 Deploying to git: "${commitMessage}"`, 'info');
+
+            try {
+                const deployData = pendingDeployment
+                    ? { deployment_id: pendingDeployment, commit_message: fullMessage }
+                    : {
+                        agent_id: stagedItems[0].id,
+                        commit_message: fullMessage,
+                        skip_testing: stagedItems.some(item => item.skipTesting)
+                      };
+
+                const response = await fetch('/api/orchestrator/deploy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${sessionToken}`
+                    },
+                    body: JSON.stringify(deployData)
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    addTerminalLine(`✅ Git deployment successful: ${result.message}`, 'success');
+
+                    // Clear deployed items
+                    stagedItems.forEach(item => {
+                        item.status = 'deployed';
+                        item.gitStatus = 'committed';
+                    });
+
+                    // Clear the deployment queue after successful deployment
+                    deploymentQueue = [];
+                    selectedAgents.clear();
+                    document.querySelectorAll('.agent-card').forEach(card => {
+                        card.classList.remove('selected');
+                    });
+
+                    updateQueueDisplay();
+                    refreshGitStatus();
+                    loadGitHistory();
+
+                    // Clear commit message inputs
+                    document.getElementById('commitMessage').value = '';
+                    document.getElementById('commitDescription').value = '';
+
+                    pendingDeployment = null;
+                } else {
+                    const error = await response.json();
+                    addTerminalLine(`❌ Git deployment failed: ${error.error}`, 'error');
+                }
+            } catch (error) {
+                addTerminalLine(`🚫 Deployment error: ${error}`, 'error');
+            }
+        }
+
+        function clearQueue() {
+            deploymentQueue = [];
+            selectedAgents.clear();
+            pendingDeployment = null;
+            updateQueueDisplay();
+            document.querySelectorAll('.agent-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            addTerminalLine('🧹 Deployment queue cleared', 'info');
+        }
+
+        // Manual control functions (keeping existing functionality)
+        function updateManualControlUI() {
+            const selectedNameEl = document.getElementById('selectedAgentName');
+            const queueActionBtn = document.getElementById('queueActionBtn');
+            const executeNowBtn = document.getElementById('executeNowBtn');
+            const tool = document.getElementById('toolSelector').value;
+
+            const agentRequiredTools = ['chat_with_agent', 'agent_update_file', 'get_agent_file', 'agent_write_file', 'validate_agent_file'];
+            const needsAgent = agentRequiredTools.includes(tool);
+
+            if (currentSelectedAgent) {
+                selectedNameEl.textContent = `${currentSelectedAgent.name} (${currentSelectedAgent.managed_file})`;
+                selectedNameEl.style.color = '#00d4ff';
+            } else {
+                selectedNameEl.textContent = 'No agent selected';
+                selectedNameEl.style.color = '#8892b0';
+            }
+
+            const canExecute = tool && (!needsAgent || currentSelectedAgent);
+            queueActionBtn.disabled = !canExecute;
+            executeNowBtn.disabled = !canExecute;
         }
 
         function updateToolInputs() {
@@ -784,11 +1372,11 @@
                 'create_agent': `
                     <div class="form-group">
                         <label>Agent Name:</label>
-                        <input type="text" class="repo-input" id="agent_name" placeholder="readme-agent" required>
+                        <input type="text" class="commit-input" id="agent_name" placeholder="readme-agent" required>
                     </div>
                     <div class="form-group">
                         <label>Description:</label>
-                        <input type="text" class="repo-input" id="agent_description" placeholder="Manages project README documentation" required>
+                        <input type="text" class="commit-input" id="agent_description" placeholder="Manages project README documentation" required>
                     </div>
                     <div class="form-group">
                         <label>System Prompt:</label>
@@ -796,7 +1384,7 @@
                     </div>
                     <div class="form-group">
                         <label>Managed File:</label>
-                        <input type="text" class="repo-input" id="agent_managed_file" placeholder="README.md" required>
+                        <input type="text" class="commit-input" id="agent_managed_file" placeholder="README.md" required>
                     </div>
                     <div class="form-group">
                         <label>Initial Context (optional):</label>
@@ -809,13 +1397,13 @@
                 'get_agent_info': `
                     <div class="form-group">
                         <label>Agent ID:</label>
-                        <input type="text" class="repo-input" id="target_agent_id" placeholder="e1f8d6fd" required>
+                        <input type="text" class="commit-input" id="target_agent_id" placeholder="e1f8d6fd" required>
                     </div>
                 `,
                 'delete_agent': `
                     <div class="form-group">
                         <label>Agent ID:</label>
-                        <input type="text" class="repo-input" id="target_agent_id" placeholder="e1f8d6fd" required>
+                        <input type="text" class="commit-input" id="target_agent_id" placeholder="e1f8d6fd" required>
                     </div>
                     <p style="color: #ff5555; font-size: 0.9em;">⚠️ Warning: This will permanently delete the agent and free up its managed file.</p>
                 `,
@@ -882,6 +1470,8 @@
             container.innerHTML = toolInputs[tool] || '<p style="color: #ff5555;">Unknown tool selected</p>';
         }
 
+        // Keep existing action queue and manual control functions...
+        // [Previous action queue, execute, and utility functions remain the same]
         function buildParametersFromInputs() {
             const tool = document.getElementById('toolSelector').value;
 
@@ -923,83 +1513,6 @@
             return builder ? builder() : {};
         }
 
-        function addToQueue(agent) {
-            if (!deploymentQueue.find(item => item.id === agent.id)) {
-                deploymentQueue.push({
-                    id: agent.id,
-                    name: agent.name,
-                    file: agent.managed_file,
-                    status: 'pending',
-                    coverage: 0,
-                    skipTesting: false
-                });
-            }
-        }
-
-        function removeFromQueue(agent) {
-            deploymentQueue = deploymentQueue.filter(item => item.id !== agent.id);
-        }
-
-        function updateQueueDisplay() {
-            const container = document.getElementById('deploymentQueue');
-
-            if (deploymentQueue.length === 0) {
-                container.innerHTML = '<p style="opacity: 0.5; text-align: center;">No files in deployment queue</p>';
-                return;
-            }
-
-            container.innerHTML = deploymentQueue.map(item => `
-                <div class="deployment-item">
-                    <div class="deployment-item-header">
-                        <div>
-                            <strong>${item.name}</strong>
-                            <span style="color: #8892b0; margin-left: 10px;">${item.file}</span>
-                        </div>
-                        <div class="skip-testing">
-                            <input type="checkbox" id="skip-${item.id}" onchange="toggleSkipTesting('${item.id}')" ${item.skipTesting ? 'checked' : ''}>
-                            <label for="skip-${item.id}">Skip testing</label>
-                        </div>
-                    </div>
-                    <div class="${item.status}" style="font-size: 0.85em; color: #8892b0;">
-                        Status: ${item.status} | Coverage: ${item.coverage}%
-                        ${item.skipTesting ? ' | Testing skipped' : ''}
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function toggleSkipTesting(agentId) {
-            const item = deploymentQueue.find(i => i.id === agentId);
-            if (item) {
-                item.skipTesting = document.getElementById(`skip-${agentId}`).checked;
-                addTerminalLine(`${item.skipTesting ? 'Enabled' : 'Disabled'} skip testing for ${item.name}`, 'info');
-            }
-        }
-
-        function updateManualControlUI() {
-            const selectedNameEl = document.getElementById('selectedAgentName');
-            const queueActionBtn = document.getElementById('queueActionBtn');
-            const executeNowBtn = document.getElementById('executeNowBtn');
-            const tool = document.getElementById('toolSelector').value;
-
-            // Check if tool requires an agent to be selected
-            const agentRequiredTools = ['chat_with_agent', 'agent_update_file', 'get_agent_file', 'agent_write_file', 'validate_agent_file'];
-            const needsAgent = agentRequiredTools.includes(tool);
-
-            if (currentSelectedAgent) {
-                selectedNameEl.textContent = `${currentSelectedAgent.name} (${currentSelectedAgent.managed_file})`;
-                selectedNameEl.style.color = '#00d4ff';
-            } else {
-                selectedNameEl.textContent = 'No agent selected';
-                selectedNameEl.style.color = '#8892b0';
-            }
-
-            // Enable buttons based on tool requirements
-            const canExecute = tool && (!needsAgent || currentSelectedAgent);
-            queueActionBtn.disabled = !canExecute;
-            executeNowBtn.disabled = !canExecute;
-        }
-
         function queueAction() {
             const tool = document.getElementById('toolSelector').value;
             if (!tool) {
@@ -1007,10 +1520,7 @@
                 return;
             }
 
-            // Build parameters from form inputs
             const parameters = buildParametersFromInputs();
-
-            // Validate required fields
             if (!validateToolParameters(tool, parameters)) {
                 return;
             }
@@ -1027,12 +1537,9 @@
 
             actionQueue.push(action);
             updateActionQueueDisplay();
-            addTerminalLine(`Queued ${tool} ${currentSelectedAgent ? `for ${currentSelectedAgent.name}` : ''}`, 'info');
+            addTerminalLine(`📋 Queued ${tool} ${currentSelectedAgent ? `for ${currentSelectedAgent.name}` : ''}`, 'info');
 
-            // Clear form inputs
             clearToolInputs();
-
-            // Enable process queue button
             document.getElementById('processQueueBtn').disabled = false;
         }
 
@@ -1043,16 +1550,13 @@
                 return;
             }
 
-            // Build parameters from form inputs
             const parameters = buildParametersFromInputs();
-
-            // Validate required fields
             if (!validateToolParameters(tool, parameters)) {
                 return;
             }
 
             const actionName = currentSelectedAgent ? `${tool} for ${currentSelectedAgent.name}` : tool;
-            addTerminalLine(`Executing ${actionName}...`, 'info');
+            addTerminalLine(`🚀 Executing ${actionName}...`, 'info');
 
             try {
                 const result = await executeAction({
@@ -1064,10 +1568,9 @@
                 if (result.success) {
                     addTerminalLine(`✅ ${actionName} completed`, 'success');
                     if (result.response && result.response.message) {
-                        addTerminalLine(`Response: ${result.response.message}`, 'info');
+                        addTerminalLine(`📝 Response: ${result.response.message}`, 'info');
                     }
 
-                    // Refresh agents list if we created/deleted an agent
                     if (['create_agent', 'delete_agent'].includes(tool)) {
                         refreshAgents();
                     }
@@ -1075,10 +1578,9 @@
                     addTerminalLine(`❌ ${actionName} failed: ${result.error}`, 'error');
                 }
 
-                // Clear form inputs
                 clearToolInputs();
             } catch (error) {
-                addTerminalLine(`❌ Execution error: ${error}`, 'error');
+                addTerminalLine(`🚫 Execution error: ${error}`, 'error');
             }
         }
 
@@ -1104,7 +1606,6 @@
         }
 
         function clearToolInputs() {
-            // Clear all form inputs in the tool inputs container
             const container = document.getElementById('toolInputs');
             const inputs = container.querySelectorAll('input, textarea, select');
             inputs.forEach(input => {
@@ -1168,14 +1669,14 @@
         function removeAction(index) {
             actionQueue.splice(index, 1);
             updateActionQueueDisplay();
-            addTerminalLine(`Removed action from queue`, 'info');
+            addTerminalLine(`🗑️ Removed action from queue`, 'info');
         }
 
         function clearActionQueue() {
             actionQueue = [];
             updateActionQueueDisplay();
             document.getElementById('queueStatus').textContent = 'Idle';
-            addTerminalLine('Action queue cleared', 'info');
+            addTerminalLine('🧹 Action queue cleared', 'info');
         }
 
         async function processQueue() {
@@ -1193,7 +1694,7 @@
             document.getElementById('queueStatus').textContent = 'Processing';
             document.getElementById('processQueueBtn').disabled = true;
 
-            addTerminalLine(`Processing ${actionQueue.length} queued actions...`, 'info');
+            addTerminalLine(`🔄 Processing ${actionQueue.length} queued actions...`, 'info');
 
             for (let i = 0; i < actionQueue.length; i++) {
                 const action = actionQueue[i];
@@ -1202,7 +1703,7 @@
                 action.status = 'executing';
                 updateActionQueueDisplay();
 
-                addTerminalLine(`[${i + 1}/${actionQueue.length}] Executing ${action.tool} for ${action.agentName}...`, 'info');
+                addTerminalLine(`[${i + 1}/${actionQueue.length}] 🚀 Executing ${action.tool} for ${action.agentName}...`, 'info');
 
                 try {
                     const result = await executeAction(action);
@@ -1213,7 +1714,7 @@
                         addTerminalLine(`✅ ${action.tool} completed for ${action.agentName}`, 'success');
 
                         if (result.response && result.response.message) {
-                            addTerminalLine(`   Response: ${result.response.message.substring(0, 100)}...`, 'info');
+                            addTerminalLine(`   📝 Response: ${result.response.message.substring(0, 100)}...`, 'info');
                         }
                     } else {
                         action.status = 'failed';
@@ -1223,19 +1724,17 @@
                 } catch (error) {
                     action.status = 'failed';
                     action.error = error.message;
-                    addTerminalLine(`❌ Execution error: ${error.message}`, 'error');
+                    addTerminalLine(`🚫 Execution error: ${error.message}`, 'error');
                 }
 
                 updateActionQueueDisplay();
-
-                // Small delay between actions
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
 
             const completed = actionQueue.filter(a => a.status === 'completed').length;
             const failed = actionQueue.filter(a => a.status === 'failed').length;
 
-            addTerminalLine(`Queue processing complete: ${completed} successful, ${failed} failed`, 'info');
+            addTerminalLine(`🏁 Queue processing complete: ${completed} successful, ${failed} failed`, 'info');
 
             isProcessingQueue = false;
             document.getElementById('queueStatus').textContent = 'Idle';
@@ -1247,7 +1746,6 @@
                 throw new Error('Authentication required');
             }
 
-            // Handle different tool types
             if (['create_agent', 'list_agents', 'delete_agent'].includes(action.tool)) {
                 return await executeAgentManagementTool(action);
             } else if (['get_agent_info', 'chat_with_agent', 'agent_update_file', 'get_agent_file', 'agent_write_file', 'validate_agent_file'].includes(action.tool)) {
@@ -1300,7 +1798,6 @@
                 throw new Error('Agent ID required for this tool');
             }
 
-            // Map tool names to MCP endpoints
             const toolEndpoints = {
                 'get_agent_info': `/api/agents/${action.parameters.agent_id || action.agentId}`,
                 'chat_with_agent': `/api/agents/${action.agentId}/chat`,
@@ -1315,9 +1812,7 @@
                 throw new Error(`Unknown tool: ${action.tool}`);
             }
 
-            // Prepare request based on tool type
             if (action.tool === 'get_agent_file' || action.tool === 'get_agent_info') {
-                // GET request, no body
                 const response = await fetch(endpoint, {
                     method: 'GET',
                     headers: {
@@ -1336,7 +1831,6 @@
                     return { success: false, error: error.error || 'Request failed' };
                 }
             } else {
-                // POST request with chat-like body
                 let requestData;
 
                 if (action.tool === 'chat_with_agent') {
@@ -1347,7 +1841,6 @@
                         parameters: action.parameters
                     };
                 } else {
-                    // Convert other tools to chat-like requests
                     requestData = {
                         message: buildChatMessageForTool(action.tool, action.parameters),
                         task_type: getTaskTypeForTool(action.tool),
@@ -1414,132 +1907,6 @@
             }
         }
 
-        async function runTests() {
-            if (!authenticated || !sessionToken) {
-                addTerminalLine('Authentication required', 'error');
-                return;
-            }
-
-            if (deploymentQueue.length === 0) {
-                addTerminalLine('No files in deployment queue', 'warning');
-                return;
-            }
-
-            addTerminalLine('Starting test suite...', 'info');
-
-            for (let item of deploymentQueue) {
-                if (item.skipTesting) {
-                    item.status = 'ready';
-                    item.coverage = 100; // Mark as ready since testing is skipped
-                    addTerminalLine(`⏭️ ${item.name}: Testing skipped by user`, 'warning');
-                    updateQueueDisplay();
-                    continue;
-                }
-
-                item.status = 'testing';
-                updateQueueDisplay();
-
-                try {
-                    const response = await fetch(`/api/orchestrator/test/${item.id}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${sessionToken}`
-                        }
-                    });
-
-                    const result = await response.json();
-
-                    if (result.coverage === 100) {
-                        item.status = 'ready';
-                        item.coverage = 100;
-                        addTerminalLine(`✅ ${item.name}: 100% coverage achieved`, 'success');
-                    } else {
-                        item.status = 'failed';
-                        item.coverage = result.coverage || 0;
-                        addTerminalLine(`❌ ${item.name}: Only ${item.coverage}% coverage`, 'error');
-                    }
-                } catch (error) {
-                    item.status = 'failed';
-                    addTerminalLine(`Test failed for ${item.name}: ${error}`, 'error');
-                }
-
-                updateQueueDisplay();
-            }
-
-            const readyCount = deploymentQueue.filter(item => item.status === 'ready').length;
-            const skippedCount = deploymentQueue.filter(item => item.skipTesting).length;
-            addTerminalLine(`Testing complete: ${readyCount}/${deploymentQueue.length} files ready for deployment (${skippedCount} skipped)`,
-                        readyCount === deploymentQueue.length ? 'success' : 'warning');
-        }
-
-        async function deploySelected() {
-            if (!authenticated || !sessionToken) {
-                addTerminalLine('Authentication required', 'error');
-                return;
-            }
-
-            const repoPath = document.getElementById('repoPath').value;
-            if (!repoPath) {
-                addTerminalLine('Please specify target repository path', 'error');
-                return;
-            }
-
-            const readyItems = deploymentQueue.filter(item => item.status === 'ready');
-            if (readyItems.length === 0) {
-                addTerminalLine('No files ready for deployment (require 100% test coverage or skip testing)', 'warning');
-                return;
-            }
-
-            const skippedCount = readyItems.filter(item => item.skipTesting).length;
-            if (skippedCount > 0) {
-                addTerminalLine(`⚠️ Deploying ${skippedCount} files without testing`, 'warning');
-            }
-
-            addTerminalLine(`Deploying ${readyItems.length} files to ${repoPath}...`, 'info');
-
-            for (let item of readyItems) {
-                try {
-                    const response = await fetch('/api/orchestrator/deploy', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${sessionToken}`
-                        },
-                        body: JSON.stringify({
-                            agent_id: item.id,
-                            target_path: repoPath,
-                            file_path: item.file,
-                            skip_testing: item.skipTesting || false
-                        })
-                    });
-
-                    if (response.ok) {
-                        addTerminalLine(`✅ Deployed: ${item.file}${item.skipTesting ? ' (no tests)' : ''}`, 'success');
-                        removeFromQueue({id: item.id});
-                    } else {
-                        const error = await response.json();
-                        addTerminalLine(`❌ Failed to deploy ${item.file}: ${error.message}`, 'error');
-                    }
-                } catch (error) {
-                    addTerminalLine(`Deployment error for ${item.file}: ${error}`, 'error');
-                }
-            }
-
-            updateQueueDisplay();
-            addTerminalLine('Deployment process completed', 'info');
-        }
-
-        function clearQueue() {
-            deploymentQueue = [];
-            selectedAgents.clear();
-            updateQueueDisplay();
-            document.querySelectorAll('.agent-card').forEach(card => {
-                card.classList.remove('selected');
-            });
-            addTerminalLine('Deployment queue cleared', 'info');
-        }
-
         function addTerminalLine(text, type = '') {
             const terminal = document.getElementById('terminal');
             const line = document.createElement('div');
@@ -1549,29 +1916,14 @@
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        function handleWSMessage(data) {
-            if (data.type === 'coverage_update') {
-                const item = deploymentQueue.find(i => i.id === data.agent_id);
-                if (item) {
-                    item.coverage = data.coverage;
-                    updateQueueDisplay();
-                }
-            } else if (data.type === 'test_output') {
-                addTerminalLine(data.message, data.level || 'info');
-            }
-        }
-
-        function closeDiffModal() {
-            document.getElementById('diffModal').classList.remove('active');
-        }
-
         // Initialize on load
         window.onload = () => {
             initWebSocket();
             updateManualControlUI();
             updateActionQueueDisplay();
-            updateToolInputs(); // Initialize tool inputs
-            addTerminalLine('Orchestrator initialized with manual control and CRUD operations', 'info');
+            updateToolInputs();
+            addTerminalLine('🤖 Git-based orchestrator initialized with direct repository editing', 'info');
+            addTerminalLine('📁 Files are edited directly in /workspace - no path specification needed', 'info');
         };
     </script>
 </body>
