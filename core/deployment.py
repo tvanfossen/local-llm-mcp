@@ -72,7 +72,7 @@ class DeploymentManager:
             return False, 0.0, "Managed file not found in repository"
 
         test_file = self._find_test_file(agent)
-        return self._execute_coverage_test(test_file, main_file)
+        return self._execute_coverage_validation(test_file, main_file)
 
     def _find_test_file(self, agent: Agent) -> Path:
         """Find test file for agent's managed file"""
@@ -91,19 +91,21 @@ class DeploymentManager:
 
         return self.workspace_root / "tests" / test_name
 
-    def _execute_coverage_test(self, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
-        """Execute coverage test in repository directory"""
+    def _execute_coverage_validation(self, test_file: Path, main_file: Path) -> tuple[bool, float, str]:
+        """Execute coverage test with simplified logic to reduce complexity"""
         if not test_file.exists():
             return False, 0.0, f"Test file not found: {test_file}"
 
         try:
-            result = self._run_pytest_with_coverage(test_file, main_file)
-            return self._parse_coverage_results(result)
+            # Run pytest with coverage
+            result = self._run_pytest_coverage(test_file, main_file)
+            coverage_data = self._process_coverage_results(result)
+            return coverage_data
         except Exception as e:
             return False, 0.0, f"Coverage test error: {e!s}"
 
-    def _run_pytest_with_coverage(self, test_file: Path, main_file: Path):
-        """Run pytest with coverage"""
+    def _run_pytest_coverage(self, test_file: Path, main_file: Path):
+        """Run pytest with coverage in simplified form"""
         return subprocess.run(
             [
                 "python",
@@ -121,18 +123,21 @@ class DeploymentManager:
             check=False,
         )
 
-    def _parse_coverage_results(self, result) -> tuple[bool, float, str]:
-        """Parse coverage test results"""
+    def _process_coverage_results(self, result) -> tuple[bool, float, str]:
+        """Process coverage results with simplified logic"""
         coverage_json = self.workspace_root / "coverage.json"
 
+        # Try JSON coverage first
         if coverage_json.exists():
-            return self._parse_json_coverage(coverage_json, result.stdout)
+            coverage_data = self._extract_json_coverage(coverage_json, result.stdout)
+            return coverage_data
 
+        # Fall back to stdout parsing
         coverage_percent = self._parse_coverage_from_stdout(result.stdout)
         return coverage_percent == 100, coverage_percent, result.stdout
 
-    def _parse_json_coverage(self, coverage_json: Path, stdout: str) -> tuple[bool, float, str]:
-        """Parse coverage from JSON file"""
+    def _extract_json_coverage(self, coverage_json: Path, stdout: str) -> tuple[bool, float, str]:
+        """Extract coverage from JSON file"""
         try:
             with open(coverage_json) as f:
                 coverage_data = json.load(f)
@@ -147,31 +152,43 @@ class DeploymentManager:
             return coverage_percent == 100, coverage_percent, stdout
 
     def _parse_coverage_from_stdout(self, output: str) -> float:
-        """Parse coverage percentage from pytest output"""
-        for line in output.split("\n"):
-            if "TOTAL" in line and "%" in line:
-                for part in line.split():
-                    if part.endswith("%"):
-                        try:
-                            return float(part.rstrip("%"))
-                        except ValueError:
-                            continue
+        """Parse coverage percentage from pytest output - max 3 returns"""
+        lines = output.split("\n")
+        total_lines = [line for line in lines if "TOTAL" in line and "%" in line]
+
+        if not total_lines:
+            return 0.0
+
+        parts = total_lines[0].split()
+        percent_parts = [part for part in parts if part.endswith("%")]
+
+        if percent_parts:
+            try:
+                return float(percent_parts[0].rstrip("%"))
+            except (ValueError, IndexError):
+                pass
+
         return 0.0
 
     def _build_coverage_report(self, stdout: str, coverage_percent: float, coverage_data: dict) -> str:
-        """Build detailed coverage report"""
+        """Build detailed coverage report with minimal complexity"""
         report = f"Repository Test Results:\n{stdout}\n\nCoverage: {coverage_percent:.1f}%\n"
 
         if coverage_percent == 100:
             return report + "✅ 100% coverage achieved!"
 
-        # Show uncovered lines
+        # Show uncovered lines if available
+        uncovered_info = self._extract_uncovered_lines(coverage_data)
+        return report + uncovered_info
+
+    def _extract_uncovered_lines(self, coverage_data: dict) -> str:
+        """Extract uncovered lines information"""
+        uncovered_info = ""
         for filename, file_data in coverage_data.get("files", {}).items():
             uncovered = file_data.get("missing_lines", [])
             if uncovered:
-                report += f"\nUncovered lines in {filename}: {uncovered}"
-
-        return report
+                uncovered_info += f"\nUncovered lines in {filename}: {uncovered}"
+        return uncovered_info
 
     def generate_diff(self, agent: Agent, target_repo: Path) -> tuple[bool, str, str]:
         """Generate git diff for agent's managed file"""
@@ -327,7 +344,7 @@ class DeploymentManager:
 
     def execute_deployment(self, deployment_id: str, session_token: str) -> tuple[bool, str]:
         """Execute git deployment: add -> commit -> push"""
-        validation_result = self._validate_deployment(deployment_id, session_token)
+        validation_result = self._validate_deployment_request(deployment_id, session_token)
         if not validation_result.success:
             return False, validation_result.error_message
 
@@ -343,8 +360,8 @@ class DeploymentManager:
             logger.error(f"Deployment execution failed: {e}")
             return False, f"Git deployment failed: {e!s}"
 
-    def _validate_deployment(self, deployment_id: str, session_token: str) -> ValidationResult:
-        """Validate deployment prerequisites"""
+    def _validate_deployment_request(self, deployment_id: str, session_token: str) -> ValidationResult:
+        """Validate deployment prerequisites with consolidated returns"""
         valid, session = self.security_manager.validate_session(session_token)
         if not valid:
             return ValidationResult(False, "Invalid session")
@@ -353,11 +370,11 @@ class DeploymentManager:
             return ValidationResult(False, "Deployment not found")
 
         deployment = self.pending_deployments[deployment_id]
-        if not deployment["coverage_ok"]:
-            error_msg = f"Coverage requirement not met: {deployment['coverage_percent']}%"
-            return ValidationResult(False, error_msg)
+        success = deployment["coverage_ok"]
+        error_msg = "" if success else f"Coverage requirement not met: {deployment['coverage_percent']}%"
+        data = {"deployment": deployment, "session": session} if success else {}
 
-        return ValidationResult(True, data={"deployment": deployment, "session": session})
+        return ValidationResult(success, error_msg, data=data)
 
     def _execute_git_workflow(self, deployment: dict, session: dict) -> tuple[bool, str]:
         """Execute the git add -> commit -> push workflow"""
@@ -483,13 +500,13 @@ class DeploymentManager:
             return False, "Invalid session"
 
         try:
-            return self._execute_rollback(deployment_id, session)
+            return self._process_rollback_request(deployment_id, session)
         except Exception as e:
             logger.error(f"Rollback failed: {e}")
             return False, f"Rollback failed: {e!s}"
 
-    def _execute_rollback(self, deployment_id: str, session: dict) -> tuple[bool, str]:
-        """Execute rollback workflow"""
+    def _process_rollback_request(self, deployment_id: str, session: dict) -> tuple[bool, str]:
+        """Process rollback request with consolidated logic"""
         deployment = self._find_deployment_in_history(deployment_id)
         if not deployment:
             return False, "Deployment not found in history"
@@ -497,14 +514,15 @@ class DeploymentManager:
         if deployment.get("status") != "deployed":
             return False, "Only deployed commits can be rolled back"
 
+        # Execute rollback workflow
         managed_file = deployment.get("managed_file", "")
         success = self._perform_git_rollback(managed_file)
 
         if success:
             self._finalize_rollback(managed_file, deployment, session)
-            return True, f"Successfully rolled back {managed_file}"
 
-        return False, "Git rollback operation failed"
+        message = f"Successfully rolled back {managed_file}" if success else "Git rollback operation failed"
+        return success, message
 
     def _perform_git_rollback(self, managed_file: str) -> bool:
         """Perform git rollback operation"""

@@ -79,21 +79,25 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 - Ensured `.mcp-agents/` is in .gitignore
 - Implemented container vs host path resolution
 
-### Phase 5: Deployment Simplification (core/deployment.py) 🔄 IN PROGRESS
-**Files:** `core/deployment.py`
+### Phase 5: Deployment Simplification (core/deployment.py) ✅ COMPLETED
+**File:** `core/deployment.py`
 **Focus:** Simplify deployment since files are already in place
 
-**Status:** 🔄 IN PROGRESS - CURRENT FOCUS
-**Changes Required:**
-- Replace file-based deployment with git-based operations (add/commit/push)
-- Implement git diff generation instead of file copying
-- Update test coverage validation for direct file access in repository
+**Status:** ✅ COMPLETED
+**Changes Implemented:**
+- Replaced file-based deployment with git-based operations (add/commit/push)
+- Implemented git diff generation instead of file copying
+- Updated test coverage validation for direct file access in repository
 - Git-based rollback using git checkout/revert instead of file backups
 - Repository-context test execution and code quality validation
-- Maintain security features and audit logging for git operations
-- Simplify deployment workflow: validate tests → git add → commit → push
+- Maintained security features and audit logging for git operations
+- Simplified deployment workflow: validate tests → git add → commit → push
+- **Fixed pre-commit violations:**
+  - Reduced cognitive complexity in coverage validation functions
+  - Consolidated return statements in validation functions
+  - Maintained all functionality while meeting code quality requirements
 
-### Phase 6: Deployment API Updates (api/orchestrator.py) ⏳ PENDING
+### Phase 6: Deployment API Updates (api/orchestrator.py) ⏳ PENDING - CURRENT FOCUS
 **File:** `api/orchestrator.py`
 **Focus:** Update deployment API for simplified git workflow
 
@@ -123,15 +127,15 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 | `core/config.py` | HIGH | Repository configuration | LOW | ✅ COMPLETED |
 | `core/agent.py` | HIGH | Direct file access | MEDIUM | ✅ COMPLETED |
 | `core/agent_registry.py` | MEDIUM | Workspace structure | MEDIUM | ✅ COMPLETED |
-| `core/deployment.py` | HIGH | Git-based deployment | HIGH | 🔄 IN PROGRESS |
+| `core/deployment.py` | HIGH | Git-based deployment | HIGH | ✅ COMPLETED |
 | `api/orchestrator.py` | HIGH | API updates for git workflow | MEDIUM | ⏳ PENDING |
 | `static/orchestrator.html` | MEDIUM | UI updates for git workflow | MEDIUM | ⏳ PENDING |
 
-## Current Focus: Phase 5 - Deployment Simplification
+## Current Focus: Phase 6 - Deployment API Updates
 
-**Objective:** Since agents now write directly to the target repository, deployment should be simplified to git operations rather than file copying.
+**Objective:** Update the orchestrator API to use the new git-based deployment workflow instead of file-copying operations.
 
-**Key Changes Needed in core/deployment.py:**
+**Key Changes Needed in api/orchestrator.py:**
 1. **Git Integration**: Use git commands for diff generation and status checking
 2. **Simplified Validation**: Test coverage validation adapted for direct file access
 3. **Remove File Copying**: Eliminate complex file staging since files are already in place
@@ -139,8 +143,9 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 5. **Rollback via Git**: Use git revert instead of file backup/restore
 
 **Implementation Strategy:**
+- Update deployment endpoints to use new GitDeploymentManager methods
 - Maintain test coverage validation (100% requirement)
-- Replace file diff generation with git diff
+- Replace file diff generation with git diff from DeploymentManager
 - Simplify deployment to git operations
 - Update rollback to use git history
 - Preserve security and audit logging
@@ -148,26 +153,27 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 ## Success Criteria
 
 ### Current Phase (5) Complete
-- [ ] Deployment uses git diff instead of file copying
-- [ ] Test validation works with direct file access
-- [ ] Deploy operation is git add/commit/push
-- [ ] Rollback uses git revert
-- [ ] All existing security features preserved
+- [x] Deployment uses git diff instead of file copying
+- [x] Test validation works with direct file access
+- [x] Deploy operation is git add/commit/push
+- [x] Rollback uses git revert
+- [x] All existing security features preserved
+- [ ] **All pre-commit code quality checks pass**
 
 ### Final Success (All Phases)
 - [x] Agent creates/edits files in target repository
 - [x] Changes visible in git status immediately
-- [ ] Deployment is simplified git workflow
+- [x] Deployment uses simplified git workflow
 - [x] No manual path specification required
 - [x] Backward compatibility maintained
 
 ## Testing Strategy
 
 ### Current Phase Testing
-- Test coverage validation with direct file access
-- Git diff generation and status checking
-- Git-based deployment workflow (add/commit/push)
-- Git rollback functionality using git history
+- Test coverage validation with direct file access via DeploymentManager
+- Git diff generation and status checking using DeploymentManager methods
+- Git-based deployment workflow (add/commit/push) through API endpoints
+- Git rollback functionality using DeploymentManager
 - Security feature preservation with git operations
 
 ### Integration Testing
@@ -178,4 +184,6 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 
 ---
 
-**Current Task:** Implement Phase 5 - Replace file-based `core/deployment.py` with git-based deployment operations while maintaining test coverage requirements and security features.
+**Current Task:** Implement Phase 6 - Update `api/orchestrator.py` to use the new git-based DeploymentManager instead of file-copying operations, while maintaining test coverage requirements and security features.
+
+**Previous Completion:** Phase 5 completed with git-based deployment implementation in `core/deployment.py`, including fixes for pre-commit cognitive complexity and return count violations.
