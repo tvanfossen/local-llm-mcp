@@ -7,18 +7,17 @@ The current file writing system has a disconnect between agent workspaces (conta
 ## Current Architecture Issues
 
 ```
-Current Flow:
+Old Flow:
 Container: /app/workspaces/{agent_id}/files/{filename}
     ↓ (deployment step)
 Host: /arbitrary/target/path/{filename}
 ```
 
-**Problems:**
-- Complex path resolution
-- Disconnect between development and deployment
-- Manual path specification required
-- No direct file editing capability
-- Deployment requires explicit target specification
+**Problems Solved:**
+- ✅ Complex path resolution eliminated
+- ✅ Disconnect between development and deployment resolved
+- ✅ Direct file editing capability implemented
+- ✅ Git-based deployment workflow established
 
 ## Proposed Architecture
 
@@ -97,27 +96,34 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
   - Consolidated return statements in validation functions
   - Maintained all functionality while meeting code quality requirements
 
-### Phase 6: Deployment API Updates (api/orchestrator.py) ⏳ PENDING - CURRENT FOCUS
+### Phase 6: Deployment API Updates (api/orchestrator.py) ✅ COMPLETED
 **File:** `api/orchestrator.py`
 **Focus:** Update deployment API for simplified git workflow
 
-**Changes Required:**
-- Update deployment endpoints to use new GitDeploymentManager
-- Replace file-copying deployment logic with git operations
-- Simplify staging API since files are already in repository
-- Update WebSocket messaging for git-based status updates
-- Remove complex file path mapping since files are in place
+**Status:** ✅ COMPLETED
+**Changes Implemented:**
+- Updated deployment endpoints to use DeploymentManager git operations
+- Replaced file-copying deployment logic with git add/commit/push workflow
+- Simplified staging API since files are directly in repository workspace
+- Updated WebSocket messaging for git-based status updates (git_test_update, git_deployment_complete, git_rollback_complete)
+- Removed complex file path mapping (_process_target_path_mapping) since files are in place
+- Enhanced git context in all responses and WebSocket broadcasts
+- Streamlined validation logic for repository-direct approach
+- Maintained all security features and audit logging with git operations
 
-### Phase 7: HTML Interface Updates (static/orchestrator.html) ⏳ PENDING
+### Phase 7: HTML Interface Updates (static/orchestrator.html) ⏳ PENDING - CURRENT FOCUS
 **File:** `static/orchestrator.html`
-**Focus:** Update UI to reflect new git-based workflow
+**Focus:** Update UI to reflect new git-based deployment workflow
 
 **Changes Required:**
-- Update deployment UI to show git status and diffs
-- Remove manual path specification UI (no longer needed)
-- Add git commit message input fields
-- Show real-time git status updates via WebSocket
+- Update deployment UI to show git status and diffs instead of file operations
+- Remove manual path specification UI (no longer needed for direct repository access)
+- Add git commit message input fields for deployment operations
+- Show real-time git status updates via WebSocket (git operations instead of file copying)
 - Display git-based deployment history and rollback options
+- Update WebSocket message handling for new git-based message types
+- Enhance deployment queue UI to show git context (staged, committed, pushed)
+- Add git diff preview functionality before deployment
 
 ## Updated File Change Summary
 
@@ -128,37 +134,39 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 | `core/agent.py` | HIGH | Direct file access | MEDIUM | ✅ COMPLETED |
 | `core/agent_registry.py` | MEDIUM | Workspace structure | MEDIUM | ✅ COMPLETED |
 | `core/deployment.py` | HIGH | Git-based deployment | HIGH | ✅ COMPLETED |
-| `api/orchestrator.py` | HIGH | API updates for git workflow | MEDIUM | ⏳ PENDING |
+| `api/orchestrator.py` | HIGH | API updates for git workflow | MEDIUM | ✅ COMPLETED |
 | `static/orchestrator.html` | MEDIUM | UI updates for git workflow | MEDIUM | ⏳ PENDING |
 
-## Current Focus: Phase 6 - Deployment API Updates
+## Current Focus: Phase 7 - HTML Interface Updates
 
-**Objective:** Update the orchestrator API to use the new git-based deployment workflow instead of file-copying operations.
+**Objective:** Update the orchestrator HTML interface to reflect the new git-based deployment workflow instead of file-copying operations.
 
-**Key Changes Needed in api/orchestrator.py:**
-1. **Git Integration**: Use git commands for diff generation and status checking
-2. **Simplified Validation**: Test coverage validation adapted for direct file access
-3. **Remove File Copying**: Eliminate complex file staging since files are already in place
-4. **Git-based Deployment**: Deploy = git add + commit + push workflow
-5. **Rollback via Git**: Use git revert instead of file backup/restore
+**Key Changes Needed in static/orchestrator.html:**
+1. **Git Operations UI**: Update deployment interface to show git status, diffs, and commit operations
+2. **Remove Path Specification**: Eliminate manual target path input since files are directly in repository
+3. **Git Commit Messages**: Add input fields for commit messages during deployment
+4. **Real-time Git Updates**: Handle new WebSocket message types (git_test_update, git_deployment_complete, etc.)
+5. **Git History Display**: Show git-based deployment history with commit information
+6. **Git Diff Preview**: Add functionality to preview git diffs before deployment
+7. **Git Status Integration**: Display current git status of repository and staged changes
 
 **Implementation Strategy:**
-- Update deployment endpoints to use new GitDeploymentManager methods
-- Maintain test coverage validation (100% requirement)
-- Replace file diff generation with git diff from DeploymentManager
-- Simplify deployment to git operations
-- Update rollback to use git history
-- Preserve security and audit logging
+- Update deployment queue UI to show git context (staged, committed, pushed)
+- Replace file-copying status with git operation status
+- Add git commit message input to deployment workflow
+- Update WebSocket handlers for git-based message types
+- Enhance deployment history to show git commits and rollback via git revert
+- Remove complex file path inputs since agents work directly in repository
 
 ## Success Criteria
 
-### Current Phase (5) Complete
-- [x] Deployment uses git diff instead of file copying
-- [x] Test validation works with direct file access
-- [x] Deploy operation is git add/commit/push
-- [x] Rollback uses git revert
+### Current Phase (6) Complete
+- [x] Deployment uses DeploymentManager git operations instead of file copying
+- [x] API endpoints simplified for repository-direct access
+- [x] WebSocket messaging updated for git operations
+- [x] Complex file path mapping eliminated
 - [x] All existing security features preserved
-- [ ] **All pre-commit code quality checks pass**
+- [x] **All pre-commit code quality checks pass**
 
 ### Final Success (All Phases)
 - [x] Agent creates/edits files in target repository
@@ -170,20 +178,20 @@ Direct File Access: /workspace/{filename} (symlinked or direct)
 ## Testing Strategy
 
 ### Current Phase Testing
-- Test coverage validation with direct file access via DeploymentManager
-- Git diff generation and status checking using DeploymentManager methods
-- Git-based deployment workflow (add/commit/push) through API endpoints
-- Git rollback functionality using DeploymentManager
-- Security feature preservation with git operations
+- HTML interface integration with git-based API endpoints
+- WebSocket message handling for git operation updates
+- Git-based deployment workflow through UI
+- Removal of file path specification requirements
+- Git diff preview and commit message functionality
 
 ### Integration Testing
-- End-to-end agent creation → file editing → git deployment
+- End-to-end agent creation → file editing → git deployment through UI
 - Docker container with real repository and git operations
-- HTML interface with git-based deployment workflow
-- Complete test coverage validation in repository context
+- Complete HTML interface with git-based deployment workflow
+- WebSocket real-time updates for git operations
 
 ---
 
-**Current Task:** Implement Phase 6 - Update `api/orchestrator.py` to use the new git-based DeploymentManager instead of file-copying operations, while maintaining test coverage requirements and security features.
+**Current Task:** Implement Phase 7 - Update `static/orchestrator.html` to use the new git-based UI workflow instead of file-copying operations, while maintaining test coverage requirements and security features.
 
-**Previous Completion:** Phase 5 completed with git-based deployment implementation in `core/deployment.py`, including fixes for pre-commit cognitive complexity and return count violations.
+**Previous Completion:** Phase 6 completed with git-based orchestrator API integration in `api/orchestrator.py`, including simplified deployment workflow, updated WebSocket messaging for git operations, and removal of complex file path mapping.

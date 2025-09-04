@@ -1,11 +1,11 @@
 # File: ~/Projects/local-llm-mcp/api/orchestrator.py
-"""Orchestrator API Endpoints
+"""Orchestrator API Endpoints with Git-based Deployment Integration
 
 Responsibilities:
 - Authentication endpoints
 - Test coverage validation endpoints
-- Deployment management endpoints
-- WebSocket support for real-time updates
+- Git-based deployment management endpoints
+- WebSocket support for real-time git operations updates
 """
 
 import asyncio
@@ -26,10 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestratorAPI:
-    """API endpoints for the secure orchestration interface
+    """API endpoints for the secure orchestration interface with git-based deployment
 
-    Provides authentication, testing, and deployment capabilities
-    with real-time WebSocket updates.
+    Provides authentication, testing, and git-based deployment capabilities
+    with real-time WebSocket updates for git operations.
     """
 
     def __init__(
@@ -140,7 +140,7 @@ class OrchestratorAPI:
             return JSONResponse({"error": f"Validation error: {e!s}"}, status_code=500)
 
     async def test_agent(self, request: Request) -> JSONResponse:
-        """Run tests for an agent's file"""
+        """Run tests for an agent's file using git-based validation"""
         try:
             agent_id = request.path_params["agent_id"]
 
@@ -151,17 +151,18 @@ class OrchestratorAPI:
 
             agent = validation_result["agent"]
 
-            # Run test coverage validation
-            logger.info(f"Running tests for agent {agent_id}")
+            # Run test coverage validation using DeploymentManager
+            logger.info(f"Running git-based tests for agent {agent_id}")
             coverage_ok, coverage_percent, report = self.deployment_manager.validate_test_coverage(agent)
 
-            # Broadcast to WebSocket clients
+            # Broadcast git-based test results to WebSocket clients
             await self._broadcast_ws(
                 {
-                    "type": "coverage_update",
+                    "type": "git_test_update",
                     "agent_id": agent_id,
                     "coverage": coverage_percent,
                     "passed": coverage_ok,
+                    "git_context": "repository_test",
                 }
             )
 
@@ -174,11 +175,12 @@ class OrchestratorAPI:
                     "coverage": coverage_percent,
                     "coverage_ok": coverage_ok,
                     "report": report,
+                    "test_type": "git_repository_based",
                 }
             )
 
         except Exception as e:
-            logger.error(f"Test execution failed: {e}")
+            logger.error(f"Git-based test execution failed: {e}")
             return JSONResponse({"error": f"Test failed: {e!s}"}, status_code=500)
 
     def _extract_session_token(self, request: Request) -> str | None:
@@ -218,12 +220,12 @@ class OrchestratorAPI:
         return {"agent": agent, "session": session}
 
     async def stage_deployment(self, request: Request) -> JSONResponse:
-        """Stage a deployment for approval - consolidated validation"""
+        """Stage a git-based deployment for approval - simplified validation"""
         try:
             data = await request.json()
 
-            # Single validation point
-            validation_result = self._validate_deployment_request(request, data)
+            # Single validation point for git-based deployment
+            validation_result = self._validate_git_deployment_request(request, data)
             if validation_result.get("error"):
                 error = validation_result["error"]
                 status_code = validation_result.get("status", 400)
@@ -231,11 +233,22 @@ class OrchestratorAPI:
 
             session_token = validation_result["session_token"]
             agent = validation_result["agent"]
-            target_path = validation_result["target_path"]
 
-            # Stage deployment
+            # Stage git deployment using DeploymentManager
+            # Note: target_path is not needed since files are directly in repository
             success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
-                agent, Path(target_path), session_token
+                agent, self.deployment_manager.workspace_root, session_token
+            )
+
+            # Broadcast git staging status to WebSocket clients
+            await self._broadcast_ws(
+                {
+                    "type": "git_staging_update",
+                    "agent_id": agent.state.agent_id,
+                    "deployment_id": deployment_id if success else None,
+                    "has_changes": deployment_info.get("has_changes", False) if success else False,
+                    "status": "staged" if success else "failed",
+                }
             )
 
             # Single return point based on success
@@ -244,38 +257,39 @@ class OrchestratorAPI:
                     "success": True,
                     "deployment_id": deployment_id,
                     "deployment": deployment_info,
+                    "deployment_type": "git",
                 }
                 status_code = 200
             else:
-                error_msg = deployment_info.get("error", "Staging failed")
+                error_msg = deployment_info.get("error", "Git staging failed")
                 response_data = {"error": error_msg}
                 status_code = 400
 
             return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
-            logger.error(f"Staging failed: {e}")
-            return JSONResponse({"error": f"Staging failed: {e!s}"}, status_code=500)
+            logger.error(f"Git staging failed: {e}")
+            return JSONResponse({"error": f"Git staging failed: {e!s}"}, status_code=500)
 
     async def deploy(self, request: Request) -> JSONResponse:
-        """Execute a deployment - consolidated validation and execution"""
+        """Execute a git-based deployment - simplified git workflow"""
         try:
             data = await request.json()
 
-            # Single validation and execution flow
-            deployment_result = await self._process_deployment_request(request, data)
+            # Single validation and execution flow for git deployment
+            deployment_result = await self._process_git_deployment_request(request, data)
 
             status_code = deployment_result.get("status", 200)
             return JSONResponse(deployment_result["response"], status_code=status_code)
 
         except Exception as e:
-            logger.error(f"Deployment failed: {e}")
-            return JSONResponse({"error": f"Deployment failed: {e!s}"}, status_code=500)
+            logger.error(f"Git deployment failed: {e}")
+            return JSONResponse({"error": f"Git deployment failed: {e!s}"}, status_code=500)
 
-    async def _process_deployment_request(self, request: Request, data: dict) -> dict:
-        """Process deployment request with consolidated validation"""
+    async def _process_git_deployment_request(self, request: Request, data: dict) -> dict:
+        """Process git deployment request with consolidated validation"""
         # Single validation point
-        validation_result = self._validate_deployment_request(request, data)
+        validation_result = self._validate_git_deployment_request(request, data)
         if validation_result.get("error"):
             return {
                 "response": {"error": validation_result["error"]},
@@ -284,18 +298,106 @@ class OrchestratorAPI:
 
         session_token = validation_result["session_token"]
         agent = validation_result["agent"]
-        target_path = validation_result["target_path"]
-        file_path = data.get("file_path")
+        deployment_id = data.get("deployment_id")
 
-        if not file_path:
-            return {"response": {"error": "file_path required"}, "status": 400}
+        # Execute git deployment workflow
+        if deployment_id:
+            # Deploy existing staged deployment
+            workflow_result = await self._execute_staged_git_deployment(deployment_id, session_token, agent)
+        else:
+            # Stage and deploy in one operation
+            workflow_result = await self._execute_direct_git_deployment(agent, session_token)
 
-        # Execute deployment workflow
-        workflow_result = await self._execute_deployment_workflow(agent, target_path, file_path, session_token)
         return workflow_result
 
+    async def _execute_staged_git_deployment(self, deployment_id: str, session_token: str, agent) -> dict:
+        """Execute a pre-staged git deployment"""
+        # Execute the git deployment
+        success, message = self.deployment_manager.execute_deployment(deployment_id, session_token)
+
+        if success:
+            # Broadcast git deployment success
+            asyncio.create_task(
+                self._broadcast_ws(
+                    {
+                        "type": "git_deployment_complete",
+                        "agent_id": agent.state.agent_id,
+                        "deployment_id": deployment_id,
+                        "git_status": "committed_and_pushed",
+                        "status": "success",
+                    }
+                )
+            )
+
+            response_data = {
+                "response": {
+                    "success": True,
+                    "message": message,
+                    "deployment_id": deployment_id,
+                    "deployment_type": "git",
+                },
+                "status": 200,
+            }
+        else:
+            response_data = {"response": {"error": message}, "status": 400}
+
+        return response_data
+
+    async def _execute_direct_git_deployment(self, agent, session_token: str) -> dict:
+        """Execute direct git deployment (stage and deploy)"""
+        # Stage deployment first
+        success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
+            agent, self.deployment_manager.workspace_root, session_token
+        )
+
+        if not success:
+            return {
+                "response": {"error": deployment_info.get("error", "Git staging failed")},
+                "status": 400,
+            }
+
+        # Check coverage requirement
+        if not deployment_info.get("coverage_ok", False):
+            coverage_percent = deployment_info.get("coverage_percent", 0)
+            return {
+                "response": {"error": f"Coverage requirement not met: {coverage_percent}%"},
+                "status": 400,
+            }
+
+        # Execute the git deployment
+        success, message = self.deployment_manager.execute_deployment(deployment_id, session_token)
+
+        # Build final response based on deployment result
+        if success:
+            # Broadcast success
+            asyncio.create_task(
+                self._broadcast_ws(
+                    {
+                        "type": "git_deployment_complete",
+                        "agent_id": agent.state.agent_id,
+                        "deployment_id": deployment_id,
+                        "git_status": "committed_and_pushed",
+                        "status": "success",
+                    }
+                )
+            )
+
+            response_data = {
+                "response": {
+                    "success": True,
+                    "message": message,
+                    "deployment_id": deployment_id,
+                    "deployment_type": "git",
+                },
+                "status": 200,
+            }
+        else:
+            response_data = {"response": {"error": message}, "status": 400}
+
+        return response_data
+
     async def rollback(self, request: Request) -> JSONResponse:
-        """Rollback a deployment - consolidated validation"""
+        """Rollback a deployment using git revert - consolidated validation"""
         try:
             data = await request.json()
 
@@ -309,12 +411,22 @@ class OrchestratorAPI:
             session_token = validation_result["session_token"]
             deployment_id = validation_result["deployment_id"]
 
-            # Execute rollback
+            # Execute git rollback using DeploymentManager
             success, message = self.deployment_manager.rollback_deployment(deployment_id, session_token)
+
+            # Broadcast git rollback status to WebSocket clients
+            await self._broadcast_ws(
+                {
+                    "type": "git_rollback_complete",
+                    "deployment_id": deployment_id,
+                    "git_status": "reverted",
+                    "status": "success" if success else "failed",
+                }
+            )
 
             # Single return point based on success
             if success:
-                response_data = {"success": True, "message": message}
+                response_data = {"success": True, "message": message, "operation": "git_revert"}
                 status_code = 200
             else:
                 response_data = {"error": message}
@@ -323,60 +435,40 @@ class OrchestratorAPI:
             return JSONResponse(response_data, status_code=status_code)
 
         except Exception as e:
-            logger.error(f"Rollback failed: {e}")
-            return JSONResponse({"error": f"Rollback failed: {e!s}"}, status_code=500)
+            logger.error(f"Git rollback failed: {e}")
+            return JSONResponse({"error": f"Git rollback failed: {e!s}"}, status_code=500)
 
-    def _validate_deployment_request(self, request: Request, data: dict) -> dict:
-        """Validate deployment request and return validation result - consolidated"""
-        # Perform all validation in single flow
-        return self._perform_deployment_validation(request, data)
+    def _validate_git_deployment_request(self, request: Request, data: dict) -> dict:
+        """Validate git deployment request - simplified for repository-direct approach"""
+        # Collect all validation issues
+        validation_issues = []
 
-    def _perform_deployment_validation(self, request: Request, data: dict) -> dict:
-        """Perform deployment validation with consolidated logic - simplified complexity"""
         # Validate authentication
         session_token = self._extract_session_token(request)
         if not session_token:
-            return {"error": "Authentication required", "status": 401}
+            validation_issues.append(("Authentication required", 401))
 
-        # Validate required parameters
-        validation_result = self._validate_required_deployment_params(data)
-        if validation_result["error"]:
-            return validation_result
+        # Validate required parameters - simplified since no complex path mapping needed
+        agent_id = data.get("agent_id")
+        if not agent_id:
+            validation_issues.append(("agent_id required", 400))
 
-        # Process target path mapping
-        target_mapping = self._process_target_path_mapping(validation_result["target_path"])
+        # Validate agent exists
+        agent = None
+        if agent_id:
+            agent = self.agent_registry.get_agent(agent_id)
+            if not agent:
+                validation_issues.append((f"Agent {agent_id} not found", 404))
+
+        # Return first validation issue if any exist
+        if validation_issues:
+            error_msg, status = validation_issues[0]
+            return {"error": error_msg, "status": status}
 
         return {
             "session_token": session_token,
-            "agent": validation_result["agent"],
-            "target_path": target_mapping["mapped_path"],
-            "original_target_path": target_mapping["original_path"],
+            "agent": agent,
         }
-
-    def _validate_required_deployment_params(self, data: dict) -> dict:
-        """Validate required deployment parameters"""
-        agent_id = data.get("agent_id")
-        target_path = data.get("target_path")
-
-        if not agent_id or not target_path:
-            return {"error": "agent_id and target_path required", "status": 400}
-
-        agent = self.agent_registry.get_agent(agent_id)
-        if not agent:
-            return {"error": f"Agent {agent_id} not found", "status": 404}
-
-        return {"error": False, "agent": agent, "target_path": target_path}
-
-    def _process_target_path_mapping(self, target_path: str) -> dict:
-        """Process target path mapping for container filesystem"""
-        if target_path.startswith("/"):
-            # Map absolute paths to the mounted host directory
-            mapped_path = f"/host/repo{target_path}"
-        else:
-            # Relative paths go into /host/repo
-            mapped_path = f"/host/repo/{target_path}"
-
-        return {"mapped_path": mapped_path, "original_path": target_path}
 
     def _validate_rollback_request(self, request: Request, data: dict) -> dict:
         """Validate rollback request and return validation result - consolidated"""
@@ -408,83 +500,33 @@ class OrchestratorAPI:
 
         return {"session_token": session_token, "deployment_id": deployment_id, "session": session}
 
-    async def _execute_deployment_workflow(self, agent, target_path: str, file_path: str, session_token: str) -> dict:
-        """Execute deployment workflow and return result - fixed to single return"""
-        # Stage deployment first
-        success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
-            agent, Path(target_path), session_token
-        )
-
-        if not success:
-            return {
-                "response": {"error": deployment_info.get("error", "Staging failed")},
-                "status": 400,
-            }
-
-        # Check coverage requirement
-        if not deployment_info.get("coverage_ok", False):
-            coverage_percent = deployment_info.get("coverage_percent", 0)
-            return {
-                "response": {"error": f"Coverage requirement not met: {coverage_percent}%"},
-                "status": 400,
-            }
-
-        # Execute deployment
-        success, message = self.deployment_manager.execute_deployment(deployment_id, session_token)
-
-        # Build final response based on deployment result
-        if success:
-            # Broadcast success
-            asyncio.create_task(
-                self._broadcast_ws(
-                    {
-                        "type": "deployment_complete",
-                        "agent_id": agent.state.agent_id,
-                        "file": file_path,
-                        "status": "success",
-                    }
-                )
-            )
-
-            response_data = {
-                "response": {
-                    "success": True,
-                    "message": message,
-                    "deployment_id": deployment_id,
-                },
-                "status": 200,
-            }
-        else:
-            response_data = {"response": {"error": message}, "status": 400}
-
-        return response_data
-
     async def get_deployment_history(self, request: Request) -> JSONResponse:
-        """Get deployment history - consolidated validation"""
+        """Get git-based deployment history - consolidated validation"""
         try:
             # Single validation and execution flow
-            history_result = self._get_deployment_history_with_validation(request)
+            history_result = self._get_git_deployment_history_with_validation(request)
 
             if history_result["error"]:
                 return JSONResponse({"error": history_result["message"]}, status_code=history_result["status"])
 
-            # Get deployment status
+            # Get git deployment status from DeploymentManager
             status = self.deployment_manager.get_deployment_status()
 
             return JSONResponse(
                 {
                     "success": True,
                     "status": status,
+                    "deployment_type": "git",
                     "audit_log": self.security_manager.get_deployment_history(50),
                 }
             )
 
         except Exception as e:
-            logger.error(f"Failed to get history: {e}")
+            logger.error(f"Failed to get git deployment history: {e}")
             return JSONResponse({"error": f"Failed to get history: {e!s}"}, status_code=500)
 
-    def _get_deployment_history_with_validation(self, request: Request) -> dict:
-        """Get deployment history with validation"""
+    def _get_git_deployment_history_with_validation(self, request: Request) -> dict:
+        """Get git deployment history with validation"""
         # Single validation point
         session_token = self._extract_session_token(request)
         if not session_token:
@@ -497,7 +539,7 @@ class OrchestratorAPI:
         return {"error": False, "session": session}
 
     async def handle_websocket(self, websocket: WebSocket):
-        """Handle WebSocket connections for real-time updates"""
+        """Handle WebSocket connections for real-time git operations updates"""
         await websocket.accept()
         ws_id = f"ws_{datetime.now().timestamp()}"
         self.active_websockets[ws_id] = websocket
@@ -506,7 +548,8 @@ class OrchestratorAPI:
             await websocket.send_json(
                 {
                     "type": "connected",
-                    "message": "WebSocket connected for real-time updates",
+                    "message": "WebSocket connected for git operations updates",
+                    "features": ["git_status", "git_deployment", "git_rollback"],
                 }
             )
 
@@ -524,7 +567,7 @@ class OrchestratorAPI:
             del self.active_websockets[ws_id]
 
     async def _broadcast_ws(self, data: dict[str, Any]):
-        """Broadcast to all WebSocket clients"""
+        """Broadcast git operations to all WebSocket clients"""
         disconnected = []
 
         for ws_id, ws in self.active_websockets.items():
@@ -548,7 +591,7 @@ class OrchestratorAPI:
             ("/api/orchestrator/validate", self.validate_session, ["GET"]),
             # Testing
             ("/api/orchestrator/test/{agent_id}", self.test_agent, ["POST"]),
-            # Deployment
+            # Git-based Deployment
             ("/api/orchestrator/stage", self.stage_deployment, ["POST"]),
             ("/api/orchestrator/deploy", self.deploy, ["POST"]),
             ("/api/orchestrator/rollback", self.rollback, ["POST"]),
