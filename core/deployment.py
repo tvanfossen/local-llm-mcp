@@ -71,8 +71,24 @@ class DeploymentManager:
         if not main_file.exists():
             return False, 0.0, "Managed file not found in repository"
 
+        # Skip coverage validation for test files
+        if self._is_test_file(agent.state.managed_file):
+            return True, 100.0, "Test file - coverage validation skipped"
+
         test_file = self._find_test_file(agent)
         return self._execute_coverage_validation(test_file, main_file)
+
+    def _is_test_file(self, filename: str) -> bool:
+        """Check if a file is a test file"""
+        filename_lower = filename.lower()
+        return (
+            filename_lower.startswith("test_")
+            or filename_lower.endswith("_test.py")
+            or filename_lower.startswith("test")
+            and filename_lower.endswith(".py")
+            or "/test_" in filename_lower
+            or "/tests/" in filename_lower
+        )
 
     def _find_test_file(self, agent: Agent) -> Path:
         """Find test file for agent's managed file"""
@@ -291,6 +307,9 @@ class DeploymentManager:
             return False, "", {"error": "Invalid session"}
 
         try:
+            # Store skip_testing flag for use in _gather_deployment_data
+            self._current_skip_testing = getattr(self, "_current_skip_testing", False)
+
             deployment_data = self._gather_deployment_data(agent, session)
             deployment_record = self._create_deployment_record(deployment_data)
             deployment_id = deployment_record["deployment_id"]
@@ -302,7 +321,17 @@ class DeploymentManager:
 
     def _gather_deployment_data(self, agent: Agent, session: dict) -> GitDeploymentInfo:
         """Gather all data needed for git deployment"""
-        coverage_ok, coverage_percent, coverage_report = self.validate_test_coverage(agent)
+        # Check if this deployment should skip testing
+        skip_testing = getattr(self, "_current_skip_testing", False)
+
+        if skip_testing:
+            # Skip actual coverage validation for files like README
+            coverage_ok = True
+            coverage_percent = 100.0
+            coverage_report = "Testing skipped by user request"
+        else:
+            coverage_ok, coverage_percent, coverage_report = self.deployment_manager.validate_test_coverage(agent)
+
         git_status_info = self.get_git_status(agent)
         has_changes, diff_text, diff_summary = self.generate_diff(agent, self.workspace_root)
 
@@ -407,36 +436,110 @@ class DeploymentManager:
 
     def _git_add_file(self, managed_file: str):
         """Add file to git staging area"""
-        subprocess.run(
-            ["git", "add", managed_file],
-            cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        logger.info(f"Git add successful: {managed_file}")
+        try:
+            subprocess.run(
+                ["git", "add", managed_file],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            logger.info(f"Git add successful: {managed_file}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Git add failed for {managed_file}")
+            logger.error(f"Return code: {e.returncode}")
+            logger.error(f"STDOUT: {e.stdout}")
+            logger.error(f"STDERR: {e.stderr}")
+            logger.error(f"Working directory: {self.workspace_root}")
+            logger.error("Git status check...")
+
+            # Additional debugging
+            try:
+                status_result = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=self.workspace_root,
+                    capture_output=True,
+                    text=True,
+                )
+                logger.error(f"Git status output: {status_result.stdout}")
+                logger.error(f"Git status stderr: {status_result.stderr}")
+            except Exception as status_error:
+                logger.error(f"Git status also failed: {status_error}")
+
+            raise
 
     def _git_commit_changes(self, commit_message: str, session: dict) -> str:
         """Commit staged changes"""
-        env = {
+        env = self._build_git_env(session)
+        result = self._execute_git_commit(commit_message, env)
+        return self._handle_commit_result(result)
+
+    def _build_git_env(self, session: dict) -> dict:
+        """Build environment variables for git commit"""
+        return {
             "GIT_AUTHOR_NAME": session.get("client_name", "MCP Agent"),
             "GIT_AUTHOR_EMAIL": f"{session.get('client_name', 'agent')}@mcp-local",
             "GIT_COMMITTER_NAME": "MCP Deployment System",
             "GIT_COMMITTER_EMAIL": "mcp-deployment@local",
         }
 
-        subprocess.run(
+    def _execute_git_commit(self, commit_message: str, env: dict):
+        """Execute git commit command"""
+        return subprocess.run(
             ["git", "commit", "-m", commit_message],
             cwd=self.workspace_root,
             capture_output=True,
             text=True,
             env={**subprocess.os.environ, **env},
-            check=True,
+            check=False,
         )
 
+    def _handle_commit_result(self, result) -> str:
+        """Handle git commit result and return commit hash"""
+        self._log_commit_output(result)
+
+        if result.returncode == 0:
+            return self._handle_successful_commit()
+
+        if self._is_nothing_to_commit(result):
+            return self._handle_nothing_to_commit()
+
+        self._handle_commit_error(result)
+
+    def _log_commit_output(self, result):
+        """Log git commit output for debugging"""
+        logger.info(f"Git commit return code: {result.returncode}")
+        logger.info(f"Git commit stdout: {result.stdout}")
+        logger.info(f"Git commit stderr: {result.stderr}")
+
+    def _handle_successful_commit(self) -> str:
+        """Handle successful commit"""
         commit_hash = self._get_latest_commit_hash()
         logger.info(f"Git commit successful: {commit_hash}")
         return commit_hash
+
+    def _is_nothing_to_commit(self, result) -> bool:
+        """Check if git says nothing to commit"""
+        output_text = (result.stdout + " " + result.stderr).lower()
+        return any(
+            phrase in output_text
+            for phrase in ["nothing to commit", "working tree clean", "no changes added to commit"]
+        )
+
+    def _handle_nothing_to_commit(self) -> str:
+        """Handle nothing to commit case"""
+        logger.info("No changes to commit (working tree clean)")
+        return self._get_latest_commit_hash()
+
+    def _handle_commit_error(self, result):
+        """Handle commit error cases"""
+        error_msg = f"Git commit failed with exit code {result.returncode}"
+        if result.stderr:
+            error_msg += f": {result.stderr}"
+        if result.stdout:
+            error_msg += f" (stdout: {result.stdout})"
+        logger.error(error_msg)
+        raise Exception(error_msg)
 
     def _get_latest_commit_hash(self) -> str:
         """Get the latest commit hash"""

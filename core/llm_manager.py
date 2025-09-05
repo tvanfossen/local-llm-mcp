@@ -172,7 +172,7 @@ class LLMManager:
 
             if json_bounds:
                 json_text = cleaned_text[json_bounds[0] : json_bounds[1] + 1]
-                return self._try_parse_json_response_with_fixes(json_text)
+                return self._try_parse_json_response(json_text)
             else:
                 logger.error("No JSON boundaries found")
                 return self._create_fallback_response(response_text)

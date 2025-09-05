@@ -12,6 +12,7 @@ Responsibilities:
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from starlette.applications import Starlette
@@ -261,7 +262,10 @@ def _create_core_components(agent_registry, llm_manager, config):
     mcp_handler = MCPHandler(agent_registry, llm_manager)
     api_endpoints = APIEndpoints(agent_registry, llm_manager)
     security_manager = SecurityManager(config.system.state_dir)
-    deployment_manager = DeploymentManager(security_manager, config.system.workspaces_dir)
+    workspace_root = (
+        Path("/workspace") if config.system.is_container_environment() else config.system.get_workspace_root()
+    )
+    deployment_manager = DeploymentManager(security_manager, workspace_root)
     orchestrator_api = OrchestratorAPI(agent_registry, security_manager, deployment_manager)
     websocket_handler = WebSocketHandler(agent_registry, llm_manager)
 

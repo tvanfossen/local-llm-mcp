@@ -44,6 +44,11 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
+RUN git config --global user.name "MCP Agent System" && \
+    git config --global user.email "mcp@localhost" && \
+    git config --global init.defaultBranch main && \
+    git config --global --add safe.directory /workspace
+
 # Copy requirements and install
 COPY requirements.txt .
 RUN pip install -r requirements.txt

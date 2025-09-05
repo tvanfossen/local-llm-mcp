@@ -234,8 +234,11 @@ class OrchestratorAPI:
             session_token = validation_result["session_token"]
             agent = validation_result["agent"]
 
+            # Pass skip_testing to deployment manager
+            skip_testing = data.get("skip_testing", False)
+            self.deployment_manager._current_skip_testing = skip_testing
+
             # Stage git deployment using DeploymentManager
-            # Note: target_path is not needed since files are directly in repository
             success, deployment_id, deployment_info = self.deployment_manager.stage_deployment(
                 agent, self.deployment_manager.workspace_root, session_token
             )
@@ -312,36 +315,63 @@ class OrchestratorAPI:
 
     async def _execute_staged_git_deployment(self, deployment_id: str, session_token: str, agent) -> dict:
         """Execute a pre-staged git deployment"""
+        # Ensure we have the agent object
+        agent = self._resolve_agent_for_deployment(deployment_id, agent)
+
         # Execute the git deployment
         success, message = self.deployment_manager.execute_deployment(deployment_id, session_token)
 
         if success:
-            # Broadcast git deployment success
-            asyncio.create_task(
-                self._broadcast_ws(
-                    {
-                        "type": "git_deployment_complete",
-                        "agent_id": agent.state.agent_id,
-                        "deployment_id": deployment_id,
-                        "git_status": "committed_and_pushed",
-                        "status": "success",
-                    }
-                )
-            )
+            # Broadcast success and build response
+            await self._broadcast_deployment_success(deployment_id, agent)
+            return self._build_success_response(message, deployment_id)
+        else:
+            return {"response": {"error": message}, "status": 400}
 
-            response_data = {
-                "response": {
-                    "success": True,
-                    "message": message,
-                    "deployment_id": deployment_id,
-                    "deployment_type": "git",
-                },
-                "status": 200,
+    def _resolve_agent_for_deployment(self, deployment_id: str, agent):
+        """Resolve agent object for deployment if not provided"""
+        if agent is not None:
+            return agent
+
+        if deployment_id in self.deployment_manager.pending_deployments:
+            deployment_record = self.deployment_manager.pending_deployments[deployment_id]
+            agent_id = deployment_record.get("agent_id")
+            if agent_id:
+                return self.agent_registry.get_agent(agent_id)
+
+        return None
+
+    async def _broadcast_deployment_success(self, deployment_id: str, agent):
+        """Broadcast deployment success to WebSocket clients"""
+        if agent is not None:
+            broadcast_data = {
+                "type": "git_deployment_complete",
+                "agent_id": agent.state.agent_id,
+                "deployment_id": deployment_id,
+                "git_status": "committed_and_pushed",
+                "status": "success",
             }
         else:
-            response_data = {"response": {"error": message}, "status": 400}
+            broadcast_data = {
+                "type": "git_deployment_complete",
+                "deployment_id": deployment_id,
+                "git_status": "committed_and_pushed",
+                "status": "success",
+            }
 
-        return response_data
+        asyncio.create_task(self._broadcast_ws(broadcast_data))
+
+    def _build_success_response(self, message: str, deployment_id: str) -> dict:
+        """Build success response for deployment"""
+        return {
+            "response": {
+                "success": True,
+                "message": message,
+                "deployment_id": deployment_id,
+                "deployment_type": "git",
+            },
+            "status": 200,
+        }
 
     async def _execute_direct_git_deployment(self, agent, session_token: str) -> dict:
         """Execute direct git deployment (stage and deploy)"""
@@ -450,8 +480,9 @@ class OrchestratorAPI:
 
         # Validate required parameters - simplified since no complex path mapping needed
         agent_id = data.get("agent_id")
-        if not agent_id:
-            validation_issues.append(("agent_id required", 400))
+        deployment_id = data.get("deployment_id")
+        if not agent_id and not deployment_id:
+            validation_issues.append(("agent_id or deployment_id required", 400))
 
         # Validate agent exists
         agent = None
