@@ -3,10 +3,11 @@
 
 Responsibilities:
 - Create and configure Starlette application
-- Implement MCP Streamable HTTP transport
+- Implement MCP Streamable HTTP transport with authentication
 - Setup middleware (CORS, logging, etc.)
 - Route registration for system endpoints only
 - Server lifecycle management
+- Bridge orchestrator authentication with MCP protocol
 """
 
 import logging
@@ -64,6 +65,7 @@ async def _root_handler(request: Request, llm_manager: LLMManager, agent_registr
                 "MCP Streamable HTTP Transport",
                 "WebSocket Support",
                 "Unified MCP Architecture",
+                "Orchestrator Authentication Integration",
             ],
             "status": {
                 "model_loaded": model_info["model_loaded"],
@@ -80,13 +82,15 @@ async def _root_handler(request: Request, llm_manager: LLMManager, agent_registr
             },
             "agent_access": {
                 "primary": "MCP tools via POST /mcp",
-                "note": "All agent operations use MCP protocol",
+                "authentication": "Required - use orchestrator token",
+                "note": "All agent operations use MCP protocol with security",
                 "legacy_removed": "HTTP /api/agents/* endpoints removed in Phase 3",
             },
             "configuration": {
                 "gpu_optimized": True,
                 "context_size": model_info.get("configuration", {}).get("context_size"),
                 "batch_size": model_info.get("configuration", {}).get("batch_size"),
+                "authentication_enabled": True,
             },
         }
     )
@@ -115,6 +119,7 @@ async def _health_handler(request: Request, llm_manager: LLMManager, agent_regis
                 "mcp_enabled": True,
                 "agent_access": "MCP tools only",
                 "unified_architecture": True,
+                "authentication_required": True,
             },
             "system": {
                 "cuda_available": True,
@@ -125,13 +130,15 @@ async def _health_handler(request: Request, llm_manager: LLMManager, agent_regis
 
 
 async def _mcp_streamable_http_handler(request: Request, mcp_handler: MCPHandler) -> Response:
-    """MCP Streamable HTTP transport endpoint - simplified to reduce complexity"""
+    """MCP Streamable HTTP transport endpoint with authentication bridge"""
     try:
+        # Extract both MCP session ID and orchestrator auth token
         session_id = request.headers.get("mcp-session-id")
+        auth_token = request.headers.get("authorization")
 
         # Route to appropriate method handler
         if request.method == "POST":
-            return await _handle_mcp_post_request(request, mcp_handler, session_id)
+            return await _handle_mcp_post_request(request, mcp_handler, session_id, auth_token)
 
         # GET method (not yet implemented)
         return JSONResponse(
@@ -147,13 +154,16 @@ async def _mcp_streamable_http_handler(request: Request, mcp_handler: MCPHandler
         return _create_mcp_error_response(None, e)
 
 
-async def _handle_mcp_post_request(request: Request, mcp_handler: MCPHandler, session_id: str | None) -> Response:
-    """Handle MCP POST request"""
+async def _handle_mcp_post_request(
+    request: Request, mcp_handler: MCPHandler, session_id: str | None, auth_token: str | None
+) -> Response:
+    """Handle MCP POST request with authentication"""
     try:
         request_data = await request.json()
         logger.info(f"MCP POST request: {request_data.get('method', 'unknown')} (session: {session_id})")
 
-        response_data = await mcp_handler.handle_jsonrpc_request(request_data, session_id)
+        # Pass auth token to MCP handler
+        response_data = await mcp_handler.handle_jsonrpc_request(request_data, session_id, auth_token)
 
         if response_data is None:
             return Response(status_code=204)
@@ -201,12 +211,13 @@ def _create_mcp_parse_error_response(error: Exception) -> JSONResponse:
 
 
 async def _mcp_legacy_handler(request: Request, mcp_handler: MCPHandler) -> JSONResponse:
-    """Legacy MCP endpoint for backwards compatibility - simplified"""
+    """Legacy MCP endpoint for backwards compatibility"""
     try:
         data = await request.json()
+        auth_token = request.headers.get("authorization")
 
         # Handle different request formats
-        response = await _process_legacy_request(data, mcp_handler)
+        response = await _process_legacy_request(data, mcp_handler, auth_token)
 
         # Return appropriate response format
         return _format_legacy_response(response)
@@ -216,8 +227,8 @@ async def _mcp_legacy_handler(request: Request, mcp_handler: MCPHandler) -> JSON
         return JSONResponse({"error": f"Request failed: {e!s}"}, status_code=500)
 
 
-async def _process_legacy_request(data: dict, mcp_handler: MCPHandler):
-    """Process legacy request format"""
+async def _process_legacy_request(data: dict, mcp_handler: MCPHandler, auth_token: str | None):
+    """Process legacy request format with authentication"""
     if "method" in data and "params" in data:
         jsonrpc_request = {
             "jsonrpc": "2.0",
@@ -225,13 +236,13 @@ async def _process_legacy_request(data: dict, mcp_handler: MCPHandler):
             "method": data["method"],
             "params": data["params"],
         }
-        return await mcp_handler.handle_jsonrpc_request(jsonrpc_request)
+        return await mcp_handler.handle_jsonrpc_request(jsonrpc_request, auth_token=auth_token)
 
-    return await mcp_handler.handle_jsonrpc_request(data)
+    return await mcp_handler.handle_jsonrpc_request(data, auth_token=auth_token)
 
 
 def _format_legacy_response(response) -> JSONResponse:
-    """Format legacy response - consolidated returns"""
+    """Format legacy response"""
     if not response:
         return JSONResponse({"status": "ok"})
 
@@ -250,7 +261,7 @@ def create_http_server(
     llm_manager: LLMManager,
     config: ConfigManager,
 ) -> Starlette:
-    """Create and configure the Starlette HTTP application with proper MCP support"""
+    """Create and configure the Starlette HTTP application with MCP and authentication support"""
     # Initialize all handlers
     handlers = _initialize_handlers(agent_registry, llm_manager, config)
 
@@ -259,21 +270,27 @@ def create_http_server(
     _configure_middleware(app, config)
 
     logger.info("✅ HTTP server configured with MCP Streamable HTTP transport")
+    logger.info("🔐 Authentication integration enabled for MCP protocol")
     logger.info("🗑️ Agent HTTP endpoints removed - using MCP protocol only")
     return app
 
 
 def _initialize_handlers(agent_registry, llm_manager, config):
-    """Initialize all route handlers - consolidated approach"""
+    """Initialize all route handlers"""
     components = _create_core_components(agent_registry, llm_manager, config)
     return _create_route_handlers(components, agent_registry, llm_manager)
 
 
 def _create_core_components(agent_registry, llm_manager, config):
     """Create core components needed for handlers"""
-    mcp_handler = MCPHandler(agent_registry, llm_manager)
-    api_endpoints = APIEndpoints(agent_registry, llm_manager)
+    # Create security manager
     security_manager = SecurityManager(config.system.state_dir)
+
+    # Create MCP handler with security manager
+    mcp_handler = MCPHandler(agent_registry, llm_manager, security_manager)
+
+    api_endpoints = APIEndpoints(agent_registry, llm_manager)
+
     workspace_root = (
         Path("/workspace") if config.system.is_container_environment() else config.system.get_workspace_root()
     )
@@ -286,12 +303,12 @@ def _create_core_components(agent_registry, llm_manager, config):
         "api_endpoints": api_endpoints,
         "orchestrator_api": orchestrator_api,
         "websocket_handler": websocket_handler,
+        "security_manager": security_manager,
     }
 
 
 def _create_route_handlers(components, agent_registry, llm_manager):
-    """Create handler wrappers with reduced complexity"""
-    # Create handler functions using helper functions
+    """Create handler wrappers"""
     handlers = _build_handler_functions(components, agent_registry, llm_manager)
 
     return RouteHandlers(
@@ -373,7 +390,7 @@ def _build_routes(handlers: RouteHandlers):
         # Core endpoints
         Route("/", handlers.root_handler, methods=["GET"]),
         Route("/health", handlers.health_handler, methods=["GET"]),
-        # MCP endpoints
+        # MCP endpoints with authentication
         Route("/mcp", handlers.mcp_handler_wrapper, methods=["POST", "GET"]),
         Route("/mcp-legacy", handlers.legacy_handler_wrapper, methods=["POST"]),
         # System endpoint only (agent endpoints removed)
@@ -416,7 +433,8 @@ def _configure_middleware(app: Starlette, config: ConfigManager):
     async def log_middleware(request, call_next):
         start_time = datetime.now()
         session_id = request.headers.get("mcp-session-id", "no-session")
-        logger.info(f"Request: {request.method} {request.url.path} (session: {session_id})")
+        auth_present = "yes" if request.headers.get("authorization") else "no"
+        logger.info(f"Request: {request.method} {request.url.path} (session: {session_id}, auth: {auth_present})")
 
         response = await call_next(request)
 

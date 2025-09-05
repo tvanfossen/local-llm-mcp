@@ -58,10 +58,36 @@
             border-radius: 50%;
             background: #ff5555;
             box-shadow: 0 0 10px currentColor;
+            transition: background 0.3s ease;
         }
 
         .status-indicator.authenticated {
             background: #50fa7b;
+        }
+
+        .status-indicator.expired {
+            background: #ffb86c;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .auth-details {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .auth-status-text {
+            font-weight: bold;
+        }
+
+        .auth-session-info {
+            font-size: 0.85em;
+            color: #8892b0;
         }
 
         .key-input {
@@ -73,6 +99,16 @@
             color: #e0e6ed;
             font-family: monospace;
             margin-bottom: 15px;
+            transition: border-color 0.3s ease;
+        }
+
+        .key-input:focus {
+            border-color: #00d4ff;
+            outline: none;
+        }
+
+        .key-input.error {
+            border-color: #ff5555;
         }
 
         .btn {
@@ -86,7 +122,7 @@
             transition: all 0.3s;
         }
 
-        .btn:hover {
+        .btn:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0, 212, 255, 0.4);
         }
@@ -94,6 +130,11 @@
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn.auth-btn {
+            width: 100%;
         }
 
         .main-grid {
@@ -137,6 +178,11 @@
         .agent-card.selected {
             border-color: #7b2ff7;
             background: rgba(123, 47, 247, 0.1);
+        }
+
+        .agent-card.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .agent-name {
@@ -215,10 +261,9 @@
             margin-top: 20px;
         }
 
-        .websocket-status {
+        .websocket-status, .mcp-indicator, .auth-indicator {
             position: fixed;
             bottom: 20px;
-            right: 20px;
             padding: 10px 15px;
             background: rgba(26, 31, 58, 0.9);
             border: 1px solid #2d3561;
@@ -226,19 +271,43 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            font-size: 0.85em;
         }
 
-        .mcp-indicator {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            padding: 10px 15px;
-            background: rgba(26, 31, 58, 0.9);
-            border: 1px solid #2d3561;
+        .websocket-status { right: 20px; }
+        .mcp-indicator { left: 20px; }
+        .auth-indicator { left: 200px; }
+
+        .secure-badge {
+            background: rgba(80, 250, 123, 0.2);
+            color: #50fa7b;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            border: 1px solid #50fa7b;
+        }
+
+        .require-auth {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .require-auth::after {
+            content: "🔐 Authentication Required";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(26, 31, 58, 0.95);
+            padding: 10px 20px;
             border-radius: 6px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            border: 1px solid #ff5555;
+            color: #ff5555;
+            font-size: 0.9em;
+        }
+
+        .auth-protected {
+            position: relative;
         }
     </style>
 </head>
@@ -246,20 +315,23 @@
     <div class="container">
         <div class="header">
             <h1>🤖 Agent Orchestrator - MCP Protocol</h1>
-            <p>Direct MCP JSON-RPC Integration with Local LLM Server</p>
+            <p>Direct MCP JSON-RPC Integration with Local LLM Server <span class="secure-badge">🔐 Secured</span></p>
         </div>
 
         <div class="auth-section">
             <div class="auth-status">
                 <div class="status-indicator" id="authIndicator"></div>
-                <span id="authStatusText">Not Authenticated</span>
+                <div class="auth-details">
+                    <span class="auth-status-text" id="authStatusText">Not Authenticated</span>
+                    <span class="auth-session-info" id="authSessionInfo">MCP operations require authentication</span>
+                </div>
             </div>
             <textarea class="key-input" id="privateKey" placeholder="Paste your RSA private key here..." rows="4"></textarea>
-            <button class="btn" id="authBtn" onclick="authenticate()">Authenticate</button>
+            <button class="btn auth-btn" id="authBtn" onclick="authenticate()">Authenticate</button>
         </div>
 
         <div class="main-grid">
-            <div class="panel">
+            <div class="panel auth-protected" id="agentsPanel">
                 <div class="panel-header">
                     <h3>📦 Agent Registry</h3>
                     <button class="btn" onclick="refreshAgents()">Refresh</button>
@@ -267,7 +339,7 @@
                 <div id="agentsList"></div>
             </div>
 
-            <div class="panel">
+            <div class="panel auth-protected" id="toolsPanel">
                 <div class="panel-header">
                     <h3>🎮 MCP Tools</h3>
                     <span id="selectedAgentName">No agent selected</span>
@@ -296,7 +368,7 @@
                 </div>
             </div>
 
-            <div class="panel">
+            <div class="panel auth-protected" id="actionsPanel">
                 <div class="panel-header">
                     <h3>🚀 Quick Actions</h3>
                     <span id="mcpStatus">MCP Ready</span>
@@ -330,6 +402,11 @@
         <span>MCP Protocol</span>
     </div>
 
+    <div class="auth-indicator">
+        <div class="status-indicator" id="authIndicator2"></div>
+        <span id="authStatus2">Not Authenticated</span>
+    </div>
+
     <!-- Load MCP client and UI handlers -->
     <script src="/static/js/mcp-client.js"></script>
     <script src="/static/js/agent-operations.js"></script>
@@ -341,6 +418,7 @@
         let sessionToken = null;
         let currentSelectedAgent = null;
         let ws = null;
+        let sessionExpiry = null;
 
         // Initialize on load
         window.onload = () => {
@@ -351,8 +429,10 @@
             initWebSocket();
             updateMCPStatus(true);
             updateToolInputs();
+            updateAuthenticationUI();
             addTerminalLine('🔗 MCP JSON-RPC client initialized', 'info');
             addTerminalLine('📡 All agent operations now use MCP protocol', 'info');
+            addTerminalLine('🔐 Authentication integration enabled', 'info');
         }
 
         function updateMCPStatus(ready) {
@@ -360,44 +440,133 @@
             document.getElementById('mcpStatus').textContent = ready ? 'MCP Ready' : 'MCP Error';
         }
 
+        function updateAuthenticationUI() {
+            const panels = ['agentsPanel', 'toolsPanel', 'actionsPanel'];
+            const authIndicators = ['authIndicator', 'authIndicator2'];
+            const authTexts = ['authStatusText', 'authStatus2'];
+
+            panels.forEach(panelId => {
+                const panel = document.getElementById(panelId);
+                if (authenticated) {
+                    panel.classList.remove('require-auth');
+                } else {
+                    panel.classList.add('require-auth');
+                }
+            });
+
+            authIndicators.forEach(indicatorId => {
+                const indicator = document.getElementById(indicatorId);
+                indicator.className = 'status-indicator';
+                if (authenticated) {
+                    indicator.classList.add('authenticated');
+                } else {
+                    indicator.classList.remove('authenticated');
+                }
+            });
+
+            const sessionInfo = document.getElementById('authSessionInfo');
+            if (authenticated && sessionExpiry) {
+                const timeLeft = Math.max(0, Math.floor((sessionExpiry - Date.now()) / 1000));
+                sessionInfo.textContent = `Session expires in ${timeLeft}s`;
+            } else {
+                sessionInfo.textContent = 'MCP operations require authentication';
+            }
+        }
+
         async function authenticate() {
-            const keyInput = document.getElementById('privateKey').value;
-            if (!keyInput) {
+            const keyInput = document.getElementById('privateKey');
+            const authBtn = document.getElementById('authBtn');
+
+            if (!keyInput.value) {
                 addTerminalLine('No private key provided', 'error');
+                keyInput.classList.add('error');
                 return;
             }
+
+            keyInput.classList.remove('error');
+            authBtn.disabled = true;
+            authBtn.textContent = 'Authenticating...';
 
             try {
                 const response = await fetch('/api/orchestrator/authenticate', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({private_key: keyInput})
+                    body: JSON.stringify({private_key: keyInput.value})
                 });
 
                 if (response.ok) {
                     const data = await response.json();
                     authenticated = true;
                     sessionToken = data.session_token;
+                    sessionExpiry = Date.now() + (data.expires_in * 1000);
 
-                    document.getElementById('authIndicator').classList.add('authenticated');
                     document.getElementById('authStatusText').textContent = 'Authenticated';
-                    document.getElementById('executeBtn').disabled = false;
-                    document.getElementById('quickChatBtn').disabled = false;
+                    document.getElementById('authStatus2').textContent = 'Authenticated';
 
                     addTerminalLine('🔐 Authentication successful - MCP tools enabled', 'success');
                     addTerminalLine(`⏰ Session expires in ${data.expires_in} seconds`, 'info');
 
-                    document.getElementById('privateKey').value = '';
+                    keyInput.value = '';
+                    updateAuthenticationUI();
 
                     // Auto-refresh agents after authentication
                     refreshAgents();
+
+                    // Start session monitoring
+                    startSessionMonitoring();
                 } else {
                     const error = await response.json();
                     addTerminalLine(`❌ Authentication failed: ${error.error || error.message}`, 'error');
+                    keyInput.classList.add('error');
                 }
             } catch (error) {
                 addTerminalLine(`🚫 Authentication error: ${error}`, 'error');
+                keyInput.classList.add('error');
             }
+
+            authBtn.disabled = false;
+            authBtn.textContent = 'Authenticate';
+        }
+
+        function startSessionMonitoring() {
+            // Update session info every 10 seconds
+            setInterval(() => {
+                if (authenticated && sessionExpiry) {
+                    const timeLeft = Math.max(0, Math.floor((sessionExpiry - Date.now()) / 1000));
+                    const sessionInfo = document.getElementById('authSessionInfo');
+                    sessionInfo.textContent = `Session expires in ${timeLeft}s`;
+
+                    // Warn when session is about to expire
+                    if (timeLeft < 300 && timeLeft > 0) { // 5 minutes
+                        const indicator = document.getElementById('authIndicator');
+                        indicator.classList.add('expired');
+                        if (timeLeft === 299) {
+                            addTerminalLine('⚠️ Session expires in 5 minutes - consider re-authenticating', 'warning');
+                        }
+                    }
+
+                    // Handle session expiry
+                    if (timeLeft <= 0) {
+                        handleSessionExpiry();
+                    }
+                }
+            }, 10000);
+        }
+
+        function handleSessionExpiry() {
+            authenticated = false;
+            sessionToken = null;
+            sessionExpiry = null;
+
+            document.getElementById('authStatusText').textContent = 'Session Expired';
+            document.getElementById('authStatus2').textContent = 'Session Expired';
+
+            updateAuthenticationUI();
+            addTerminalLine('🔐 Session expired - please re-authenticate', 'warning');
+
+            const keyInput = document.getElementById('privateKey');
+            keyInput.placeholder = 'Session expired - paste private key to re-authenticate...';
+            keyInput.focus();
         }
 
         function initWebSocket() {
@@ -443,6 +612,11 @@
             line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
             terminal.appendChild(line);
             terminal.scrollTop = terminal.scrollHeight;
+
+            // Limit terminal lines to prevent memory issues
+            while (terminal.children.length > 100) {
+                terminal.removeChild(terminal.firstChild);
+            }
         }
     </script>
 </body>
