@@ -5,7 +5,7 @@ Responsibilities:
 - Create and configure Starlette application
 - Implement MCP Streamable HTTP transport
 - Setup middleware (CORS, logging, etc.)
-- Route registration and organization
+- Route registration for system endpoints only
 - Server lifecycle management
 """
 
@@ -62,8 +62,8 @@ async def _root_handler(request: Request, llm_manager: LLMManager, agent_registr
                 "One Agent Per File Rule",
                 "CUDA 12.9 Optimized",
                 "MCP Streamable HTTP Transport",
-                "HTTP API",
                 "WebSocket Support",
+                "Unified MCP Architecture",
             ],
             "status": {
                 "model_loaded": model_info["model_loaded"],
@@ -74,8 +74,14 @@ async def _root_handler(request: Request, llm_manager: LLMManager, agent_registr
             "endpoints": {
                 "mcp": "POST/GET /mcp (MCP Streamable HTTP transport)",
                 "health": "GET /health",
-                "api": "/api/* (direct HTTP API)",
-                "docs": "GET /docs (API documentation)",
+                "system": "GET /api/system/status",
+                "orchestrator": "GET /orchestrator (Secure UI)",
+                "websocket": "WS /ws",
+            },
+            "agent_access": {
+                "primary": "MCP tools via POST /mcp",
+                "note": "All agent operations use MCP protocol",
+                "legacy_removed": "HTTP /api/agents/* endpoints removed in Phase 3",
             },
             "configuration": {
                 "gpu_optimized": True,
@@ -104,6 +110,11 @@ async def _health_handler(request: Request, llm_manager: LLMManager, agent_regis
                 "total": registry_stats["total_agents"],
                 "files_managed": registry_stats["managed_files"],
                 "integrity": registry_stats.get("file_ownership_integrity", True),
+            },
+            "protocol": {
+                "mcp_enabled": True,
+                "agent_access": "MCP tools only",
+                "unified_architecture": True,
             },
             "system": {
                 "cuda_available": True,
@@ -248,6 +259,7 @@ def create_http_server(
     _configure_middleware(app, config)
 
     logger.info("✅ HTTP server configured with MCP Streamable HTTP transport")
+    logger.info("🗑️ Agent HTTP endpoints removed - using MCP protocol only")
     return app
 
 
@@ -356,7 +368,7 @@ def _create_starlette_app(handlers: RouteHandlers) -> Starlette:
 
 
 def _build_routes(handlers: RouteHandlers):
-    """Build the complete routes list"""
+    """Build the complete routes list - agent endpoints removed"""
     routes = [
         # Core endpoints
         Route("/", handlers.root_handler, methods=["GET"]),
@@ -364,14 +376,9 @@ def _build_routes(handlers: RouteHandlers):
         # MCP endpoints
         Route("/mcp", handlers.mcp_handler_wrapper, methods=["POST", "GET"]),
         Route("/mcp-legacy", handlers.legacy_handler_wrapper, methods=["POST"]),
-        # API endpoints
-        Route("/api/agents", handlers.api_endpoints.list_agents, methods=["GET"]),
-        Route("/api/agents", handlers.api_endpoints.create_agent, methods=["POST"]),
-        Route("/api/agents/{agent_id}", handlers.api_endpoints.get_agent, methods=["GET"]),
-        Route("/api/agents/{agent_id}", handlers.api_endpoints.delete_agent, methods=["DELETE"]),
-        Route("/api/agents/{agent_id}/chat", handlers.api_endpoints.chat_with_agent, methods=["POST"]),
-        Route("/api/agents/{agent_id}/file", handlers.api_endpoints.get_agent_file, methods=["GET"]),
+        # System endpoint only (agent endpoints removed)
         Route("/api/system/status", handlers.api_endpoints.system_status, methods=["GET"]),
+        # WebSocket
         WebSocketRoute("/ws", handlers.websocket_endpoint),
     ]
 
