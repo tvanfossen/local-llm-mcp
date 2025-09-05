@@ -1,13 +1,13 @@
 # File: ~/Projects/local-llm-mcp/api/http_server.py
-"""HTTP Server Setup with Starlette and Proper MCP Streamable HTTP Transport
+"""HTTP Server Setup with Enhanced MCP Authentication Bridge
 
 Responsibilities:
 - Create and configure Starlette application
-- Implement MCP Streamable HTTP transport with authentication
+- Implement MCP Streamable HTTP transport with authentication bridge
 - Setup middleware (CORS, logging, etc.)
 - Route registration for system endpoints only
 - Server lifecycle management
-- Bridge orchestrator authentication with MCP protocol
+- Bridge orchestrator authentication with MCP protocol securely
 """
 
 import logging
@@ -46,6 +46,34 @@ class RouteHandlers:
     api_endpoints: Any
     orchestrator_api: Any
     websocket_endpoint: callable
+
+
+def extract_auth_token(request: Request) -> str | None:
+    """Extract authentication token from request headers with validation"""
+    auth_header = request.headers.get("authorization", "").strip()
+
+    if not auth_header:
+        return None
+
+    # Handle Bearer token format
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        return token if token else None
+
+    # Return the header value as-is for other formats
+    return auth_header
+
+
+def log_auth_attempt(method: str, session_id: str | None, auth_present: bool, success: bool = None):
+    """Log authentication attempt for audit purposes"""
+    auth_status = "present" if auth_present else "missing"
+    session_info = f"session:{session_id}" if session_id else "no-session"
+
+    if success is not None:
+        result = "success" if success else "failed"
+        logger.info(f"MCP Auth {result}: {method} ({session_info}, auth:{auth_status})")
+    else:
+        logger.debug(f"MCP Request: {method} ({session_info}, auth:{auth_status})")
 
 
 async def _root_handler(request: Request, llm_manager: LLMManager, agent_registry: AgentRegistry) -> JSONResponse:
@@ -130,17 +158,21 @@ async def _health_handler(request: Request, llm_manager: LLMManager, agent_regis
 
 
 async def _mcp_streamable_http_handler(request: Request, mcp_handler: MCPHandler) -> Response:
-    """MCP Streamable HTTP transport endpoint with authentication bridge"""
+    """MCP Streamable HTTP transport endpoint with enhanced authentication bridge"""
     try:
-        # Extract both MCP session ID and orchestrator auth token
+        # Extract authentication and session information
         session_id = request.headers.get("mcp-session-id")
-        auth_token = request.headers.get("authorization")
+        auth_token = extract_auth_token(request)
+
+        # Log authentication attempt
+        method = await _extract_request_method(request)
+        log_auth_attempt(method, session_id, auth_token is not None)
 
         # Route to appropriate method handler
         if request.method == "POST":
             return await _handle_mcp_post_request(request, mcp_handler, session_id, auth_token)
 
-        # GET method (not yet implemented)
+        # GET method (streaming support planned for future)
         return JSONResponse(
             {
                 "error": "GET method not yet implemented",
@@ -154,20 +186,38 @@ async def _mcp_streamable_http_handler(request: Request, mcp_handler: MCPHandler
         return _create_mcp_error_response(None, e)
 
 
+async def _extract_request_method(request: Request) -> str:
+    """Extract MCP method from request for logging"""
+    try:
+        if request.method == "POST":
+            # Try to peek at the method without consuming the body
+            content_type = request.headers.get("content-type", "")
+            if "application/json" in content_type:
+                return "POST(JSON-RPC)"
+        return request.method
+    except Exception:
+        return "unknown"
+
+
 async def _handle_mcp_post_request(
     request: Request, mcp_handler: MCPHandler, session_id: str | None, auth_token: str | None
 ) -> Response:
-    """Handle MCP POST request with authentication"""
+    """Handle MCP POST request with enhanced authentication"""
     try:
         request_data = await request.json()
-        logger.info(f"MCP POST request: {request_data.get('method', 'unknown')} (session: {session_id})")
+        method = request_data.get("method", "unknown")
 
-        # Pass auth token to MCP handler
+        logger.info(
+            f"MCP POST request: {method} (session: {session_id}, auth: {'present' if auth_token else 'missing'})"
+        )
+
+        # Pass auth token to MCP handler for validation
         response_data = await mcp_handler.handle_jsonrpc_request(request_data, session_id, auth_token)
 
         if response_data is None:
             return Response(status_code=204)
 
+        # Handle session management in headers
         headers = {"Content-Type": "application/json"}
         if "_session_id" in response_data:
             headers["Mcp-Session-Id"] = response_data.pop("_session_id")
@@ -175,11 +225,67 @@ async def _handle_mcp_post_request(
         elif session_id:
             headers["Mcp-Session-Id"] = session_id
 
+        # Log successful authentication if applicable
+        if auth_token and not response_data.get("error"):
+            log_auth_attempt(method, session_id, True, True)
+
         return JSONResponse(response_data, headers=headers)
 
     except Exception as e:
         logger.error(f"Failed to parse MCP request: {e}")
         return _create_mcp_parse_error_response(e)
+
+
+async def _mcp_legacy_handler(request: Request, mcp_handler: MCPHandler) -> JSONResponse:
+    """Legacy MCP endpoint with authentication support"""
+    try:
+        data = await request.json()
+        auth_token = extract_auth_token(request)
+
+        # Log legacy request attempt
+        method = data.get("method", "unknown")
+        log_auth_attempt(f"legacy-{method}", None, auth_token is not None)
+
+        # Process legacy request format with authentication
+        response = await _process_legacy_request(data, mcp_handler, auth_token)
+        return _format_legacy_response(response)
+
+    except Exception as e:
+        logger.error(f"Legacy MCP endpoint error: {e}")
+        return JSONResponse({"error": f"Request failed: {e!s}"}, status_code=500)
+
+
+async def _process_legacy_request(data: dict, mcp_handler: MCPHandler, auth_token: str | None):
+    """Process legacy request format with authentication"""
+    # Convert to standard JSON-RPC format if needed
+    if "method" in data and "params" in data:
+        jsonrpc_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": data["method"],
+            "params": data["params"],
+        }
+    else:
+        jsonrpc_request = data
+
+    return await mcp_handler.handle_jsonrpc_request(jsonrpc_request, auth_token=auth_token)
+
+
+def _format_legacy_response(response) -> JSONResponse:
+    """Format legacy response with appropriate status codes"""
+    if not response:
+        return JSONResponse({"status": "ok"})
+
+    if "result" in response:
+        return JSONResponse(response["result"])
+
+    # Handle authentication errors with proper status codes
+    if "error" in response:
+        error = response["error"]
+        status_code = 401 if error.get("code") == -32002 else 400
+        return JSONResponse(error, status_code=status_code)
+
+    return JSONResponse({"error": "No response"}, status_code=500)
 
 
 def _create_mcp_error_response(request_id: Any, error: Exception) -> JSONResponse:
@@ -210,85 +316,35 @@ def _create_mcp_parse_error_response(error: Exception) -> JSONResponse:
     return JSONResponse(error_response, status_code=400)
 
 
-async def _mcp_legacy_handler(request: Request, mcp_handler: MCPHandler) -> JSONResponse:
-    """Legacy MCP endpoint for backwards compatibility"""
-    try:
-        data = await request.json()
-        auth_token = request.headers.get("authorization")
-
-        # Handle different request formats
-        response = await _process_legacy_request(data, mcp_handler, auth_token)
-
-        # Return appropriate response format
-        return _format_legacy_response(response)
-
-    except Exception as e:
-        logger.error(f"Legacy MCP endpoint error: {e}")
-        return JSONResponse({"error": f"Request failed: {e!s}"}, status_code=500)
-
-
-async def _process_legacy_request(data: dict, mcp_handler: MCPHandler, auth_token: str | None):
-    """Process legacy request format with authentication"""
-    if "method" in data and "params" in data:
-        jsonrpc_request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": data["method"],
-            "params": data["params"],
-        }
-        return await mcp_handler.handle_jsonrpc_request(jsonrpc_request, auth_token=auth_token)
-
-    return await mcp_handler.handle_jsonrpc_request(data, auth_token=auth_token)
-
-
-def _format_legacy_response(response) -> JSONResponse:
-    """Format legacy response"""
-    if not response:
-        return JSONResponse({"status": "ok"})
-
-    # Handle result response
-    if "result" in response:
-        return JSONResponse(response["result"])
-
-    # Handle error response or no response
-    error_data = response.get("error", {"error": "No response"})
-    status_code = 400 if "error" in response else 500
-    return JSONResponse(error_data, status_code=status_code)
-
-
 def create_http_server(
     agent_registry: AgentRegistry,
     llm_manager: LLMManager,
     config: ConfigManager,
 ) -> Starlette:
-    """Create and configure the Starlette HTTP application with MCP and authentication support"""
-    # Initialize all handlers
-    handlers = _initialize_handlers(agent_registry, llm_manager, config)
+    """Create and configure the Starlette HTTP application with enhanced MCP authentication"""
+    # Initialize components
+    components = _initialize_core_components(agent_registry, llm_manager, config)
+    handlers = _create_route_handlers(components, agent_registry, llm_manager)
 
-    # Create application with routes and middleware
-    app = _create_starlette_app(handlers)
-    _configure_middleware(app, config)
+    # Create application
+    app = _build_starlette_application(handlers)
+    _configure_application_middleware(app, config)
 
-    logger.info("✅ HTTP server configured with MCP Streamable HTTP transport")
-    logger.info("🔐 Authentication integration enabled for MCP protocol")
+    logger.info("✅ HTTP server configured with enhanced MCP authentication bridge")
+    logger.info("🔐 Authentication integration fully enabled for MCP protocol")
     logger.info("🗑️ Agent HTTP endpoints removed - using MCP protocol only")
     return app
 
 
-def _initialize_handlers(agent_registry, llm_manager, config):
-    """Initialize all route handlers"""
-    components = _create_core_components(agent_registry, llm_manager, config)
-    return _create_route_handlers(components, agent_registry, llm_manager)
-
-
-def _create_core_components(agent_registry, llm_manager, config):
-    """Create core components needed for handlers"""
-    # Create security manager
+def _initialize_core_components(agent_registry, llm_manager, config):
+    """Initialize core components for HTTP server"""
+    # Create security manager for authentication
     security_manager = SecurityManager(config.system.state_dir)
 
-    # Create MCP handler with security manager
+    # Create MCP handler with enhanced security integration
     mcp_handler = MCPHandler(agent_registry, llm_manager, security_manager)
 
+    # Create other components
     api_endpoints = APIEndpoints(agent_registry, llm_manager)
 
     workspace_root = (
@@ -303,94 +359,36 @@ def _create_core_components(agent_registry, llm_manager, config):
         "api_endpoints": api_endpoints,
         "orchestrator_api": orchestrator_api,
         "websocket_handler": websocket_handler,
-        "security_manager": security_manager,
     }
 
 
 def _create_route_handlers(components, agent_registry, llm_manager):
-    """Create handler wrappers"""
-    handlers = _build_handler_functions(components, agent_registry, llm_manager)
+    """Create route handler wrappers with authentication support"""
+    # Create handler functions
+    root_handler = lambda req: _root_handler(req, llm_manager, agent_registry)
+    health_handler = lambda req: _health_handler(req, llm_manager, agent_registry)
+    mcp_handler_wrapper = lambda req: _mcp_streamable_http_handler(req, components["mcp_handler"])
+    legacy_handler_wrapper = lambda req: _mcp_legacy_handler(req, components["mcp_handler"])
+    websocket_endpoint = lambda ws: components["websocket_handler"].handle_connection(ws)
 
     return RouteHandlers(
-        root_handler=handlers["root"],
-        health_handler=handlers["health"],
-        mcp_handler_wrapper=handlers["mcp"],
-        legacy_handler_wrapper=handlers["legacy"],
+        root_handler=root_handler,
+        health_handler=health_handler,
+        mcp_handler_wrapper=mcp_handler_wrapper,
+        legacy_handler_wrapper=legacy_handler_wrapper,
         api_endpoints=components["api_endpoints"],
         orchestrator_api=components["orchestrator_api"],
-        websocket_endpoint=handlers["websocket"],
+        websocket_endpoint=websocket_endpoint,
     )
 
 
-def _build_handler_functions(components, agent_registry, llm_manager):
-    """Build all handler functions"""
-    return {
-        "root": _create_root_handler(agent_registry, llm_manager),
-        "health": _create_health_handler(agent_registry, llm_manager),
-        "mcp": _create_mcp_handler(components["mcp_handler"]),
-        "legacy": _create_legacy_handler(components["mcp_handler"]),
-        "websocket": _create_websocket_handler(components["websocket_handler"]),
-    }
-
-
-def _create_root_handler(agent_registry, llm_manager):
-    """Create root handler wrapper"""
-
-    async def root_handler(request: Request) -> JSONResponse:
-        return await _root_handler(request, llm_manager, agent_registry)
-
-    return root_handler
-
-
-def _create_health_handler(agent_registry, llm_manager):
-    """Create health handler wrapper"""
-
-    async def health_handler(request: Request) -> JSONResponse:
-        return await _health_handler(request, llm_manager, agent_registry)
-
-    return health_handler
-
-
-def _create_mcp_handler(mcp_handler):
-    """Create MCP handler wrapper"""
-
-    async def mcp_handler_wrapper(request: Request) -> Response:
-        return await _mcp_streamable_http_handler(request, mcp_handler)
-
-    return mcp_handler_wrapper
-
-
-def _create_legacy_handler(mcp_handler):
-    """Create legacy MCP handler wrapper"""
-
-    async def legacy_handler_wrapper(request: Request) -> JSONResponse:
-        return await _mcp_legacy_handler(request, mcp_handler)
-
-    return legacy_handler_wrapper
-
-
-def _create_websocket_handler(websocket_handler):
-    """Create WebSocket handler wrapper"""
-
-    async def websocket_endpoint(websocket):
-        await websocket_handler.handle_connection(websocket)
-
-    return websocket_endpoint
-
-
-def _create_starlette_app(handlers: RouteHandlers) -> Starlette:
-    """Create Starlette application with routes"""
-    routes = _build_routes(handlers)
-    return Starlette(routes=routes)
-
-
-def _build_routes(handlers: RouteHandlers):
-    """Build the complete routes list - agent endpoints removed"""
+def _build_starlette_application(handlers: RouteHandlers) -> Starlette:
+    """Build Starlette application with all routes"""
     routes = [
         # Core endpoints
         Route("/", handlers.root_handler, methods=["GET"]),
         Route("/health", handlers.health_handler, methods=["GET"]),
-        # MCP endpoints with authentication
+        # MCP endpoints with enhanced authentication
         Route("/mcp", handlers.mcp_handler_wrapper, methods=["POST", "GET"]),
         Route("/mcp-legacy", handlers.legacy_handler_wrapper, methods=["POST"]),
         # System endpoint only (agent endpoints removed)
@@ -407,12 +405,12 @@ def _build_routes(handlers: RouteHandlers):
         else:
             routes.append(Route(path, handler, methods=methods))
 
-    return routes
+    return Starlette(routes=routes)
 
 
-def _configure_middleware(app: Starlette, config: ConfigManager):
-    """Configure middleware for the application"""
-    # Add CORS middleware
+def _configure_application_middleware(app: Starlette, config: ConfigManager):
+    """Configure middleware with enhanced security headers"""
+    # Add CORS middleware with authentication headers
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.server.allow_origins,
@@ -428,12 +426,13 @@ def _configure_middleware(app: Starlette, config: ConfigManager):
         expose_headers=["Mcp-Session-Id"],
     )
 
-    # Add logging middleware
+    # Add enhanced logging middleware with authentication tracking
     @app.middleware("http")
-    async def log_middleware(request, call_next):
+    async def enhanced_logging_middleware(request, call_next):
         start_time = datetime.now()
         session_id = request.headers.get("mcp-session-id", "no-session")
         auth_present = "yes" if request.headers.get("authorization") else "no"
+
         logger.info(f"Request: {request.method} {request.url.path} (session: {session_id}, auth: {auth_present})")
 
         response = await call_next(request)
@@ -445,7 +444,7 @@ def _configure_middleware(app: Starlette, config: ConfigManager):
 
     # Add CORS preflight middleware
     @app.middleware("http")
-    async def cors_middleware(request, call_next):
+    async def cors_preflight_middleware(request, call_next):
         if request.method == "OPTIONS":
             response = Response()
             response.headers["Access-Control-Allow-Origin"] = "*"
