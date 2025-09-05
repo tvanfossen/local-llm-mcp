@@ -1,7 +1,7 @@
-# Two-stage build for CUDA llama-cpp-python
+# Two-stage build for CUDA llama-cpp-python with Git support
 FROM nvidia/cuda:12.5.1-devel-ubuntu22.04 AS builder
 
-# Install build dependencies
+# Install build dependencies including git
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y git build-essential \
     python3 \
@@ -34,10 +34,11 @@ FROM nvidia/cuda:12.5.1-runtime-ubuntu22.04
 
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-# Install runtime dependencies
+# Install runtime dependencies including git and pytest for testing
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -46,6 +47,9 @@ WORKDIR /app
 # Copy requirements and install
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
+# Install pytest and coverage tools for git-based testing
+RUN pip install pytest pytest-cov
 
 # Copy CUDA-enabled llama-cpp from builder
 COPY --from=builder /root/.local/lib/python3.10/site-packages/ /usr/local/lib/python3.10/dist-packages/

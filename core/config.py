@@ -215,6 +215,16 @@ class SystemConfig:
             # Host: traditional workspace structure
             return self.workspaces_dir / agent_id
 
+    def get_environment_info(self) -> dict:
+        """Get environment and workspace information"""
+        return {
+            "container_environment": self.is_container_environment(),
+            "workspace_root": str(self.get_workspace_root()),
+            "agents_metadata_dir": str(self.get_agents_metadata_dir()),
+            "registry_file": str(self.get_registry_file()),
+            "repo_integration": self.repo_path is not None,
+        }
+
 
 class ConfigManager:
     """Centralized configuration management with repository integration"""
