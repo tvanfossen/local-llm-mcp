@@ -24,6 +24,11 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.claude/
+
+# Precommit
+.mypycache/
+.ruff-cache/
 
 # Virtual environments
 venv/
