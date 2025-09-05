@@ -768,6 +768,12 @@ class MCPHandler:
             parameters=args.get("parameters", {}),
         )
 
+        logger.info(
+            f"🔍 MCP REQUEST: task_type={agent_request.task_type}, instruction='{agent_request.instruction[:100]}...'"
+        )
+        logger.info(f"🔍 MCP CONTEXT: {agent_request.context}")
+        logger.info(f"🔍 MCP PARAMETERS: {agent_request.parameters}")
+
         # Generate response
         prompt = agent.build_context_prompt(agent_request)
         agent_response, metrics = self.llm_manager.generate_response(prompt)

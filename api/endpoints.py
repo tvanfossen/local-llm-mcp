@@ -210,8 +210,18 @@ class APIEndpoints:
             parameters=data.get("parameters", {}),
         )
 
+        logger.info(
+            f"🔍 DIRECT REQUEST: task_type={agent_request.task_type}, instruction='{agent_request.instruction[:100]}...'"
+        )
+        logger.info(f"🔍 DIRECT CONTEXT: {agent_request.context}")
+        logger.info(f"🔍 DIRECT PARAMETERS: {agent_request.parameters}")
+
         # Generate response
         prompt = agent.build_context_prompt(agent_request)
+
+        logger.info(f"🔍 DIRECT PROMPT LENGTH: {len(prompt)} chars")
+        logger.info(f"🔍 DIRECT PROMPT SAMPLE: {prompt[-500:]}")  # Last 500 chars
+
         agent_response, metrics = self.llm_manager.generate_response(prompt)
 
         # Handle file content

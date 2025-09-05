@@ -9,6 +9,7 @@ Responsibilities:
 - Streaming response support
 """
 
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -164,7 +165,8 @@ class LLMManager:
     def _parse_agent_response(self, response_text: str) -> AgentResponse:
         """Parse agent response with improved JSON handling for multiline content"""
         try:
-            logger.info(f"Attempting to parse response: {response_text[:200]!r}")
+            logger.info(f"🔍 RAW LLM OUTPUT: {response_text!r}")
+            logger.info(f"🔍 RESPONSE LENGTH: {len(response_text)} chars")
 
             # Clean the response - find JSON boundaries
             cleaned_text = response_text.strip()
@@ -172,9 +174,11 @@ class LLMManager:
 
             if json_bounds:
                 json_text = cleaned_text[json_bounds[0] : json_bounds[1] + 1]
+                logger.info(f"🔍 EXTRACTED JSON: {json_text!r}")
                 return self._try_parse_json_response(json_text)
             else:
-                logger.error("No JSON boundaries found")
+                logger.error("❌ No JSON boundaries found in response")
+                logger.error(f"❌ RESPONSE TEXT: {response_text!r}")
                 return self._create_fallback_response(response_text)
 
         except Exception as e:
@@ -194,31 +198,71 @@ class LLMManager:
         return None
 
     def _try_parse_json_response(self, json_text: str) -> AgentResponse:
-        """Try parsing JSON with progressive fixes"""
-        # First, try parsing as-is
-        try:
-            import json
+        """Try parsing JSON with progressive fixes - enhanced for MCP compatibility"""
+        import json
 
-            response_data = json.loads(json_text)
-            logger.info("✅ JSON parsing succeeded without fixes")
-            return self._create_response_from_json(response_data)
-        except json.JSONDecodeError:
-            pass
+        # Try multiple parsing strategies
+        parsing_strategies = [
+            ("direct", lambda x: x),
+            ("quote_fix", self._fix_unescaped_quotes),
+            ("content_extraction", self._extract_content_from_malformed_json),
+            ("simple_format", self._convert_to_simple_format),
+        ]
 
-        # Try with quote fixing
-        try:
-            import json
+        for strategy_name, strategy_func in parsing_strategies:
+            try:
+                processed_text = strategy_func(json_text)
+                response_data = json.loads(processed_text)
+                logger.info(f"✅ JSON parsing succeeded with strategy: {strategy_name}")
+                return self._create_response_from_json(response_data)
+            except json.JSONDecodeError as e:
+                logger.warning(f"❌ Strategy '{strategy_name}' failed: {e}")
+                continue
 
-            fixed_json_text = self._fix_unescaped_quotes(json_text)
-            response_data = json.loads(fixed_json_text)
-            logger.info("✅ JSON parsing succeeded after quote fixing")
-            return self._create_response_from_json(response_data)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing failed even after quote fixing: {e}")
-            logger.error(f"Fixed JSON text was: {fixed_json_text[:500]!r}")
-
-        # Manual extraction as last resort
+        # If all strategies fail, use manual extraction
+        logger.error("❌ All JSON parsing strategies failed, using manual extraction")
         return self._manual_extract_response(json_text)
+
+    def _convert_to_simple_format(self, text: str) -> str:
+        """Convert response to simple JSON format if LLM used different structure"""
+        # Handle cases where LLM might respond with different JSON structure
+        if "file_content" in text and "full_file_content" not in text:
+            # Convert alternate format to expected format
+            text = text.replace('"file_content":', '"full_file_content":')
+
+        return text
+
+    def _extract_content_from_malformed_json(self, text: str) -> str:
+        """Extract and reconstruct valid JSON from malformed response"""
+        import re
+
+        # Try to extract key-value pairs and reconstruct
+        patterns = {
+            "status": r'"status"\s*:\s*"([^"]*)"',
+            "message": r'"message"\s*:\s*"([^"]*)"',
+            "full_file_content": r'"(?:full_file_content|file_content)"\s*:\s*"(.*?)"(?=\s*[,}])',
+            "changes_summary": r'"changes_summary"\s*:\s*"([^"]*)"',
+            "warnings": r'"warnings"\s*:\s*"([^"]*)"',
+        }
+
+        extracted = {}
+        for key, pattern in patterns.items():
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                extracted[key] = match.group(1)
+
+        if extracted:
+            # Reconstruct JSON
+            reconstructed = {
+                "status": extracted.get("status", "success"),
+                "message": extracted.get("message", "Task completed"),
+                "full_file_content": extracted.get("full_file_content", ""),
+                "changes_summary": extracted.get("changes_summary", ""),
+                "warnings": extracted.get("warnings", ""),
+            }
+            return json.dumps(reconstructed)
+
+        return text
 
     def _fix_unescaped_quotes(self, text: str) -> str:
         """Fix unescaped quotes inside JSON string values"""
@@ -242,16 +286,15 @@ class LLMManager:
 
     def _create_response_from_json(self, response_data: dict) -> AgentResponse:
         """Create AgentResponse from parsed JSON data"""
-        # Create FileContent from full_file_content field
         file_content = None
         if response_data.get("full_file_content"):
             from schemas.agent_schemas import FileContent
 
             content = response_data["full_file_content"]
             file_content = FileContent(
-                filename="temp_filename",  # Will be set by the endpoint
+                filename="PLACEHOLDER_FILENAME",  # Will be corrected by endpoint
                 content=content,
-                language="python",  # Will be inferred
+                language="auto",  # Will be inferred from file extension
                 line_count=len(content.split("\n")) if content else 0,
             )
 
