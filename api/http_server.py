@@ -20,7 +20,8 @@ from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.staticfiles import StaticFiles
 
 from api.endpoints import APIEndpoints
 from api.mcp_handler import MCPHandler
@@ -399,6 +400,8 @@ def _build_routes(handlers: RouteHandlers):
         Route("/api/system/status", handlers.api_endpoints.system_status, methods=["GET"]),
         # WebSocket
         WebSocketRoute("/ws", handlers.websocket_endpoint),
+        # Static files for orchestrator UI
+        Mount("/static", StaticFiles(directory="static"), name="static"),
     ]
 
     # Add orchestrator routes
