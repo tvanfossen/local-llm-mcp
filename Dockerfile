@@ -53,8 +53,8 @@ RUN git config --global user.name "MCP Agent System" && \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Install pytest and coverage tools for git-based testing
-RUN pip install pytest pytest-cov
+# Install pytest, coverage tools, and pre-commit for git-based testing
+RUN pip install pytest pytest-cov pre-commit
 
 # Copy CUDA-enabled llama-cpp from builder
 COPY --from=builder /root/.local/lib/python3.10/site-packages/ /usr/local/lib/python3.10/dist-packages/
@@ -64,4 +64,19 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["python3", "local_llm_mcp_server.py"]
+# Copy pre-commit template
+COPY templates/.pre-commit-config.yaml /app/precommit-template.yaml
+
+# Setup workspace on container start
+RUN echo '#!/bin/bash\n\
+if [ -d "/workspace" ]; then\n\
+    cd /workspace\n\
+    if [ -d ".git" ] && [ ! -f ".pre-commit-config.yaml" ]; then\n\
+        cp /app/precommit-template.yaml .pre-commit-config.yaml\n\
+        pre-commit install 2>/dev/null || true\n\
+    fi\n\
+fi\n\
+cd /app\n\
+exec python3 local_llm_mcp_server.py' > /app/startup.sh && chmod +x /app/startup.sh
+
+CMD ["/app/startup.sh"]

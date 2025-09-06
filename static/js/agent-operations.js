@@ -113,6 +113,47 @@ async function executeMCPTool() {
                 result = await getSystemStatus();
                 break;
 
+            // Git Tools
+            case 'git_status':
+                result = await gitStatus();
+                break;
+
+            case 'git_diff':
+                result = await gitDiff(parameters);
+                break;
+
+            case 'git_commit':
+                result = await gitCommit(parameters);
+                if (result.success) {
+                    addTerminalLine('🎉 Git commit successful!', 'success');
+                }
+                break;
+
+            case 'git_log':
+                result = await gitLog(parameters);
+                break;
+
+            // Testing & Validation Tools
+            case 'run_tests':
+                result = await runTests(parameters);
+                break;
+
+            case 'run_pre_commit':
+                result = await runPreCommit(parameters);
+                break;
+
+            case 'validate_file_length':
+                result = await validateFileLength(parameters);
+                break;
+
+            case 'validate_agent_file':
+                if (!currentSelectedAgent) {
+                    addTerminalLine('Please select an agent first', 'warning');
+                    return;
+                }
+                result = await validateAgentFile(currentSelectedAgent.id);
+                break;
+
             default:
                 addTerminalLine(`Unknown tool: ${toolName}`, 'error');
                 return;
@@ -162,10 +203,49 @@ function buildToolParameters(toolName) {
             parameters.context = getInputValue('chat_context');
             break;
 
+        // Git Tools
+        case 'git_diff':
+            parameters.file_path = getInputValue('git_file_path');
+            parameters.staged = document.getElementById('git_staged')?.checked || false;
+            break;
+
+        case 'git_commit':
+            parameters.message = getInputValue('git_message');
+            const filesText = getInputValue('git_files');
+            if (filesText) {
+                parameters.files = filesText.split('\n').filter(f => f.trim()).map(f => f.trim());
+            }
+            break;
+
+        case 'git_log':
+            parameters.limit = parseInt(getInputValue('git_limit')) || 10;
+            parameters.file_path = getInputValue('git_log_file_path');
+            break;
+
+        // Testing & Validation Tools
+        case 'run_tests':
+            parameters.test_path = getInputValue('test_path');
+            parameters.coverage = document.getElementById('test_coverage')?.checked !== false;
+            parameters.verbose = document.getElementById('test_verbose')?.checked || false;
+            break;
+
+        case 'run_pre_commit':
+            parameters.hook = getInputValue('precommit_hook');
+            parameters.all_files = document.getElementById('precommit_all_files')?.checked || false;
+            break;
+
+        case 'validate_file_length':
+            const filePathsText = getInputValue('file_paths');
+            parameters.file_paths = filePathsText.split('\n').filter(f => f.trim()).map(f => f.trim());
+            parameters.max_lines = parseInt(getInputValue('max_lines')) || 300;
+            break;
+
         // No parameters needed for these tools
         case 'list_agents':
         case 'system_status':
         case 'get_agent_file':
+        case 'git_status':
+        case 'validate_agent_file':
             break;
     }
 
@@ -183,7 +263,9 @@ function validateToolParameters(toolName, parameters) {
         'create_agent': ['name', 'description', 'system_prompt', 'managed_file'],
         'get_agent_info': ['agent_id'],
         'delete_agent': ['agent_id'],
-        'chat_with_agent': ['message']
+        'chat_with_agent': ['message'],
+        'git_commit': ['message'],
+        'validate_file_length': ['file_paths']
     };
 
     const required = validationRules[toolName] || [];

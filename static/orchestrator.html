@@ -44,13 +44,29 @@
                     <label>MCP Tool:</label>
                     <select class="tool-selector" id="toolSelector" onchange="updateToolInputs()">
                         <option value="">Select a tool...</option>
-                        <option value="create_agent">Create Agent</option>
-                        <option value="list_agents">List Agents</option>
-                        <option value="get_agent_info">Get Agent Info</option>
-                        <option value="delete_agent">Delete Agent</option>
-                        <option value="chat_with_agent">Chat with Agent</option>
-                        <option value="get_agent_file">Get Agent File</option>
-                        <option value="system_status">System Status</option>
+                        <optgroup label="Agent Management">
+                            <option value="create_agent">Create Agent</option>
+                            <option value="list_agents">List Agents</option>
+                            <option value="get_agent_info">Get Agent Info</option>
+                            <option value="delete_agent">Delete Agent</option>
+                            <option value="chat_with_agent">Chat with Agent</option>
+                            <option value="get_agent_file">Get Agent File</option>
+                        </optgroup>
+                        <optgroup label="Git Operations">
+                            <option value="git_status">Git Status</option>
+                            <option value="git_diff">Git Diff</option>
+                            <option value="git_commit">Git Commit</option>
+                            <option value="git_log">Git Log</option>
+                        </optgroup>
+                        <optgroup label="Testing & Validation">
+                            <option value="run_tests">Run Tests</option>
+                            <option value="run_pre_commit">Run Pre-commit</option>
+                            <option value="validate_file_length">Validate File Length</option>
+                            <option value="validate_agent_file">Validate Agent File</option>
+                        </optgroup>
+                        <optgroup label="System">
+                            <option value="system_status">System Status</option>
+                        </optgroup>
                     </select>
                 </div>
 

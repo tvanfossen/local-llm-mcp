@@ -29,6 +29,15 @@ class MCPToolExecutor:
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Get all MCP tool definitions"""
+        tools = []
+        tools.extend(self._get_agent_tools())
+        tools.extend(self._get_git_tools())
+        tools.extend(self._get_testing_tools())
+        tools.append(self._get_system_tool())
+        return tools
+
+    def _get_agent_tools(self) -> list[dict[str, Any]]:
+        """Get agent management tool definitions"""
         return [
             {
                 "name": "create_agent",
@@ -95,16 +104,117 @@ class MCPToolExecutor:
                     "required": ["agent_id"],
                 },
             },
+        ]
+
+    def _get_git_tools(self) -> list[dict[str, Any]]:
+        """Get git tool definitions"""
+        return [
             {
-                "name": "system_status",
-                "description": "Get system status including model and agent information",
+                "name": "git_status",
+                "description": "Check git repository status and changes",
                 "inputSchema": {"type": "object", "properties": {}},
             },
+            {
+                "name": "git_diff",
+                "description": "Show git diff of changes",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string", "description": "Specific file to diff (optional)"},
+                        "staged": {"type": "boolean", "description": "Show staged changes only", "default": False},
+                    },
+                },
+            },
+            {
+                "name": "git_commit",
+                "description": "Create git commit with message",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string", "description": "Commit message"},
+                        "files": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Files to add (optional, adds all if empty)",
+                        },
+                    },
+                    "required": ["message"],
+                },
+            },
+            {
+                "name": "git_log",
+                "description": "Show git commit history",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Number of commits to show", "default": 10},
+                        "file_path": {"type": "string", "description": "Show log for specific file (optional)"},
+                    },
+                },
+            },
         ]
+
+    def _get_testing_tools(self) -> list[dict[str, Any]]:
+        """Get testing and validation tool definitions"""
+        return [
+            {
+                "name": "run_tests",
+                "description": "Run pytest tests for the project",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "test_path": {"type": "string", "description": "Specific test file or directory (optional)"},
+                        "coverage": {"type": "boolean", "description": "Run with coverage report", "default": True},
+                        "verbose": {"type": "boolean", "description": "Verbose output", "default": False},
+                    },
+                },
+            },
+            {
+                "name": "run_pre_commit",
+                "description": "Run pre-commit hooks for validation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "all_files": {"type": "boolean", "description": "Run on all files", "default": False},
+                        "hook": {"type": "string", "description": "Specific hook to run (optional)"},
+                    },
+                },
+            },
+            {
+                "name": "validate_file_length",
+                "description": "Check if files comply with length requirements (<300 lines)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file_paths": {"type": "array", "items": {"type": "string"}, "description": "Files to check"},
+                        "max_lines": {"type": "integer", "description": "Maximum lines allowed", "default": 300},
+                    },
+                    "required": ["file_paths"],
+                },
+            },
+            {
+                "name": "validate_agent_file",
+                "description": "Validate an agent's managed file meets all requirements",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"agent_id": {"type": "string", "description": "Agent ID to validate"}},
+                    "required": ["agent_id"],
+                },
+            },
+        ]
+
+    def _get_system_tool(self) -> dict[str, Any]:
+        """Get system status tool definition"""
+        return {
+            "name": "system_status",
+            "description": "Get system status including model and agent information",
+            "inputSchema": {"type": "object", "properties": {}},
+        }
 
     async def execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Execute tool and return MCP-formatted result"""
         tool_handlers = {
+            # Agent Management Tools
             "create_agent": self.handlers.create_agent,
             "list_agents": self.handlers.list_agents,
             "get_agent_info": self.handlers.get_agent_info,
@@ -112,6 +222,16 @@ class MCPToolExecutor:
             "get_agent_file": self.handlers.get_agent_file,
             "delete_agent": self.handlers.delete_agent,
             "system_status": lambda args: self.handlers.system_status(args, self.authenticator),
+            # Git Tools
+            "git_status": self.handlers.git_status,
+            "git_diff": self.handlers.git_diff,
+            "git_commit": self.handlers.git_commit,
+            "git_log": self.handlers.git_log,
+            # Testing & Validation Tools
+            "run_tests": self.handlers.run_tests,
+            "run_pre_commit": self.handlers.run_pre_commit,
+            "validate_file_length": self.handlers.validate_file_length,
+            "validate_agent_file": self.handlers.validate_agent_file,
         }
 
         handler = tool_handlers.get(tool_name)

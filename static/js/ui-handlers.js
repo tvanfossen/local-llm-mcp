@@ -24,7 +24,17 @@ function updateToolInputs() {
         'delete_agent': generateAgentIdInput('⚠️ Warning: This will permanently delete the agent'),
         'chat_with_agent': generateChatInputs(),
         'get_agent_file': generateNoParamsMessage('Gets the file content managed by the selected agent'),
-        'system_status': generateNoParamsMessage('Displays system and model status information')
+        'system_status': generateNoParamsMessage('Displays system and model status information'),
+        // Git Tools
+        'git_status': generateNoParamsMessage('Check git repository status and changes (system-wide operation)'),
+        'git_diff': generateGitDiffInputs(),
+        'git_commit': generateGitCommitInputs(),
+        'git_log': generateGitLogInputs(),
+        // Testing & Validation Tools
+        'run_tests': generateRunTestsInputs(),
+        'run_pre_commit': generatePreCommitInputs(),
+        'validate_file_length': generateFileLengthInputs(),
+        'validate_agent_file': generateAgentIdInput('Validate agent file meets all requirements')
     };
 
     container.innerHTML = toolInputTemplates[toolName] || '<p style="color: #ff5555;">Unknown tool selected</p>';

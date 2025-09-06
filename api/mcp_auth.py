@@ -37,6 +37,11 @@ class MCPAuthenticator:
             logger.warning("No SecurityManager configured - allowing unauthenticated MCP request")
             return {"valid": True, "error": None, "session": None}
 
+        # If user has authenticated via HTML page, allow MCP requests
+        if self.security_manager.active_sessions:
+            logger.info("Authenticated HTML session detected - allowing MCP request")
+            return {"valid": True, "error": None, "session": {"source": "html_authenticated"}}
+
         # Validate authentication token
         return self._validate_token(auth_token)
 

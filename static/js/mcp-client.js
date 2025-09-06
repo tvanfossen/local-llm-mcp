@@ -258,3 +258,124 @@ async function getSystemStatus() {
         message: parsed.text
     };
 }
+
+// Git Tool Functions
+/**
+ * Get git status using MCP
+ * @returns {Promise<object>} - Git status result
+ */
+async function gitStatus() {
+    const result = await callMCPTool('git_status', {});
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}
+
+/**
+ * Get git diff using MCP
+ * @param {object} params - Git diff parameters
+ * @returns {Promise<object>} - Git diff result
+ */
+async function gitDiff(params = {}) {
+    const result = await callMCPTool('git_diff', params);
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}
+
+/**
+ * Create git commit using MCP
+ * @param {object} params - Git commit parameters
+ * @returns {Promise<object>} - Git commit result
+ */
+async function gitCommit(params) {
+    const result = await callMCPTool('git_commit', params);
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}
+
+/**
+ * Get git log using MCP
+ * @param {object} params - Git log parameters
+ * @returns {Promise<object>} - Git log result
+ */
+async function gitLog(params = {}) {
+    const result = await callMCPTool('git_log', params);
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}
+
+// Testing & Validation Tool Functions
+/**
+ * Run tests using MCP
+ * @param {object} params - Test parameters
+ * @returns {Promise<object>} - Test result
+ */
+async function runTests(params = {}) {
+    const result = await callMCPTool('run_tests', params);
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}
+
+/**
+ * Run pre-commit hooks using MCP
+ * @param {object} params - Pre-commit parameters
+ * @returns {Promise<object>} - Pre-commit result
+ */
+async function runPreCommit(params = {}) {
+    const result = await callMCPTool('run_pre_commit', params);
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}
+
+/**
+ * Validate file length using MCP
+ * @param {object} params - File length validation parameters
+ * @returns {Promise<object>} - Validation result
+ */
+async function validateFileLength(params) {
+    const result = await callMCPTool('validate_file_length', params);
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}
+
+/**
+ * Validate agent file using MCP
+ * @param {string} agentId - Agent ID to validate
+ * @returns {Promise<object>} - Validation result
+ */
+async function validateAgentFile(agentId) {
+    const result = await callMCPTool('validate_agent_file', { agent_id: agentId });
+    const parsed = parseMCPContent(result);
+
+    return {
+        success: !parsed.isError,
+        message: parsed.text
+    };
+}

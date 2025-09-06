@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Optional
 
+from api.mcp_git_handlers import MCPGitHandlers
+from api.mcp_validation_handlers import MCPValidationHandlers
 from core.agent_registry import AgentRegistry
 from core.llm_manager import LLMManager
 from schemas.agent_schemas import ResponseStatus, TaskType, create_standard_request
@@ -14,6 +16,8 @@ class MCPToolHandlers:
     def __init__(self, agent_registry: AgentRegistry, llm_manager: LLMManager):
         self.agent_registry = agent_registry
         self.llm_manager = llm_manager
+        self.git_handlers = MCPGitHandlers()
+        self.validation_handlers = MCPValidationHandlers(agent_registry)
 
     @staticmethod
     def _create_success(text: str) -> dict[str, Any]:
@@ -285,3 +289,37 @@ class MCPToolHandlers:
             )
         except Exception as e:
             return self._handle_exception(e, "Status")
+
+    # Git Tool Handlers - Delegated to MCPGitHandlers
+    async def git_status(self, args: dict[str, Any] = None) -> dict[str, Any]:
+        """Check git repository status and changes"""
+        return await self.git_handlers.git_status(args)
+
+    async def git_diff(self, args: dict[str, Any] = None) -> dict[str, Any]:
+        """Show git diff of changes"""
+        return await self.git_handlers.git_diff(args)
+
+    async def git_commit(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Create git commit with message"""
+        return await self.git_handlers.git_commit(args)
+
+    async def git_log(self, args: dict[str, Any] = None) -> dict[str, Any]:
+        """Show git commit history"""
+        return await self.git_handlers.git_log(args)
+
+    # Testing & Validation Tool Handlers - Delegated to MCPValidationHandlers
+    async def run_tests(self, args: dict[str, Any] = None) -> dict[str, Any]:
+        """Run pytest tests for the project"""
+        return await self.validation_handlers.run_tests(args)
+
+    async def run_pre_commit(self, args: dict[str, Any] = None) -> dict[str, Any]:
+        """Run pre-commit hooks for validation"""
+        return await self.validation_handlers.run_pre_commit(args)
+
+    async def validate_file_length(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Check if files comply with length requirements (<300 lines)"""
+        return await self.validation_handlers.validate_file_length(args)
+
+    async def validate_agent_file(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate an agent's managed file meets all requirements"""
+        return await self.validation_handlers.validate_agent_file(args)

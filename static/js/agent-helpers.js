@@ -66,7 +66,7 @@ function updateToolAvailability() {
     const toolSelect = document.getElementById('toolSelector');
 
     const selectedTool = toolSelect.value;
-    const agentRequiredTools = ['chat_with_agent', 'get_agent_file'];
+    const agentRequiredTools = ['chat_with_agent', 'get_agent_file', 'validate_agent_file'];
 
     // Enable/disable execute button
     const needsAgent = agentRequiredTools.includes(selectedTool);
