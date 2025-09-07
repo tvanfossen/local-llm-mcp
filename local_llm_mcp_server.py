@@ -21,14 +21,13 @@ from pathlib import Path
 
 import uvicorn
 
-from api.http_server import create_http_server
-from core.agent_registry import AgentRegistry
-from core.config import ConfigManager
-from core.llm_manager import LLMManager
+# Add src to Python path for new structure
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-# Add project root to Python path
-sys.path.append(str(Path(__file__).parent))
-
+from src.api.http.server.server import create_http_server
+from src.core.agents.registry.registry import AgentRegistry
+from src.core.config.manager.manager import ConfigManager
+from src.core.llm.manager.manager import LLMManager
 
 # Configure logging
 logging.basicConfig(
@@ -193,7 +192,7 @@ class ServerOrchestrator:
     def _initialize_agent_registry(self):
         """Initialize agent registry"""
         logger.info("Initializing agent registry...")
-        self.agent_registry = AgentRegistry(self.config_manager.system)
+        self.agent_registry = AgentRegistry(self.config_manager)
         return True
 
 

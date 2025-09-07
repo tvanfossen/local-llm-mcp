@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "created": "2025-09-07",
+    "version": "1.0",
+    "description": "Bug tracking for Local LLM MCP Server development workflow"
+  },
+  "classification": {
+    "critical": "Blocks core functionality",
+    "high": "Significant impact on workflow",
+    "medium": "Moderate impact, workaround available",
+    "low": "Minor issue, cosmetic or edge case"
+  },
+  "bugs": [
+    {
+      "id": "BUG-001",
+      "severity": "high",
+      "category": "schema_validation",
+      "title": "Schema validator requires ALL files exist before any can be created",
+      "description": "The schema validator enforces existence of all files in the schema structure, making it impossible to incrementally build the project. This creates a chicken-and-egg problem.",
+      "location": "scripts/schema_validator.py",
+      "impact": "Prevents iterative development workflow",
+      "workaround": "Disable schema validation during development phase",
+      "status": "open",
+      "created": "2025-09-07T10:00:00Z"
+    },
+    {
+      "id": "BUG-002",
+      "severity": "medium",
+      "category": "file_size",
+      "title": "Agent.py exceeds 300 line limit",
+      "description": "src/core/agents/agent/agent.py has 331 lines, exceeding the 300 line schema limit",
+      "location": "src/core/agents/agent/agent.py:331",
+      "impact": "Schema validation failure",
+      "workaround": "Split agent class into smaller components",
+      "status": "open",
+      "created": "2025-09-07T10:01:00Z"
+    },
+    {
+      "id": "BUG-003",
+      "severity": "medium",
+      "category": "missing_files",
+      "title": "Multiple missing test files and READMEs",
+      "description": "Schema validation shows ~100+ missing test files and README files across the project structure",
+      "location": "Multiple locations in src/",
+      "impact": "Schema validation failure, incomplete test coverage",
+      "workaround": "Use template generation to create skeleton files",
+      "status": "open",
+      "created": "2025-09-07T10:02:00Z"
+    },
+    {
+      "id": "BUG-004",
+      "severity": "critical",
+      "category": "missing_method",
+      "title": "ConfigManager missing validate_all method",
+      "description": "Server startup fails with AttributeError: 'ConfigManager' object has no attribute 'validate_all'",
+      "location": "local_llm_mcp_server.py calling config.validate_all()",
+      "impact": "Server cannot start, blocking all functionality",
+      "workaround": "Add validate_all method to ConfigManager or fix server startup logic",
+      "status": "open",
+      "created": "2025-09-07T18:13:00Z"
+    },
+    {
+      "id": "BUG-005",
+      "severity": "high",
+      "category": "missing_model",
+      "title": "Missing LLAMA model file",
+      "description": "Model path does not exist: /root/models/llama-2-7b-chat.q4_0.gguf",
+      "location": "src/core/config/manager/manager.py model path detection",
+      "impact": "Server cannot load LLM model, no local model functionality",
+      "workaround": "Mount correct model path or update configuration",
+      "status": "open",
+      "created": "2025-09-07T18:13:00Z"
+    }
+  ],
+  "statistics": {
+    "total": 5,
+    "by_severity": {
+      "critical": 1,
+      "high": 2,
+      "medium": 2,
+      "low": 0
+    },
+    "by_category": {
+      "schema_validation": 1,
+      "file_size": 1,
+      "missing_files": 1,
+      "missing_method": 1,
+      "missing_model": 1
+    },
+    "open": 5,
+    "resolved": 0
+  }
+}
