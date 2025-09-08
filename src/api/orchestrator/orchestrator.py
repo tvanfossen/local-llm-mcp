@@ -8,7 +8,10 @@ Responsibilities:
 """
 
 import logging
+from pathlib import Path
 from typing import Any
+
+from starlette.responses import HTMLResponse, JSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +23,64 @@ class OrchestratorAPI:
         self.agent_registry = agent_registry
         self.security_manager = security_manager
         self.deployment_manager = deployment_manager
+        
+        # Path to static HTML file
+        self.orchestrator_html_path = Path(__file__).parent.parent.parent.parent / "static" / "orchestrator.html"
 
     def get_routes(self) -> list[tuple[str, Any, list[str]]]:
         """Get orchestrator routes"""
         return [
             ("/orchestrator", self._orchestrator_handler, ["GET"]),
             ("/orchestrator/status", self._status_handler, ["GET"]),
+            ("/api/orchestrator/authenticate", self._authenticate_handler, ["POST"]),
         ]
 
     async def _orchestrator_handler(self, request):
-        """Main orchestrator page handler"""
-        return {"message": "Orchestrator interface placeholder"}
+        """Main orchestrator page handler - serve HTML"""
+        try:
+            # Serve the static HTML file
+            if self.orchestrator_html_path.exists():
+                with open(self.orchestrator_html_path, 'r') as f:
+                    html_content = f.read()
+                return HTMLResponse(content=html_content)
+            else:
+                # Fallback if file not found
+                return HTMLResponse(content="<h1>Orchestrator HTML not found</h1>", status_code=404)
+        except Exception as e:
+            logger.error(f"Failed to serve orchestrator HTML: {e}")
+            return HTMLResponse(content=f"<h1>Error loading orchestrator: {str(e)}</h1>", status_code=500)
 
     async def _status_handler(self, request):
         """Orchestrator status handler"""
-        return {
+        return JSONResponse({
             "agents": self.agent_registry.get_registry_stats(),
             "security": self.security_manager.get_security_status(),
             "deployment": self.deployment_manager.get_deployment_status(),
-        }
+        })
+
+    async def _authenticate_handler(self, request):
+        """Handle authentication requests from orchestrator UI"""
+        try:
+            # For now, return a mock successful authentication
+            # In production, this would validate the private key
+            data = await request.json()
+            private_key = data.get("private_key", "")
+            
+            if private_key:
+                # Mock authentication success
+                return JSONResponse({
+                    "session_token": "mock_session_token_12345",
+                    "expires_in": 3600,
+                    "client_name": "Orchestrator UI"
+                })
+            else:
+                return JSONResponse(
+                    {"error": "No private key provided"},
+                    status_code=400
+                )
+        except Exception as e:
+            logger.error(f"Authentication error: {e}")
+            return JSONResponse(
+                {"error": str(e)},
+                status_code=500
+            )

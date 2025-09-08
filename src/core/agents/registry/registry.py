@@ -154,3 +154,16 @@ class AgentRegistry:
             logger.info(f"Cleaned up {cleanup_count} invalid file references")
 
         return cleanup_count
+    
+    def save_registry(self):
+        """Save registry state to disk"""
+        try:
+            # Each agent already saves its own state
+            # This method ensures all agents persist their current state
+            for agent in self.agents.values():
+                agent._save_metadata()
+                agent._save_conversation_history()
+            
+            logger.info(f"Saved registry with {len(self.agents)} agents")
+        except Exception as e:
+            logger.error(f"Failed to save registry: {e}")
