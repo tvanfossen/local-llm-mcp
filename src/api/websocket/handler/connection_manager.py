@@ -9,7 +9,7 @@ Responsibilities:
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 from starlette.websockets import WebSocket
 
@@ -20,8 +20,8 @@ class ConnectionManager:
     """Manages active WebSocket connections and their associated agents"""
 
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}
-        self.connection_agents: Dict[str, str] = {}  # connection_id -> agent_id
+        self.active_connections: dict[str, WebSocket] = {}
+        self.connection_agents: dict[str, str] = {}  # connection_id -> agent_id
 
     def add_connection(self, connection_id: str, websocket: WebSocket):
         """Add a new WebSocket connection"""
@@ -48,11 +48,11 @@ class ConnectionManager:
         """Get the agent ID associated with a connection"""
         return self.connection_agents.get(connection_id)
 
-    def get_connections_for_agent(self, agent_id: str) -> List[str]:
+    def get_connections_for_agent(self, agent_id: str) -> list[str]:
         """Get all connection IDs associated with an agent"""
         return [conn_id for conn_id, associated_agent in self.connection_agents.items() if associated_agent == agent_id]
 
-    def get_active_connections(self) -> List[str]:
+    def get_active_connections(self) -> list[str]:
         """Get list of all active connection IDs"""
         return list(self.active_connections.keys())
 

@@ -8,7 +8,7 @@ Responsibilities:
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from src.mcp.tools.git.commit.commit import git_commit
 from src.mcp.tools.git.diff.diff import git_diff
@@ -25,7 +25,7 @@ class MCPToolExecutor:
         self.llm_manager = llm_manager
         self.available_tools = self._build_tool_registry()
 
-    def _build_tool_registry(self) -> Dict[str, Any]:
+    def _build_tool_registry(self) -> dict[str, Any]:
         """Build registry of available tools"""
         return {
             "git_status": {"name": "git_status", "description": "Check git repository status", "function": git_status},
@@ -33,7 +33,7 @@ class MCPToolExecutor:
             "git_diff": {"name": "git_diff", "description": "Show git diff", "function": git_diff},
         }
 
-    async def get_available_tools(self) -> List[Dict[str, Any]]:
+    async def get_available_tools(self) -> list[dict[str, Any]]:
         """Get list of available tools"""
         return [
             {
@@ -45,8 +45,8 @@ class MCPToolExecutor:
         ]
 
     async def execute_tool(
-        self, tool_name: str, arguments: Dict[str, Any], user_context: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
+        self, tool_name: str, arguments: dict[str, Any], user_context: dict[str, Any] = None
+    ) -> dict[str, Any]:
         """Execute a tool with given arguments"""
         if tool_name not in self.available_tools:
             return {"error": f"Tool not found: {tool_name}"}

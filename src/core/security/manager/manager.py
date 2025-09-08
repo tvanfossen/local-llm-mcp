@@ -8,7 +8,7 @@ Responsibilities:
 """
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +21,14 @@ class SecurityManager:
         self.active_sessions = {}
         self.authorized_keys = []
 
-    def validate_session(self, token: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    def validate_session(self, token: str) -> tuple[bool, Optional[dict[str, Any]]]:
         """Validate authentication session"""
         # Basic implementation for now
         if token in self.active_sessions:
             return True, self.active_sessions[token]
         return False, None
 
-    def get_security_status(self) -> Dict[str, Any]:
+    def get_security_status(self) -> dict[str, Any]:
         """Get security status information"""
         return {
             "authorized_keys_count": len(self.authorized_keys),

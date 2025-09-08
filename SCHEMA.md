@@ -606,7 +606,7 @@ if __name__ == "__main__":
       "fixtures": ["mock_git_repo"],
       "arrange": [
         "message = 'Test commit message'",
-        "expected_hash = 'abc123def456'"
+        "expected_hash = 'abc123def456'"  # pragma: allowlist secret
       ],
       "act": [
         "result = create_commit(message)"

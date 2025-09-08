@@ -7,7 +7,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -15,9 +15,14 @@ from jinja2 import Environment, FileSystemLoader
 class TargetRepoInitializer:
     def __init__(self, templates_dir: Path = Path("templates")):
         self.templates_dir = templates_dir
-        self.env = Environment(loader=FileSystemLoader(templates_dir), trim_blocks=True, lstrip_blocks=True)
+        self.env = Environment(
+            loader=FileSystemLoader(templates_dir),
+            trim_blocks=True,
+            lstrip_blocks=True,
+            autoescape=True,  # Fix security issue
+        )
 
-    def initialize_repo(self, target_path: Path, config: Dict[str, Any]) -> None:
+    def initialize_repo(self, target_path: Path, config: dict[str, Any]) -> None:
         """Initialize target repository with schema-compliant structure"""
         if not target_path.exists():
             raise ValueError(f"Target path does not exist: {target_path}")
@@ -41,7 +46,7 @@ class TargetRepoInitializer:
 
         print(f"✅ Successfully initialized {config['project_name']}")
 
-    def _create_base_structure(self, target_path: Path, config: Dict[str, Any]) -> None:
+    def _create_base_structure(self, target_path: Path, config: dict[str, Any]) -> None:
         """Create basic src/ directory structure"""
         domains = config.get("domains", ["core", "utils"])
 
@@ -52,7 +57,7 @@ class TargetRepoInitializer:
             # Create __init__.py
             (domain_path / "__init__.py").touch()
 
-    def _deploy_conftest(self, target_path: Path, config: Dict[str, Any]) -> None:
+    def _deploy_conftest(self, target_path: Path, config: dict[str, Any]) -> None:
         """Deploy conftest.py from template"""
         template = self.env.get_template("target_repo_conftest.py.j2")
 
@@ -67,7 +72,7 @@ class TargetRepoInitializer:
 
         print("  Created conftest.py")
 
-    def _update_pyproject_toml(self, target_path: Path, config: Dict[str, Any]) -> None:
+    def _update_pyproject_toml(self, target_path: Path, config: dict[str, Any]) -> None:
         """Create or update pyproject.toml with pytest configuration"""
         pyproject_file = target_path / "pyproject.toml"
 
@@ -132,7 +137,7 @@ ignore = ["E501", "E722", "E402"]
             target_validator.chmod(0o755)
             print("  Deployed schema validator")
 
-    def _create_schema_readme(self, target_path: Path, config: Dict[str, Any]) -> None:
+    def _create_schema_readme(self, target_path: Path, config: dict[str, Any]) -> None:
         """Create README with schema information"""
         readme_file = target_path / "SCHEMA_INFO.md"
 

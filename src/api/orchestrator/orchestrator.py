@@ -8,7 +8,7 @@ Responsibilities:
 """
 
 import logging
-from typing import Any, List, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class OrchestratorAPI:
         self.security_manager = security_manager
         self.deployment_manager = deployment_manager
 
-    def get_routes(self) -> List[Tuple[str, Any, List[str]]]:
+    def get_routes(self) -> list[tuple[str, Any, list[str]]]:
         """Get orchestrator routes"""
         return [
             ("/orchestrator", self._orchestrator_handler, ["GET"]),

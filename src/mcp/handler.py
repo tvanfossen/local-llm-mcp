@@ -99,7 +99,6 @@ class MCPHandler:
     async def _handle_initialize(self, request: dict, session: MCPSession) -> dict:
         """Handle MCP initialize request"""
         request_id = request.get("id")
-        params = request.get("params", {})
 
         # Mark session as initialized
         capabilities = {"tools": {"listChanged": False}}

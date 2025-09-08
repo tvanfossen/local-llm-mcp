@@ -21,13 +21,13 @@ from pathlib import Path
 
 import uvicorn
 
-# Add src to Python path for new structure
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
 from src.api.http.server.server import create_http_server
 from src.core.agents.registry.registry import AgentRegistry
 from src.core.config.manager.manager import ConfigManager
 from src.core.llm.manager.manager import LLMManager
+
+# Add src to Python path for new structure
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 # Configure logging
 logging.basicConfig(
@@ -154,7 +154,7 @@ class ServerOrchestrator:
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
 
-        def signal_handler(signum, frame):
+        def signal_handler(signum, _frame):
             logger.info(f"Received signal {signum}, initiating shutdown...")
             asyncio.create_task(self.shutdown())
             self.shutdown_event.set()

@@ -8,8 +8,7 @@ Responsibilities:
 """
 
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 from src.core.agents.agent.agent import Agent, AgentCreateParams
 from src.core.config.manager.manager import ConfigManager
@@ -22,7 +21,7 @@ class AgentRegistry:
 
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
-        self.agents: Dict[str, Agent] = {}
+        self.agents: dict[str, Agent] = {}
         self.system_config = config_manager.system
 
         # Load existing agents from disk
@@ -46,7 +45,7 @@ class AgentRegistry:
 
         logger.info(f"Loaded {loaded_count} agents from disk")
 
-    def create_agent(self, name: str, description: str, specialized_files: List[str] = None) -> Agent:
+    def create_agent(self, name: str, description: str, specialized_files: list[str] = None) -> Agent:
         """Create a new agent and register it"""
         params = AgentCreateParams(
             name=name,
@@ -72,7 +71,7 @@ class AgentRegistry:
                 return agent
         return None
 
-    def list_agents(self) -> List[Agent]:
+    def list_agents(self) -> list[Agent]:
         """Get list of all registered agents"""
         return list(self.agents.values())
 
@@ -115,7 +114,7 @@ class AgentRegistry:
             "most_active_agent": most_active.state.name if most_active else None,
         }
 
-    def get_agents_for_file(self, file_path: str) -> List[Agent]:
+    def get_agents_for_file(self, file_path: str) -> list[Agent]:
         """Get all agents that manage a specific file"""
         return [agent for agent in self.agents.values() if file_path in agent.managed_files]
 

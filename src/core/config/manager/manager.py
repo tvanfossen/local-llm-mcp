@@ -57,7 +57,7 @@ class ModelConfig:
 class ServerConfig:
     """Server configuration for HTTP and WebSocket endpoints"""
 
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"  # Bind to all interfaces for Docker compatibility
     port: int = 8000
     log_level: str = "INFO"
 
@@ -121,9 +121,9 @@ class ConfigManager:
         """Create model configuration with automatic path detection"""
         # Common model paths
         possible_paths = [
-            Path.home() / "models" / "llama-2-7b-chat.q4_0.gguf",
-            Path("/models/llama-2-7b-chat.q4_0.gguf"),
-            Path("./models/llama-2-7b-chat.q4_0.gguf"),
+            Path.home() / "models" / "Qwen2.5-7B-Instruct-Q6_K_L.gguf",
+            Path("/models/Qwen2.5-7B-Instruct-Q6_K_L.gguf"),
+            Path("./models/Qwen2.5-7B-Instruct-Q6_K_L.gguf"),
         ]
 
         for path in possible_paths:

@@ -67,33 +67,17 @@ def validate(ctx):
 
 @task
 def template(ctx, function_path):
-    """Generate new function from template"""
-    print(f"📝 Generating function template: {function_path}")
+    """Generate new function from Jinja2 templates (will become MCP tool)"""
+    print(f"📝 Generating function template using Jinja2: {function_path}")
+    print("   NOTE: This will become an MCP tool for local agent workflow")
 
-    # Create directory structure
-    func_dir = PROJECT_ROOT / function_path
-    func_dir.mkdir(parents=True, exist_ok=True)
+    # Use the new template generator script
+    template_generator = SCRIPTS_DIR / "template_generator.py"
+    if not template_generator.exists():
+        print(f"❌ Template generator not found: {template_generator}")
+        return
 
-    # Extract function name from path
-    func_name = func_dir.name
-
-    # Create basic files
-    files = {
-        f"{func_name}.py": f'"""{func_name.title()} Implementation\n\nResponsibilities:\n- TODO: Define responsibilities\n"""\n\n\ndef {func_name}():\n    """TODO: Implement {func_name}"""\n    pass\n',
-        f"test_{func_name}.py": f'"""Tests for {func_name} functionality"""\n\nimport pytest\nfrom .{func_name} import {func_name}\n\n\ndef test_{func_name}():\n    """Test {func_name} basic functionality"""\n    # TODO: Implement test\n    pass\n',
-        "README.md": f"# {func_name.title()}\n\n## Responsibilities\n- TODO: Define responsibilities\n\n## Usage\n```python\nfrom {function_path.replace('/', '.')} import {func_name}\n\nresult = {func_name}()\n```\n",
-        "schema.json": '{\n  "function": "'
-        + func_name
-        + '",\n  "description": "TODO: Add description",\n  "parameters": {},\n  "returns": {}\n}',
-    }
-
-    for filename, content in files.items():
-        file_path = func_dir / filename
-        if not file_path.exists():
-            file_path.write_text(content)
-            print(f"   Created: {file_path}")
-        else:
-            print(f"   Exists: {file_path}")
+    ctx.run(f"python3 {template_generator} {function_path}")
 
 
 @task
@@ -182,7 +166,7 @@ def mcp_test(ctx, endpoint="http://localhost:8000"):
     try:
         ctx.run(f"curl -s {endpoint}/health | python3 -m json.tool", pty=True)
         print("✅ MCP server is healthy")
-    except:
+    except Exception:
         print("❌ MCP server not responding")
 
 
@@ -233,6 +217,13 @@ def measure_tokens(ctx, task_description="test task"):
             print("❌ Could not get token stats from MCP server")
     except Exception as e:
         print(f"❌ Token measurement failed: {e}")
+
+
+@task
+def precommit_check(ctx):
+    """Check all linting without fixes"""
+    print("🔍 Running all linting checks...")
+    ctx.run("pre-commit run --all-files")
 
 
 @task
