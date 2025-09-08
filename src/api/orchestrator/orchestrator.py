@@ -61,18 +61,19 @@ class OrchestratorAPI:
     async def _authenticate_handler(self, request):
         """Handle authentication requests from orchestrator UI"""
         try:
-            # For now, return a mock successful authentication
-            # In production, this would validate the private key
             data = await request.json()
             private_key = data.get("private_key", "")
             
             if private_key:
-                # Mock authentication success
-                return JSONResponse({
-                    "session_token": "mock_session_token_12345",
-                    "expires_in": 3600,
-                    "client_name": "Orchestrator UI"
-                })
+                # Create a session using the security manager
+                session_data = self.security_manager.create_session(
+                    client_name="Orchestrator UI",
+                    private_key=private_key
+                )
+                
+                logger.info(f"Authentication successful for Orchestrator UI")
+                
+                return JSONResponse(session_data)
             else:
                 return JSONResponse(
                     {"error": "No private key provided"},

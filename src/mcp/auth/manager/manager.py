@@ -28,18 +28,40 @@ class MCPAuthenticator:
         Returns:
             dict: {"authenticated": bool, "error": str | None, "user_context": dict | None}
         """
-        # If no security manager, allow all requests (development mode)
+        # Development mode - if no security manager, allow all
         if not self.security_manager:
             logger.warning("No SecurityManager configured - allowing unauthenticated MCP request")
-            return {"authenticated": True, "error": None, "user_context": None}
-
-        # If user has authenticated via HTML page, allow MCP requests
-        if self.security_manager.active_sessions:
-            logger.info("Authenticated HTML session detected - allowing MCP request")
-            return {"authenticated": True, "error": None, "user_context": {"source": "html_authenticated"}}
+            return {"authenticated": True, "error": None, "user_context": {"source": "no_security_manager"}}
 
         # Validate authentication token
-        return self._validate_token(auth_token)
+        if not auth_token:
+            logger.debug("No auth token provided, checking for active sessions")
+            # Check if there are any active sessions (for UI that authenticated separately)
+            if self.security_manager.active_sessions:
+                # If there are active sessions, allow the request
+                logger.info("Active sessions found - allowing MCP request")
+                return {"authenticated": True, "error": None, "user_context": {"source": "active_session"}}
+            else:
+                return {
+                    "authenticated": False,
+                    "error": "No authentication token provided",
+                    "user_context": None
+                }
+
+        # Validate the provided token
+        valid, session = self.security_manager.validate_session(auth_token)
+        
+        if valid:
+            logger.debug(f"MCP authentication successful for client: {session.get('client_name', 'unknown')}")
+            return {"authenticated": True, "error": None, "session": session, "user_context": session}
+        else:
+            logger.warning("MCP authentication failed - invalid or expired token")
+            return {
+                "authenticated": False,
+                "error": "Invalid or expired authentication token",
+                "session": None,
+                "user_context": None
+            }
 
     def validate_request_auth(self, method: str, auth_token: str | None) -> dict[str, Any]:
         """Validate authentication for MCP request
@@ -47,49 +69,38 @@ class MCPAuthenticator:
         Returns:
             dict: {"valid": bool, "error": str | None, "session": dict | None}
         """
-        # Skip auth for initialization and tools listing
-        if method in ["initialize", "tools/list"]:
+        # Skip auth for initialization and tools listing in development
+        if method in ["initialize"]:
             return {"valid": True, "error": None, "session": None}
 
-        # If no security manager, allow all requests (development mode)
+        # Development mode - if no security manager, allow all
         if not self.security_manager:
             logger.warning("No SecurityManager configured - allowing unauthenticated MCP request")
-            return {"valid": True, "error": None, "session": None}
-
-        # If user has authenticated via HTML page, allow MCP requests
-        if self.security_manager.active_sessions:
-            logger.info("Authenticated HTML session detected - allowing MCP request")
-            return {"valid": True, "error": None, "session": {"source": "html_authenticated"}}
+            return {"valid": True, "error": None, "session": {"source": "no_security_manager"}}
 
         # Validate authentication token
-        return self._validate_token(auth_token)
-
-    def _validate_token(self, auth_token: str | None) -> dict[str, Any]:
-        """Validate authentication token using SecurityManager"""
         if not auth_token:
-            return {
-                "authenticated": False,
-                "valid": False,
-                "error": "No authentication token provided",
-                "session": None,
-            }
+            # Check for active sessions
+            if self.security_manager.active_sessions:
+                logger.info("Active sessions found - allowing MCP request")
+                return {"valid": True, "error": None, "session": {"source": "active_session"}}
+            else:
+                return {
+                    "valid": False,
+                    "error": "Authentication required",
+                    "session": None
+                }
 
-        # Extract token from Bearer format
-        token = auth_token[7:] if auth_token.startswith("Bearer ") else auth_token
-
-        # Validate session using SecurityManager
-        valid, session = self.security_manager.validate_session(token)
-
+        # Validate the token
+        valid, session = self.security_manager.validate_session(auth_token)
+        
         if valid:
-            logger.debug(f"MCP authentication successful for client: {session.get('client_name', 'unknown')}")
-            return {"authenticated": True, "valid": True, "error": None, "session": session, "user_context": session}
+            return {"valid": True, "error": None, "session": session}
         else:
-            logger.warning("MCP authentication failed - invalid or expired token")
             return {
-                "authenticated": False,
                 "valid": False,
                 "error": "Invalid or expired authentication token",
-                "session": None,
+                "session": None
             }
 
     def create_auth_error_response(self, request_id: Any, auth_result: dict[str, Any]) -> dict[str, Any]:
@@ -100,7 +111,7 @@ class MCPAuthenticator:
             "error": {
                 "code": -32002,
                 "message": "Authentication required",
-                "data": auth_result["error"],
+                "data": auth_result.get("error", "Authentication failed"),
             },
         }
 
