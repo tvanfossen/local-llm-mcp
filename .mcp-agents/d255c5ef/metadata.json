@@ -1,0 +1,14 @@
+{
+  "agent_id": "d255c5ef",
+  "name": "examples-fibonacci",
+  "description": "manages the complete examples/fibonacci folder",
+  "managed_files": [
+    "fibonacci.py"
+  ],
+  "created_at": "2025-09-08T11:05:14.086663+00:00",
+  "last_updated": "2025-09-08T11:05:14.086676+00:00",
+  "interaction_count": 0,
+  "success_rate": 0.0,
+  "total_tasks_completed": 0,
+  "recent_interactions": []
+}
