@@ -16,6 +16,12 @@ from src.mcp.tools.git.commit.commit import git_commit
 from src.mcp.tools.git.diff.diff import git_diff
 from src.mcp.tools.git.status.status import git_status
 from src.schemas.agents.agents import AgentRequest, TaskType
+from src.mcp.tools.git.log.log import git_log
+from src.mcp.tools.testing.precommit.precommit import run_pre_commit
+from src.mcp.tools.testing.run_tests.run_tests import run_tests
+from src.mcp.tools.validation.agent_file.agent_file import validate_agent_file
+from src.mcp.tools.validation.file_length.file_length import validate_file_length
+from src.mcp.tools.system.all_validations.all_validations import run_all_validations
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +159,85 @@ class MCPToolExecutor:
                         "file_path": {"type": "string", "description": "Specific file to diff (optional)"},
                         "staged": {"type": "boolean", "description": "Show staged changes"}
                     },
+                    "required": []
+                }
+            },
+            "git_log": {
+                "name": "git_log",
+                "description": "Show git commit history",
+                "function": git_log,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Number of commits to show (default: 10)"},
+                        "file_path": {"type": "string", "description": "Filter by file path (optional)"}
+                    },
+                    "required": []
+                }
+            },
+
+            # Testing & Validation Tools
+            "run_tests": {
+                "name": "run_tests",
+                "description": "Run pytest with optional coverage",
+                "function": run_tests,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "test_path": {"type": "string", "description": "Path to tests (default: src/)"},
+                        "coverage": {"type": "boolean", "description": "Generate coverage report (default: true)"},
+                        "verbose": {"type": "boolean", "description": "Verbose output (default: false)"}
+                    },
+                    "required": []
+                }
+            },
+            "run_pre_commit": {
+                "name": "run_pre_commit",
+                "description": "Run pre-commit hooks for validation",
+                "function": run_pre_commit,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "hook": {"type": "string", "description": "Specific hook to run (optional)"},
+                        "all_files": {"type": "boolean", "description": "Run on all files (default: false)"}
+                    },
+                    "required": []
+                }
+            },
+            "validate_file_length": {
+                "name": "validate_file_length",
+                "description": "Validate file line counts against limits",
+                "function": validate_file_length,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file_paths": {"type": "array", "items": {"type": "string"}, "description": "Files to validate"},
+                        "max_lines": {"type": "integer", "description": "Maximum lines allowed (default: 300)"}
+                    },
+                    "required": ["file_paths"]
+                }
+            },
+            "validate_agent_file": {
+                "name": "validate_agent_file",
+                "description": "Validate agent's managed file meets requirements",
+                "function": validate_agent_file,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": {"type": "string", "description": "Agent ID to validate"}
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+
+            # Unified validation tool
+            "run_all_validations": {
+                "name": "run_all_validations",
+                "description": "Run all tests, pre-commit hooks, and validations",
+                "function": run_all_validations,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
                     "required": []
                 }
             },
