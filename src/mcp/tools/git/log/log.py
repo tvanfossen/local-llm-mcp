@@ -66,10 +66,10 @@ def _format_git_log(log_output: str, limit: int, file_path: str) -> str:
     """Format git log output"""
     target = f" for {file_path}" if file_path else ""
     header = f"📜 **Git Log** (last {limit} commits{target}):\n\n"
-    
+
     lines = log_output.split("\n")
     formatted_lines = []
-    
+
     for line in lines:
         if line:
             # Parse format: "hash message"
@@ -80,5 +80,5 @@ def _format_git_log(log_output: str, limit: int, file_path: str) -> str:
                 formatted_lines.append(f"• `{hash_part}` - {message}")
             else:
                 formatted_lines.append(f"• {line}")
-    
+
     return header + "\n".join(formatted_lines)

@@ -36,10 +36,10 @@ async def run_tests(args: dict[str, Any] = None) -> dict[str, Any]:
         verbose = args.get("verbose", False) if args else False
 
         cmd = ["python3", "-m", "pytest", test_path]
-        
+
         if coverage:
             cmd.extend(["--cov=src", "--cov-report=term-missing"])
-        
+
         if verbose:
             cmd.append("-v")
         else:
@@ -55,7 +55,7 @@ async def run_tests(args: dict[str, Any] = None) -> dict[str, Any]:
 def _process_test_result(result, test_path: str, coverage: bool) -> dict[str, Any]:
     """Process test execution result"""
     output = result.stdout + "\n" + result.stderr
-    
+
     # Extract test summary
     passed = failed = 0
     for line in output.split("\n"):
@@ -63,12 +63,12 @@ def _process_test_result(result, test_path: str, coverage: bool) -> dict[str, An
             parts = line.split()
             for i, part in enumerate(parts):
                 if part == "passed":
-                    passed = int(parts[i-1])
+                    passed = int(parts[i - 1])
                 elif part == "failed":
-                    failed = int(parts[i-1])
-    
+                    failed = int(parts[i - 1])
+
     if result.returncode == 0:
-        summary = f"✅ **Tests Passed**\n"
+        summary = "✅ **Tests Passed**\n"
         summary += f"📊 Results: {passed} passed"
         if coverage:
             # Extract coverage percentage
@@ -81,11 +81,11 @@ def _process_test_result(result, test_path: str, coverage: bool) -> dict[str, An
                             break
         return _create_success(summary)
     else:
-        summary = f"❌ **Tests Failed**\n"
+        summary = "❌ **Tests Failed**\n"
         summary += f"📊 Results: {passed} passed, {failed} failed"
-        
+
         # Include failure details (truncated)
         if len(output) > 1000:
             output = output[:1000] + "\n\n... [output truncated]"
-        
+
         return _create_error("Test Failures", summary + f"\n\n```\n{output}\n```")

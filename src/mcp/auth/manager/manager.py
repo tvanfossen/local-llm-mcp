@@ -42,15 +42,11 @@ class MCPAuthenticator:
                 logger.info("Active sessions found - allowing MCP request")
                 return {"authenticated": True, "error": None, "user_context": {"source": "active_session"}}
             else:
-                return {
-                    "authenticated": False,
-                    "error": "No authentication token provided",
-                    "user_context": None
-                }
+                return {"authenticated": False, "error": "No authentication token provided", "user_context": None}
 
         # Validate the provided token
         valid, session = self.security_manager.validate_session(auth_token)
-        
+
         if valid:
             logger.debug(f"MCP authentication successful for client: {session.get('client_name', 'unknown')}")
             return {"authenticated": True, "error": None, "session": session, "user_context": session}
@@ -60,7 +56,7 @@ class MCPAuthenticator:
                 "authenticated": False,
                 "error": "Invalid or expired authentication token",
                 "session": None,
-                "user_context": None
+                "user_context": None,
             }
 
     def validate_request_auth(self, method: str, auth_token: str | None) -> dict[str, Any]:
@@ -85,23 +81,15 @@ class MCPAuthenticator:
                 logger.info("Active sessions found - allowing MCP request")
                 return {"valid": True, "error": None, "session": {"source": "active_session"}}
             else:
-                return {
-                    "valid": False,
-                    "error": "Authentication required",
-                    "session": None
-                }
+                return {"valid": False, "error": "Authentication required", "session": None}
 
         # Validate the token
         valid, session = self.security_manager.validate_session(auth_token)
-        
+
         if valid:
             return {"valid": True, "error": None, "session": session}
         else:
-            return {
-                "valid": False,
-                "error": "Invalid or expired authentication token",
-                "session": None
-            }
+            return {"valid": False, "error": "Invalid or expired authentication token", "session": None}
 
     def create_auth_error_response(self, request_id: Any, auth_result: dict[str, Any]) -> dict[str, Any]:
         """Create JSON-RPC error response for authentication failure"""

@@ -29,7 +29,7 @@ class TemplateGenerator:
 
     def generate_function(self, function_path: str, **kwargs: Any) -> None:
         """Generate a new function using templates
-        
+
         Args:
             function_path: Path like 'src/domain/category/function'
             **kwargs: Additional template variables
@@ -38,20 +38,20 @@ class TemplateGenerator:
         path_parts = Path(function_path).parts
         if len(path_parts) < 4 or path_parts[0] != "src":
             raise ValueError("Function path must be in format: src/domain/category/function")
-        
+
         domain = path_parts[1]
         category = path_parts[2]
         function_name = path_parts[3]
-        
+
         # Create target directory
         target_dir = Path(function_path)
         target_dir.mkdir(parents=True, exist_ok=True)
-        
+
         print(f"📝 Generating function: {function_name}")
         print(f"   Domain: {domain}")
         print(f"   Category: {category}")
         print(f"   Path: {target_dir}")
-        
+
         # Prepare template context
         context = {
             "function_name": function_name,
@@ -59,9 +59,9 @@ class TemplateGenerator:
             "category": category,
             "function_path": function_path,
             "generation_date": datetime.now().isoformat(),
-            **kwargs
+            **kwargs,
         }
-        
+
         # Generate files from templates
         templates = [
             ("function/function.py.j2", f"{function_name}.py"),
@@ -69,22 +69,22 @@ class TemplateGenerator:
             ("function/README_function.md.j2", f"README_{domain}_{category}_{function_name}.md"),
             ("function/schema_function.json.j2", f"schema_{function_name}.json"),
         ]
-        
+
         for template_name, output_filename in templates:
             self._generate_file(template_name, target_dir / output_filename, context)
-    
+
     def _generate_file(self, template_name: str, output_path: Path, context: dict) -> None:
         """Generate a single file from template"""
         try:
             template = self.env.get_template(template_name)
             content = template.render(context)
-            
+
             if not output_path.exists():
                 output_path.write_text(content)
                 print(f"   ✅ Created: {output_path}")
             else:
                 print(f"   ⚠️  Exists: {output_path}")
-                
+
         except Exception as e:
             print(f"   ❌ Error generating {output_path}: {e}")
 
@@ -95,16 +95,16 @@ def main():
         print("Usage: template_generator.py <function_path> [key=value ...]")
         print("Example: template_generator.py src/core/utils/fibonacci")
         sys.exit(1)
-    
+
     function_path = sys.argv[1]
-    
+
     # Parse additional template variables from command line
     template_vars = {}
     for arg in sys.argv[2:]:
         if "=" in arg:
             key, value = arg.split("=", 1)
             template_vars[key] = value
-    
+
     generator = TemplateGenerator()
     generator.generate_function(function_path, **template_vars)
 

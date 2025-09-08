@@ -23,7 +23,7 @@ class OrchestratorAPI:
         self.agent_registry = agent_registry
         self.security_manager = security_manager
         self.deployment_manager = deployment_manager
-        
+
         # Path to static HTML file
         self.orchestrator_html_path = Path(__file__).parent.parent.parent.parent / "static" / "orchestrator.html"
 
@@ -40,7 +40,7 @@ class OrchestratorAPI:
         try:
             # Serve the static HTML file
             if self.orchestrator_html_path.exists():
-                with open(self.orchestrator_html_path, 'r') as f:
+                with open(self.orchestrator_html_path) as f:
                     html_content = f.read()
                 return HTMLResponse(content=html_content)
             else:
@@ -52,36 +52,31 @@ class OrchestratorAPI:
 
     async def _status_handler(self, request):
         """Orchestrator status handler"""
-        return JSONResponse({
-            "agents": self.agent_registry.get_registry_stats(),
-            "security": self.security_manager.get_security_status(),
-            "deployment": self.deployment_manager.get_deployment_status(),
-        })
+        return JSONResponse(
+            {
+                "agents": self.agent_registry.get_registry_stats(),
+                "security": self.security_manager.get_security_status(),
+                "deployment": self.deployment_manager.get_deployment_status(),
+            }
+        )
 
     async def _authenticate_handler(self, request):
         """Handle authentication requests from orchestrator UI"""
         try:
             data = await request.json()
             private_key = data.get("private_key", "")
-            
+
             if private_key:
                 # Create a session using the security manager
                 session_data = self.security_manager.create_session(
-                    client_name="Orchestrator UI",
-                    private_key=private_key
+                    client_name="Orchestrator UI", private_key=private_key
                 )
-                
-                logger.info(f"Authentication successful for Orchestrator UI")
-                
+
+                logger.info("Authentication successful for Orchestrator UI")
+
                 return JSONResponse(session_data)
             else:
-                return JSONResponse(
-                    {"error": "No private key provided"},
-                    status_code=400
-                )
+                return JSONResponse({"error": "No private key provided"}, status_code=400)
         except Exception as e:
             logger.error(f"Authentication error: {e}")
-            return JSONResponse(
-                {"error": str(e)},
-                status_code=500
-            )
+            return JSONResponse({"error": str(e)}, status_code=500)

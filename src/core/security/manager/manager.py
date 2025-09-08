@@ -8,8 +8,8 @@ Responsibilities:
 """
 
 import logging
-from typing import Any, Optional
 from datetime import datetime, timedelta
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,25 +26,25 @@ class SecurityManager:
         """Create a new authentication session"""
         # Generate session token (in production, this would be cryptographically secure)
         session_token = f"session_{datetime.now().timestamp():.0f}_{client_name.replace(' ', '_')}"
-        
+
         # Create session data
         session_data = {
             "client_name": client_name,
             "token": session_token,
             "created_at": datetime.now().isoformat(),
             "expires_at": (datetime.now() + timedelta(hours=1)).isoformat(),
-            "private_key_hash": hash(private_key) if private_key else None
+            "private_key_hash": hash(private_key) if private_key else None,
         }
-        
+
         # Store session
         self.active_sessions[session_token] = session_data
-        
+
         logger.info(f"Created session for {client_name}: {session_token[:20]}...")
-        
+
         return {
             "session_token": session_token,
             "expires_in": 3600,  # 1 hour in seconds
-            "client_name": client_name
+            "client_name": client_name,
         }
 
     def validate_session(self, token: str) -> tuple[bool, Optional[dict[str, Any]]]:
@@ -52,11 +52,11 @@ class SecurityManager:
         # Remove "Bearer " prefix if present
         if token and token.startswith("Bearer "):
             token = token[7:]
-        
+
         # Check if session exists
         if token in self.active_sessions:
             session = self.active_sessions[token]
-            
+
             # Check if session is expired
             expires_at = datetime.fromisoformat(session["expires_at"])
             if datetime.now() < expires_at:
@@ -66,18 +66,18 @@ class SecurityManager:
                 logger.warning(f"Session expired for {session['client_name']}")
                 del self.active_sessions[token]
                 return False, None
-        
+
         # For development/testing, accept mock tokens
         if token and token.startswith("mock_session_token"):
             mock_session = {
                 "client_name": "Mock User",
                 "token": token,
                 "created_at": datetime.now().isoformat(),
-                "expires_at": (datetime.now() + timedelta(hours=1)).isoformat()
+                "expires_at": (datetime.now() + timedelta(hours=1)).isoformat(),
             }
             logger.debug("Accepting mock session token for development")
             return True, mock_session
-        
+
         logger.debug(f"Invalid session token: {token[:20] if token else 'None'}...")
         return False, None
 
@@ -96,9 +96,9 @@ class SecurityManager:
             expires_at = datetime.fromisoformat(session["expires_at"])
             if datetime.now() >= expires_at:
                 expired.append(token)
-        
+
         for token in expired:
             del self.active_sessions[token]
             logger.info(f"Cleared expired session: {token[:20]}...")
-        
+
         return len(expired)
