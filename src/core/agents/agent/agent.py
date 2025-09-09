@@ -68,16 +68,32 @@ class Agent:
         """Setup agent-specific logging"""
         agent_logger = logging.getLogger(f"agent.{self.state.agent_id}")
 
-        # Create agent log directory
+        # Create agent log directory with proper permissions
         log_dir = self.system_config.logs_dir / self.state.agent_id
         log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Ensure log directory is writable (fixes container permission issues)
+        import os
+        import stat
+        try:
+            os.chmod(log_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+        except (OSError, PermissionError):
+            # If we can't set permissions, continue but log the issue
+            temp_logger = logging.getLogger(__name__)
+            temp_logger.warning(f"Could not set permissions on log directory: {log_dir}")
 
         # Add file handler for agent-specific logs
         log_file = log_dir / f"{self.state.name.lower().replace(' ', '_')}.log"
 
-        handler = logging.FileHandler(log_file)
-        handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-        agent_logger.addHandler(handler)
+        try:
+            handler = logging.FileHandler(log_file)
+            handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            agent_logger.addHandler(handler)
+        except (OSError, PermissionError) as e:
+            # If we can't create log file due to permissions, use console logging only
+            temp_logger = logging.getLogger(__name__)
+            temp_logger.warning(f"Could not create log file {log_file}: {e}. Agent will use console logging only.")
+            
         agent_logger.setLevel(logging.INFO)
 
         return agent_logger

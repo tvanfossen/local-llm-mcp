@@ -10,6 +10,7 @@ Responsibilities:
 Workspace: Container /workspace or host-based paths with .mcp-agents/ structure
 """
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,9 +92,20 @@ class SystemConfig:
     container_workspace: Path = Path("/workspace")
 
     def __post_init__(self):
-        """Ensure all directories exist"""
+        """Ensure all directories exist with proper permissions"""
+        import os
+        import stat
+        
         for directory in [self.workspace_root, self.state_dir, self.agents_dir, self.logs_dir, self.temp_dir]:
             directory.mkdir(parents=True, exist_ok=True)
+            
+            # Ensure directories are user-writable (fixes container permission issues)
+            try:
+                os.chmod(directory, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+            except (OSError, PermissionError):
+                # If we can't set permissions, at least log it but don't fail
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Could not set permissions on directory: {directory}")
 
     def is_container_environment(self) -> bool:
         """Check if running in container environment"""

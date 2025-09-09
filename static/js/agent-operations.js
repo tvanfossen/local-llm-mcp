@@ -20,8 +20,26 @@ async function refreshAgents() {
             displayAgents(result.data);
             addTerminalLine(`📚 Loaded ${result.data.length} agents via MCP`, 'success');
         } else {
-            // Handle case where no structured data is available
-            addTerminalLine('📚 Agents loaded (check terminal for details)', 'info');
+            // Handle case where no structured data is available - show debug info
+            addTerminalLine('📚 Agents response received but parsing failed', 'warning');
+            if (result.message) {
+                addTerminalLine(`Raw response: ${result.message.substring(0, 100)}...`, 'info');
+            }
+            
+            // If we got a successful response but no parsed data, try to extract agent names manually
+            if (result.success && result.message && result.message.includes('🤖')) {
+                const agentNames = result.message.match(/🤖 \*\*([^*]+)\*\*/g);
+                if (agentNames) {
+                    const simpleList = agentNames.map(match => match.replace('🤖 **', '').replace('**', ''));
+                    document.getElementById('agentsList').innerHTML = 
+                        '<div style="color: #ff9500;"><strong>⚠️ Parsing failed, but found agents:</strong><br>' +
+                        simpleList.map(name => `<div style="margin: 5px 0; padding: 5px; background: rgba(255,149,0,0.1);">${name}</div>`).join('') +
+                        '<br><small>Click "Refresh" to retry parsing</small></div>';
+                    addTerminalLine(`Found ${simpleList.length} agents with manual parsing`, 'info');
+                    return;
+                }
+            }
+            
             document.getElementById('agentsList').innerHTML = '<p style="opacity: 0.7;">No agents found or data parsing failed</p>';
         }
     } catch (error) {

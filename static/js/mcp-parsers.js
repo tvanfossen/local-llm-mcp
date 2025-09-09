@@ -1,6 +1,7 @@
 /**
  * MCP Response Parsers
  * Handles parsing of MCP tool responses and data extraction
+ * UPDATED TO MATCH ACTUAL LIST_AGENTS FORMAT
  */
 
 /**
@@ -32,9 +33,14 @@ function parseMCPContent(mcpResult) {
  */
 function extractStructuredData(text) {
     try {
-        // Try to extract agent list from markdown
-        if (text.includes('Active Agents:')) {
-            return parseAgentList(text);
+        // Debug log the text being parsed
+        console.log('Parsing MCP text:', text.substring(0, 200) + '...');
+        
+        // Check for agent registry format - UPDATED PATTERN
+        if (text.includes('Agent Registry')) {
+            const parsed = parseAgentList(text);
+            console.log('Parsed agents:', parsed);
+            return parsed;
         }
 
         // Try to extract agent info
@@ -52,6 +58,7 @@ function extractStructuredData(text) {
             return parseSystemStatus(text);
         }
 
+        console.log('No matching pattern found for parsing');
         return null;
     } catch (error) {
         console.warn('Failed to parse structured data:', error);
@@ -61,25 +68,49 @@ function extractStructuredData(text) {
 
 /**
  * Parse agent list from MCP markdown response
+ * COMPLETELY REWRITTEN to match actual format from list_agents tool
  * @param {string} text - Markdown text
  * @returns {array} - Array of agent objects
  */
 function parseAgentList(text) {
     const agents = [];
-    const agentRegex = /• \*\*([\w-]+)\*\* - (.+?)\n\s+📄 File: `(.+?)`\n\s+📝 (.+?)\n\s+🔢 Interactions: (\d+)\n\s+📊 Success Rate: ([\d.]+)/g;
+    
+    // The actual format from list_agents is:
+    // 🤖 **pyChessArchitect** (ID: `bdedcb99...`)
+    //    📄 Description: Python chess game architect and development specialist
+    //    📁 Managing: 0 files | 🔄 0 interactions | ✅ Success: N/A
+    
+    // Updated regex to match this exact format
+    const agentRegex = /🤖 \*\*([^*]+)\*\* \(ID: `([^`]+)`\)\s*\n\s*📄 Description: ([^\n]+)\n\s*📁 Managing: (\d+) files? \| 🔄 (\d+) interactions? \| ✅ Success: ([^\n]+)/g;
 
     let match;
     while ((match = agentRegex.exec(text)) !== null) {
-        agents.push({
-            id: match[1],
-            name: match[2],
-            managed_file: match[3],
-            description: match[4],
-            total_interactions: parseInt(match[5]),
-            success_rate: parseFloat(match[6])
-        });
+        const [, name, id, description, fileCount, interactionCount, successRateText] = match;
+        
+        // Parse success rate - handle "N/A" case
+        let successRate = 0;
+        if (successRateText && successRateText !== 'N/A') {
+            // Extract percentage (e.g., "85.5%")
+            const percentMatch = successRateText.match(/([\d.]+)%/);
+            if (percentMatch) {
+                successRate = parseFloat(percentMatch[1]) / 100;
+            }
+        }
+
+        const agent = {
+            id: id.replace('...', ''), // Remove truncation indicator
+            name: name,
+            managed_file: fileCount > 0 ? `${fileCount} files` : 'No files',
+            description: description,
+            total_interactions: parseInt(interactionCount),
+            success_rate: successRate
+        };
+        
+        console.log('Parsed agent:', agent);
+        agents.push(agent);
     }
 
+    console.log('Total agents parsed:', agents.length);
     return agents;
 }
 

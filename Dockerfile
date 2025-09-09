@@ -69,14 +69,41 @@ COPY templates/.pre-commit-config.yaml /app/precommit-template.yaml
 
 # Setup workspace on container start
 RUN echo '#!/bin/bash\n\
+# Get the user ID of the mounted workspace owner\n\
 if [ -d "/workspace" ]; then\n\
-    cd /workspace\n\
-    if [ -d ".git" ] && [ ! -f ".pre-commit-config.yaml" ]; then\n\
-        cp /app/precommit-template.yaml .pre-commit-config.yaml\n\
-        pre-commit install 2>/dev/null || true\n\
+    WORKSPACE_UID=$(stat -c "%u" /workspace)\n\
+    WORKSPACE_GID=$(stat -c "%g" /workspace)\n\
+    \n\
+    # Create user with matching UID/GID if not root\n\
+    if [ "$WORKSPACE_UID" != "0" ]; then\n\
+        groupadd -g "$WORKSPACE_GID" workspace 2>/dev/null || true\n\
+        useradd -u "$WORKSPACE_UID" -g "$WORKSPACE_GID" -s /bin/bash workspace 2>/dev/null || true\n\
+        \n\
+        # Pre-create MCP directories with correct ownership\n\
+        mkdir -p /workspace/.mcp-{state,agents,logs,tmp}\n\
+        chown -R "$WORKSPACE_UID:$WORKSPACE_GID" /workspace/.mcp-*\n\
+        \n\
+        cd /workspace\n\
+        if [ -d ".git" ] && [ ! -f ".pre-commit-config.yaml" ]; then\n\
+            cp /app/precommit-template.yaml .pre-commit-config.yaml\n\
+            chown "$WORKSPACE_UID:$WORKSPACE_GID" .pre-commit-config.yaml\n\
+            su workspace -c "pre-commit install 2>/dev/null || true"\n\
+        fi\n\
+        \n\
+        cd /app\n\
+        exec su workspace -c "python3 local_llm_mcp_server.py"\n\
+    else\n\
+        cd /workspace\n\
+        if [ -d ".git" ] && [ ! -f ".pre-commit-config.yaml" ]; then\n\
+            cp /app/precommit-template.yaml .pre-commit-config.yaml\n\
+            pre-commit install 2>/dev/null || true\n\
+        fi\n\
+        cd /app\n\
+        exec python3 local_llm_mcp_server.py\n\
     fi\n\
-fi\n\
-cd /app\n\
-exec python3 local_llm_mcp_server.py' > /app/startup.sh && chmod +x /app/startup.sh
+else\n\
+    cd /app\n\
+    exec python3 local_llm_mcp_server.py\n\
+fi' > /app/startup.sh && chmod +x /app/startup.sh
 
 CMD ["/app/startup.sh"]
