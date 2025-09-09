@@ -8,7 +8,6 @@ Responsibilities:
 """
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from src.core.agents.registry.registry import AgentRegistry

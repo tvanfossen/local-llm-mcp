@@ -53,33 +53,48 @@ class SecurityManager:
         if token and token.startswith("Bearer "):
             token = token[7:]
 
-        # Check if session exists
-        if token in self.active_sessions:
-            session = self.active_sessions[token]
+        # Try to validate existing session
+        valid_session = self._check_existing_session(token)
+        if valid_session is not None:
+            return True, valid_session
 
-            # Check if session is expired
-            expires_at = datetime.fromisoformat(session["expires_at"])
-            if datetime.now() < expires_at:
-                logger.debug(f"Session validated for {session['client_name']}")
-                return True, session
-            else:
-                logger.warning(f"Session expired for {session['client_name']}")
-                del self.active_sessions[token]
-                return False, None
-
-        # For development/testing, accept mock tokens
-        if token and token.startswith("mock_session_token"):
-            mock_session = {
-                "client_name": "Mock User",
-                "token": token,
-                "created_at": datetime.now().isoformat(),
-                "expires_at": (datetime.now() + timedelta(hours=1)).isoformat(),
-            }
-            logger.debug("Accepting mock session token for development")
+        # Try mock session for development
+        mock_session = self._check_mock_session(token)
+        if mock_session is not None:
             return True, mock_session
 
         logger.debug(f"Invalid session token: {token[:20] if token else 'None'}...")
         return False, None
+
+    def _check_existing_session(self, token: str) -> Optional[dict[str, Any]]:
+        """Check if token corresponds to valid existing session"""
+        if token not in self.active_sessions:
+            return None
+
+        session = self.active_sessions[token]
+        expires_at = datetime.fromisoformat(session["expires_at"])
+
+        if datetime.now() < expires_at:
+            logger.debug(f"Session validated for {session['client_name']}")
+            return session
+        else:
+            logger.warning(f"Session expired for {session['client_name']}")
+            del self.active_sessions[token]
+            return None
+
+    def _check_mock_session(self, token: str) -> Optional[dict[str, Any]]:
+        """Check if token is a valid mock session for development"""
+        if not token or not token.startswith("mock_session_token"):
+            return None
+
+        mock_session = {
+            "client_name": "Mock User",
+            "token": token,
+            "created_at": datetime.now().isoformat(),
+            "expires_at": (datetime.now() + timedelta(hours=1)).isoformat(),
+        }
+        logger.debug("Accepting mock session token for development")
+        return mock_session
 
     def get_security_status(self) -> dict[str, Any]:
         """Get security status information"""

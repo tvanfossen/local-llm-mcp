@@ -1,0 +1,392 @@
+{# 
+Template: Agent Task Handler
+Description: Template for agent task handlers with standard error handling and LLM integration
+Variables: task_name, task_description, agent_type, llm_model
+#}
+"""{{ task_name|title }} Agent Task Handler
+
+Responsibilities:
+- {{ task_description }}
+- Integrate with local LLM for intelligent processing
+- Maintain conversation context and history
+- Return standardized MCP response format
+
+Generated from template on {{ generation_date }}
+Agent Type: {{ agent_type }} | LLM Model: {{ llm_model|default('Qwen2.5-7B') }}
+"""
+
+import logging
+from datetime import datetime
+from typing import Any, Optional
+
+from src.core.agents.agent.agent import Agent
+from src.core.agents.registry.registry import AgentRegistry
+from src.core.config.manager.manager import ConfigManager
+
+logger = logging.getLogger(__name__)
+
+
+def _create_success(text: str) -> dict[str, Any]:
+    """Create success response format"""
+    return {"content": [{"type": "text", "text": text}], "isError": False}
+
+
+def _create_error(title: str, message: str) -> dict[str, Any]:
+    """Create error response format"""
+    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
+
+
+def _handle_exception(e: Exception, context: str) -> dict[str, Any]:
+    """Handle exceptions with consistent error format"""
+    return {"content": [{"type": "text", "text": f"❌ **{context} Error:** {str(e)}"}], "isError": True}
+
+
+async def {{ task_name }}_handler(args: dict[str, Any]) -> dict[str, Any]:
+    """Handle {{ task_name }} task with LLM processing"""
+    try:
+        agent_id = args.get("agent_id")
+        task_input = args.get("task_input")
+        context = args.get("context", {})
+        priority = args.get("priority", "normal")
+        
+        if not agent_id:
+            return _create_error("Missing Parameter", "Agent ID is required")
+        
+        if not task_input:
+            return _create_error("Missing Parameter", "Task input is required")
+        
+        # Get agent and validate
+        config_manager = ConfigManager()
+        registry = AgentRegistry(config_manager)
+        
+        agent = registry.get_agent(agent_id)
+        if not agent:
+            return _create_error("Agent Not Found", f"No agent found with ID: {agent_id}")
+        
+        # Process task with LLM
+        task_result = await _process_with_llm(agent, task_input, context, priority)
+        
+        # Update agent statistics
+        if task_result["success"]:
+            agent.state.successful_operations += 1
+        else:
+            agent.state.failed_operations += 1
+        
+        agent.state.interaction_count += 1
+        agent.state.last_modified = agent._get_timestamp()
+        agent._save_metadata()
+        
+        # Format response
+        if task_result["success"]:
+            success_msg = _format_task_success(agent, task_result)
+            return _create_success(success_msg)
+        else:
+            return _create_error("Task Failed", task_result["error"])
+        
+    except Exception as e:
+        logger.error(f"Failed to handle {{ task_name }} task: {e}")
+        return _handle_exception(e, "{{ task_name|title }} Handler")
+
+
+async def _process_with_llm(agent: Agent, task_input: str, context: dict, priority: str) -> dict[str, Any]:
+    """Process task using local LLM"""
+    try:
+        # Build system prompt
+        system_prompt = _build_system_prompt(agent, context, priority)
+        
+        # Prepare user message
+        user_message = _format_user_message(task_input, context)
+        
+        # Add to conversation history
+        conversation_entry = {
+            "role": "user",
+            "content": user_message,
+            "task_type": "{{ task_name }}",
+            "priority": priority,
+            "timestamp": agent._get_timestamp(),
+            "context": context
+        }
+        agent.conversation_history.append(conversation_entry)
+        
+        # Call LLM (placeholder - integrate with actual LLM service)
+        llm_response = await _call_llm(system_prompt, user_message, agent)
+        
+        # Process LLM response
+        processed_result = _process_llm_response(llm_response, task_input, context)
+        
+        # Add LLM response to conversation history
+        response_entry = {
+            "role": "assistant",
+            "content": processed_result["content"],
+            "task_type": "{{ task_name }}",
+            "timestamp": agent._get_timestamp(),
+            "success": processed_result["success"],
+            "metrics": processed_result.get("metrics", {})
+        }
+        agent.conversation_history.append(response_entry)
+        
+        # Save conversation history
+        agent._save_conversation_history()
+        
+        return processed_result
+        
+    except Exception as e:
+        logger.error(f"LLM processing failed: {e}")
+        return {
+            "success": False,
+            "error": f"LLM processing error: {str(e)}",
+            "content": ""
+        }
+
+
+def _build_system_prompt(agent: Agent, context: dict, priority: str) -> str:
+    """Build system prompt for LLM"""
+    base_prompt = f"""You are {agent.state.name}, an AI agent specializing in {{ task_description }}.
+
+Your capabilities:
+- {{ task_name|title }} processing and analysis
+- Code generation and modification
+- Error detection and resolution
+- Best practices enforcement
+
+Current Context:
+- Agent ID: {agent.state.agent_id}
+- Managed Files: {', '.join(agent.managed_files) if agent.managed_files else 'None'}
+- Task Priority: {priority}
+- Previous Interactions: {agent.state.interaction_count}
+
+System Prompt: {agent.state.system_prompt or 'No specific system prompt set'}
+
+Guidelines:
+1. Provide clear, actionable responses
+2. Follow coding best practices and patterns
+3. Include error handling and validation
+4. Keep responses under 300 lines when generating code
+5. Always explain your reasoning
+
+Task-Specific Instructions:
+{{ task_specific_instructions|default('Process the user request according to the task requirements.') }}
+"""
+    
+    # Add context-specific information
+    if context:
+        base_prompt += f"\n\nAdditional Context:\n"
+        for key, value in context.items():
+            base_prompt += f"- {key}: {value}\n"
+    
+    return base_prompt
+
+
+def _format_user_message(task_input: str, context: dict) -> str:
+    """Format user message for LLM"""
+    message = f"{{ task_name|title }} Task Request:\n\n{task_input}"
+    
+    {% if task_name in ['code_generation', 'refactoring'] %}
+    message += "\n\nPlease provide:\n"
+    message += "1. Clean, well-documented code\n"
+    message += "2. Error handling where appropriate\n"
+    message += "3. Type hints for Python code\n"
+    message += "4. Brief explanation of the implementation\n"
+    {% elif task_name in ['debugging', 'analysis'] %}
+    message += "\n\nPlease provide:\n"
+    message += "1. Detailed analysis of the issue\n"
+    message += "2. Root cause identification\n"
+    message += "3. Step-by-step solution\n"
+    message += "4. Prevention recommendations\n"
+    {% elif task_name in ['testing'] %}
+    message += "\n\nPlease provide:\n"
+    message += "1. Comprehensive test cases\n"
+    message += "2. Edge case coverage\n"
+    message += "3. Mock data where needed\n"
+    message += "4. Test execution instructions\n"
+    {% endif %}
+    
+    return message
+
+
+async def _call_llm(system_prompt: str, user_message: str, agent: Agent) -> str:
+    """Call local LLM service (placeholder implementation)"""
+    # TODO: Integrate with actual LLM service
+    # This is a placeholder that simulates LLM response
+    
+    # In real implementation, this would:
+    # 1. Connect to local LLM service (e.g., llama.cpp server)
+    # 2. Send system_prompt + user_message
+    # 3. Return generated response
+    
+    placeholder_response = f"""I'll help you with the {{ task_name }} task.
+
+Based on your request: {user_message[:100]}...
+
+Here's my analysis and solution:
+
+1. **Understanding**: The task requires {{ task_description }}
+2. **Approach**: I'll provide a structured solution
+3. **Implementation**: Following best practices and patterns
+
+[This is a placeholder response - integrate with actual LLM service]
+
+The solution addresses your requirements while maintaining code quality and following established patterns.
+"""
+    
+    return placeholder_response
+
+
+def _process_llm_response(llm_response: str, original_input: str, context: dict) -> dict[str, Any]:
+    """Process and validate LLM response"""
+    try:
+        # Extract metrics from response
+        metrics = {
+            "response_length": len(llm_response),
+            "word_count": len(llm_response.split()),
+            "lines_count": len(llm_response.splitlines()),
+            "processing_time": datetime.now().isoformat()
+        }
+        
+        # Validate response quality
+        quality_checks = _validate_response_quality(llm_response)
+        
+        # Extract actionable content
+        actionable_content = _extract_actionable_content(llm_response)
+        
+        return {
+            "success": True,
+            "content": llm_response,
+            "actionable_content": actionable_content,
+            "metrics": metrics,
+            "quality_score": quality_checks["score"],
+            "quality_issues": quality_checks["issues"]
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Response processing failed: {str(e)}",
+            "content": llm_response
+        }
+
+
+def _validate_response_quality(response: str) -> dict[str, Any]:
+    """Validate LLM response quality"""
+    issues = []
+    score = 100
+    
+    # Check response length
+    if len(response) < 50:
+        issues.append("Response too short")
+        score -= 30
+    elif len(response) > 5000:
+        issues.append("Response very long")
+        score -= 10
+    
+    # Check for placeholder text
+    if "TODO" in response or "placeholder" in response.lower():
+        issues.append("Contains placeholder text")
+        score -= 20
+    
+    # Check for code blocks (if expected)
+    {% if task_name in ['code_generation', 'refactoring'] %}
+    if "```" not in response:
+        issues.append("Missing code blocks")
+        score -= 25
+    {% endif %}
+    
+    # Check for structure
+    if not any(marker in response for marker in ["1.", "**", "##", "-"]):
+        issues.append("Lacks clear structure")
+        score -= 15
+    
+    return {
+        "score": max(0, score),
+        "issues": issues
+    }
+
+
+def _extract_actionable_content(response: str) -> dict[str, Any]:
+    """Extract actionable content from LLM response"""
+    import re
+    
+    actionable = {
+        "code_blocks": [],
+        "steps": [],
+        "recommendations": [],
+        "warnings": []
+    }
+    
+    # Extract code blocks
+    code_pattern = r"```(\w+)?\n(.*?)\n```"
+    for match in re.finditer(code_pattern, response, re.DOTALL):
+        language = match.group(1) or "text"
+        code = match.group(2)
+        actionable["code_blocks"].append({
+            "language": language,
+            "code": code
+        })
+    
+    # Extract numbered steps
+    step_pattern = r"^\d+\.\s+(.+)$"
+    for line in response.splitlines():
+        if re.match(step_pattern, line.strip()):
+            actionable["steps"].append(line.strip())
+    
+    # Extract recommendations (lines starting with specific markers)
+    for line in response.splitlines():
+        line_lower = line.lower().strip()
+        if line_lower.startswith(("recommend", "suggest", "consider")):
+            actionable["recommendations"].append(line.strip())
+        elif line_lower.startswith(("warning", "caution", "note")):
+            actionable["warnings"].append(line.strip())
+    
+    return actionable
+
+
+def _format_task_success(agent: Agent, task_result: dict[str, Any]) -> str:
+    """Format successful task completion message"""
+    metrics = task_result.get("metrics", {})
+    quality_score = task_result.get("quality_score", 0)
+    
+    success_msg = (
+        f"✅ **{{ task_name|title }} Task Completed**\n\n"
+        f"🤖 **Agent:** {agent.state.name} (`{agent.state.agent_id[:8]}...`)\n"
+        f"📊 **Quality Score:** {quality_score}/100\n"
+        f"📝 **Response Length:** {metrics.get('word_count', 0)} words\n"
+        f"🔄 **Interaction #:** {agent.state.interaction_count}\n\n"
+        f"**LLM Response:**\n"
+        f"{task_result['content']}"
+    )
+    
+    # Add actionable content summary
+    actionable = task_result.get("actionable_content", {})
+    if actionable.get("code_blocks"):
+        success_msg += f"\n\n🔧 **Generated {len(actionable['code_blocks'])} code block(s)**"
+    
+    if actionable.get("steps"):
+        success_msg += f"\n📋 **Provided {len(actionable['steps'])} step(s)**"
+    
+    if actionable.get("recommendations"):
+        success_msg += f"\n💡 **Made {len(actionable['recommendations'])} recommendation(s)**"
+    
+    # Add quality issues if any
+    quality_issues = task_result.get("quality_issues", [])
+    if quality_issues:
+        success_msg += f"\n\n⚠️ **Quality Notes:**"
+        for issue in quality_issues[:3]:
+            success_msg += f"\n   • {issue}"
+    
+    return success_msg
+
+
+{% if additional_task_functions %}
+{% for func in additional_task_functions %}
+async def {{ func.name }}(args: dict[str, Any]) -> dict[str, Any]:
+    """{{ func.description }}"""
+    try:
+        # TODO: Implement {{ func.name }}
+        return _create_success("{{ func.name|title }} completed successfully")
+    except Exception as e:
+        logger.error(f"Failed {{ func.name }}: {e}")
+        return _handle_exception(e, "{{ func.name|title }}")
+
+
+{% endfor %}
+{% endif %}

@@ -1,0 +1,88 @@
+{# 
+Template: Base MCP Tool Template
+Description: Base template for all MCP tools with standard structure and error handling
+Variables: tool_name, tool_description, function_name, domain, category
+#}
+"""{{ tool_name }} MCP Tool
+
+Responsibilities:
+- {{ tool_description }}
+- Return standardized MCP response format
+- Handle errors with consistent logging
+
+Generated from template on {{ generation_date }}
+Domain: {{ domain }} | Category: {{ category }}
+"""
+
+import logging
+from typing import Any
+
+{% if imports -%}
+{% for import in imports %}
+{{ import }}
+{% endfor %}
+{% endif -%}
+
+logger = logging.getLogger(__name__)
+
+
+def _create_success(text: str) -> dict[str, Any]:
+    """Create success response format"""
+    return {"content": [{"type": "text", "text": text}], "isError": False}
+
+
+def _create_error(title: str, message: str) -> dict[str, Any]:
+    """Create error response format"""
+    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
+
+
+def _handle_exception(e: Exception, context: str) -> dict[str, Any]:
+    """Handle exceptions with consistent error format"""
+    return {"content": [{"type": "text", "text": f"❌ **{context} Error:** {str(e)}"}], "isError": True}
+
+
+async def {{ function_name }}(args: dict[str, Any]) -> dict[str, Any]:
+    """{{ tool_description }}"""
+    try:
+        {% if required_params -%}
+        # Validate required parameters
+        {% for param in required_params %}
+        {{ param }} = args.get("{{ param }}")
+        if not {{ param }}:
+            return _create_error("Missing Parameter", "{{ param|title }} is required")
+        {% endfor %}
+        {% endif -%}
+        
+        {% if optional_params -%}
+        # Extract optional parameters
+        {% for param, default in optional_params.items() %}
+        {{ param }} = args.get("{{ param }}", {{ default|tojson }})
+        {% endfor %}
+        {% endif -%}
+        
+        # TODO: Implement {{ function_name }} logic here
+        
+        # Placeholder success response
+        success_msg = (
+            f"✅ **{{ tool_name }} Successful**\n\n"
+            f"🔧 **Operation:** {{ function_name }}\n"
+            f"📊 **Status:** Completed"
+        )
+        
+        return _create_success(success_msg)
+        
+    except Exception as e:
+        logger.error(f"Failed to execute {{ function_name }}: {e}")
+        return _handle_exception(e, "{{ tool_name }}")
+
+
+{% if helper_functions -%}
+{% for helper in helper_functions %}
+def _{{ helper.name }}({{ helper.params|join(', ') }}) -> {{ helper.return_type|default('Any') }}:
+    """{{ helper.description }}"""
+    # TODO: Implement {{ helper.name }}
+    pass
+
+
+{% endfor %}
+{% endif -%}

@@ -28,21 +28,10 @@ class MCPAuthenticator:
         Returns:
             dict: {"authenticated": bool, "error": str | None, "user_context": dict | None}
         """
-        # Development mode - if no security manager, allow all
-        if not self.security_manager:
-            logger.warning("No SecurityManager configured - allowing unauthenticated MCP request")
-            return {"authenticated": True, "error": None, "user_context": {"source": "no_security_manager"}}
-
-        # Validate authentication token
-        if not auth_token:
-            logger.debug("No auth token provided, checking for active sessions")
-            # Check if there are any active sessions (for UI that authenticated separately)
-            if self.security_manager.active_sessions:
-                # If there are active sessions, allow the request
-                logger.info("Active sessions found - allowing MCP request")
-                return {"authenticated": True, "error": None, "user_context": {"source": "active_session"}}
-            else:
-                return {"authenticated": False, "error": "No authentication token provided", "user_context": None}
+        # Check for development mode scenarios
+        dev_result = self._check_dev_authentication(auth_token)
+        if dev_result is not None:
+            return dev_result
 
         # Validate the provided token
         valid, session = self.security_manager.validate_session(auth_token)
@@ -59,37 +48,67 @@ class MCPAuthenticator:
                 "user_context": None,
             }
 
+    def _check_dev_authentication(self, auth_token: str | None) -> dict[str, Any] | None:
+        """Check for development mode authentication scenarios"""
+        # Development mode - if no security manager, allow all
+        if not self.security_manager:
+            logger.warning("No SecurityManager configured - allowing unauthenticated MCP request")
+            return {"authenticated": True, "error": None, "user_context": {"source": "no_security_manager"}}
+
+        # No token provided
+        if not auth_token:
+            logger.debug("No auth token provided, checking for active sessions")
+            has_sessions = bool(self.security_manager.active_sessions)
+            if has_sessions:
+                logger.info("Active sessions found - allowing MCP request")
+            return {
+                "authenticated": has_sessions,
+                "error": None if has_sessions else "No authentication token provided",
+                "user_context": {"source": "active_session"} if has_sessions else None,
+            }
+
+        return None
+
     def validate_request_auth(self, method: str, auth_token: str | None) -> dict[str, Any]:
         """Validate authentication for MCP request
 
         Returns:
             dict: {"valid": bool, "error": str | None, "session": dict | None}
         """
-        # Skip auth for initialization and tools listing in development
+        # Skip auth for initialization
         if method in ["initialize"]:
             return {"valid": True, "error": None, "session": None}
 
+        # Check for development scenarios
+        dev_result = self._check_validation_scenarios(auth_token)
+        if dev_result is not None:
+            return dev_result
+
+        # Validate the token
+        valid, session = self.security_manager.validate_session(auth_token)
+        return {
+            "valid": valid,
+            "error": None if valid else "Invalid or expired authentication token",
+            "session": session,
+        }
+
+    def _check_validation_scenarios(self, auth_token: str | None) -> dict[str, Any] | None:
+        """Check for development mode validation scenarios"""
         # Development mode - if no security manager, allow all
         if not self.security_manager:
             logger.warning("No SecurityManager configured - allowing unauthenticated MCP request")
             return {"valid": True, "error": None, "session": {"source": "no_security_manager"}}
 
-        # Validate authentication token
+        # No token provided - check for active sessions
         if not auth_token:
-            # Check for active sessions
-            if self.security_manager.active_sessions:
+            has_sessions = bool(self.security_manager.active_sessions)
+            if has_sessions:
                 logger.info("Active sessions found - allowing MCP request")
                 return {"valid": True, "error": None, "session": {"source": "active_session"}}
             else:
                 return {"valid": False, "error": "Authentication required", "session": None}
 
-        # Validate the token
-        valid, session = self.security_manager.validate_session(auth_token)
-
-        if valid:
-            return {"valid": True, "error": None, "session": session}
-        else:
-            return {"valid": False, "error": "Invalid or expired authentication token", "session": None}
+        return None
 
     def create_auth_error_response(self, request_id: Any, auth_result: dict[str, Any]) -> dict[str, Any]:
         """Create JSON-RPC error response for authentication failure"""

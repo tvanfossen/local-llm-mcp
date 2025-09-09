@@ -44,49 +44,49 @@ class LLMManager:
 
     def load_model(self) -> tuple[bool, Optional[str]]:
         """Load the language model"""
+        # Check preconditions and fall back to mock mode
+        mock_reason = self._get_mock_mode_reason()
+        if mock_reason:
+            logger.warning(f"Running in mock mode: {mock_reason}")
+            self.model_loaded = False
+            return True, f"Mock mode - {mock_reason}"
+
+        # Try to load real model
         try:
-            if not self.model_config:
-                logger.warning("No model configuration provided - running in mock mode")
-                self.model_loaded = False
-                return True, "Mock mode - no model loaded"
-
-            # Check if model file exists
-            if not Path(self.model_path).exists():
-                logger.warning(f"Model file not found: {self.model_path} - running in mock mode")
-                self.model_loaded = False
-                return True, "Mock mode - model file not found"
-
-            # Try to load real model
             logger.info(f"Loading model: {self.model_path}")
-            try:
-                # Import llama-cpp-python for actual model loading
-                from llama_cpp import Llama
+            from llama_cpp import Llama
 
-                self.llm = Llama(
-                    model_path=self.model_path,
-                    n_gpu_layers=self.model_config.n_gpu_layers,
-                    n_ctx=self.model_config.n_ctx,
-                    n_batch=self.model_config.n_batch,
-                    n_threads=self.model_config.n_threads,
-                    use_mmap=self.model_config.use_mmap,
-                    use_mlock=self.model_config.use_mlock,
-                    verbose=False,
-                )
-                self.model_loaded = True
-                logger.info("Model loaded successfully")
-                return True, None
-
-            except ImportError:
-                logger.warning("llama-cpp-python not installed - running in mock mode")
-                self.model_loaded = False
-                return True, "Mock mode - llama-cpp-python not available"
+            self.llm = Llama(
+                model_path=self.model_path,
+                n_gpu_layers=self.model_config.n_gpu_layers,
+                n_ctx=self.model_config.n_ctx,
+                n_batch=self.model_config.n_batch,
+                n_threads=self.model_config.n_threads,
+                use_mmap=self.model_config.use_mmap,
+                use_mlock=self.model_config.use_mlock,
+                verbose=False,
+            )
+            self.model_loaded = True
+            logger.info("Model loaded successfully")
+            return True, None
 
         except Exception as e:
             logger.error(f"Model loading failed: {e}")
-            # Fall back to mock mode on any error
             logger.warning("Falling back to mock mode")
             self.model_loaded = False
             return True, f"Mock mode - {str(e)}"
+
+    def _get_mock_mode_reason(self) -> Optional[str]:
+        """Check if mock mode is needed and return reason"""
+        if not self.model_config:
+            return "no model configuration provided"
+        if not Path(self.model_path).exists():
+            return "model file not found"
+        try:
+            import llama_cpp  # noqa: F401
+        except ImportError:
+            return "llama-cpp-python not available"
+        return None
 
     def unload_model(self):
         """Unload the model and free resources"""

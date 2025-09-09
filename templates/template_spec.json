@@ -1,0 +1,454 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Template Specification Format",
+  "description": "Specification format for Jinja2 templates consumable by local LLM",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["name", "description", "template_type", "variables"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique template name",
+      "pattern": "^[a-zA-Z0-9_]+$",
+      "maxLength": 50
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable template description",
+      "maxLength": 500
+    },
+    "template_type": {
+      "type": "string",
+      "description": "Category of template",
+      "enum": ["function", "api", "agent", "test", "schema", "base"]
+    },
+    "version": {
+      "type": "string",
+      "description": "Template version using semantic versioning",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "default": "1.0.0"
+    },
+    "extends": {
+      "type": "string",
+      "description": "Base template this template extends",
+      "pattern": "^[a-zA-Z0-9_/]+\\.j2$"
+    },
+    "variables": {
+      "type": "object",
+      "description": "Template variables specification",
+      "additionalProperties": {
+        "$ref": "#/definitions/variable_spec"
+      }
+    },
+    "validation_rules": {
+      "type": "array",
+      "description": "Custom validation rules for generated content",
+      "items": {
+        "$ref": "#/definitions/validation_rule"
+      }
+    },
+    "post_generation_hooks": {
+      "type": "array",
+      "description": "Commands to run after template generation",
+      "items": {
+        "$ref": "#/definitions/post_hook"
+      }
+    },
+    "file_outputs": {
+      "type": "array",
+      "description": "Files to generate from this template",
+      "items": {
+        "$ref": "#/definitions/file_output"
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "description": "Other templates this template depends on",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional template metadata",
+      "properties": {
+        "author": {"type": "string"},
+        "created_date": {"type": "string", "format": "date"},
+        "updated_date": {"type": "string", "format": "date"},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "documentation_url": {"type": "string", "format": "uri"},
+        "examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/template_example"
+          }
+        }
+      }
+    },
+    "llm_instructions": {
+      "type": "object",
+      "description": "Instructions for local LLM when using this template",
+      "properties": {
+        "context": {
+          "type": "string",
+          "description": "Context information for the LLM"
+        },
+        "constraints": {
+          "type": "array",
+          "description": "Constraints the LLM should follow",
+          "items": {"type": "string"}
+        },
+        "suggestions": {
+          "type": "array",
+          "description": "Suggestions for effective use",
+          "items": {"type": "string"}
+        },
+        "common_patterns": {
+          "type": "array",
+          "description": "Common patterns for this template type",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {"type": "string"},
+              "description": {"type": "string"},
+              "example_variables": {"type": "object"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "variable_spec": {
+      "type": "object",
+      "required": ["type", "description"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "number", "boolean", "array", "object"],
+          "description": "Variable data type"
+        },
+        "description": {
+          "type": "string",
+          "description": "Variable description for LLM understanding",
+          "maxLength": 200
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this variable is required",
+          "default": true
+        },
+        "default": {
+          "description": "Default value for the variable"
+        },
+        "enum": {
+          "type": "array",
+          "description": "Allowed values for the variable"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern for string validation"
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum string length"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum string length"
+        },
+        "minimum": {
+          "type": "number",
+          "description": "Minimum numeric value"
+        },
+        "maximum": {
+          "type": "number",
+          "description": "Maximum numeric value"
+        },
+        "items": {
+          "$ref": "#/definitions/variable_spec",
+          "description": "Schema for array items"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/variable_spec"
+          },
+          "description": "Properties for object type"
+        },
+        "examples": {
+          "type": "array",
+          "description": "Example values for this variable"
+        },
+        "llm_hints": {
+          "type": "array",
+          "description": "Hints for LLM about this variable",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "validation_rule": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Rule name for identification"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["line_count", "file_size", "contains", "not_contains", "regex", "custom"],
+          "description": "Type of validation rule"
+        },
+        "description": {
+          "type": "string",
+          "description": "Rule description"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Rule-specific parameters",
+          "properties": {
+            "max_lines": {"type": "integer", "minimum": 1},
+            "min_lines": {"type": "integer", "minimum": 1},
+            "max_size": {"type": "integer", "minimum": 1},
+            "required_text": {"type": "string"},
+            "forbidden_text": {"type": "string"},
+            "regex_pattern": {"type": "string"},
+            "custom_function": {"type": "string"}
+          }
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["error", "warning", "info"],
+          "default": "error",
+          "description": "Validation failure severity"
+        },
+        "message": {
+          "type": "string",
+          "description": "Custom error message"
+        }
+      }
+    },
+    "post_hook": {
+      "type": "object",
+      "required": ["name", "command"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Hook name for identification"
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to execute"
+        },
+        "description": {
+          "type": "string",
+          "description": "Hook description"
+        },
+        "when": {
+          "type": "string",
+          "enum": ["always", "on_success", "on_failure"],
+          "default": "on_success",
+          "description": "When to execute this hook"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "default": 30,
+          "description": "Execution timeout in seconds"
+        },
+        "working_directory": {
+          "type": "string",
+          "description": "Working directory for command execution"
+        },
+        "environment": {
+          "type": "object",
+          "description": "Environment variables for command",
+          "additionalProperties": {"type": "string"}
+        }
+      }
+    },
+    "file_output": {
+      "type": "object",
+      "required": ["template_file", "output_path"],
+      "properties": {
+        "template_file": {
+          "type": "string",
+          "description": "Jinja2 template file to render",
+          "pattern": "\\.j2$"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Output file path (can contain variables)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of what this file contains"
+        },
+        "overwrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to overwrite existing files"
+        },
+        "executable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to make the output file executable"
+        },
+        "encoding": {
+          "type": "string",
+          "default": "utf-8",
+          "description": "File encoding"
+        }
+      }
+    },
+    "template_example": {
+      "type": "object",
+      "required": ["name", "variables"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Example name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Example description"
+        },
+        "variables": {
+          "type": "object",
+          "description": "Example variable values"
+        },
+        "expected_output": {
+          "type": "string",
+          "description": "Expected template output (for testing)"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "mcp_tool_crud",
+      "description": "CRUD operations MCP tool template",
+      "template_type": "api",
+      "version": "1.0.0",
+      "extends": "base/mcp_tool_base.py.j2",
+      "variables": {
+        "resource_name": {
+          "type": "string",
+          "description": "Name of the resource (e.g., 'user', 'product')",
+          "required": true,
+          "pattern": "^[a-z_]+$",
+          "examples": ["user", "product", "order"],
+          "llm_hints": ["Use singular form", "Use snake_case"]
+        },
+        "table_name": {
+          "type": "string",
+          "description": "Database table name",
+          "required": true,
+          "pattern": "^[a-z_]+$",
+          "examples": ["users", "products", "orders"]
+        },
+        "primary_key": {
+          "type": "string",
+          "description": "Primary key field name",
+          "required": false,
+          "default": "id",
+          "examples": ["id", "uuid", "user_id"]
+        },
+        "required_fields": {
+          "type": "array",
+          "description": "Required fields for creation",
+          "required": true,
+          "items": {
+            "type": "string"
+          },
+          "examples": [["name", "email"], ["title", "description"]]
+        },
+        "database_type": {
+          "type": "string",
+          "description": "Database type",
+          "enum": ["sqlite", "postgresql", "mysql"],
+          "default": "sqlite"
+        }
+      },
+      "validation_rules": [
+        {
+          "name": "function_count",
+          "type": "custom",
+          "description": "Should contain CRUD functions",
+          "parameters": {
+            "custom_function": "validate_crud_functions"
+          }
+        },
+        {
+          "name": "line_limit",
+          "type": "line_count",
+          "parameters": {
+            "max_lines": 300
+          },
+          "message": "Generated file should not exceed 300 lines"
+        }
+      ],
+      "post_generation_hooks": [
+        {
+          "name": "format_code",
+          "command": "black {output_file}",
+          "description": "Format Python code with Black"
+        },
+        {
+          "name": "check_syntax",
+          "command": "python -m py_compile {output_file}",
+          "description": "Check Python syntax"
+        }
+      ],
+      "file_outputs": [
+        {
+          "template_file": "api/crud_endpoint.py.j2",
+          "output_path": "src/api/{resource_name}/{resource_name}.py",
+          "description": "Main CRUD endpoint implementation"
+        },
+        {
+          "template_file": "test/crud_test.py.j2",
+          "output_path": "tests/test_{resource_name}.py",
+          "description": "Comprehensive test suite"
+        }
+      ],
+      "llm_instructions": {
+        "context": "This template generates a complete CRUD API endpoint with database operations, validation, and error handling.",
+        "constraints": [
+          "Keep functions under 50 lines each",
+          "Always include error handling",
+          "Use consistent naming conventions",
+          "Include proper logging"
+        ],
+        "suggestions": [
+          "Consider the database schema when defining required_fields",
+          "Think about what fields should be updatable vs immutable",
+          "Consider pagination for list operations"
+        ],
+        "common_patterns": [
+          {
+            "name": "user_management",
+            "description": "Standard user CRUD operations",
+            "example_variables": {
+              "resource_name": "user",
+              "table_name": "users",
+              "required_fields": ["email", "username"],
+              "optional_fields": {
+                "first_name": "''",
+                "last_name": "''",
+                "is_active": "true"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -80,10 +80,6 @@ async def _process_agent_message(agent, message: str, task_type: str) -> str:
         user_message = {"role": "user", "content": message, "task_type": task_type, "timestamp": agent._get_timestamp()}
         agent.conversation_history.append(user_message)
 
-        # Create context-aware prompt based on task type
-        system_context = _build_system_context(agent, task_type)
-        full_prompt = f"{system_context}\n\nUser Request: {message}"
-
         # For now, we'll simulate agent processing
         # In a real implementation, this would call the LLM with the agent's context
         response_content = _simulate_agent_response(agent, message, task_type)

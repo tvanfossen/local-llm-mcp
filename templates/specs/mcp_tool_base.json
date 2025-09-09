@@ -1,0 +1,268 @@
+{
+  "name": "mcp_tool_base",
+  "description": "Base template for MCP tools with standardized structure and error handling",
+  "template_type": "base",
+  "version": "1.0.0",
+  "variables": {
+    "tool_name": {
+      "type": "string",
+      "description": "Display name of the MCP tool",
+      "required": true,
+      "pattern": "^[A-Za-z0-9\\s]+$",
+      "maxLength": 50,
+      "examples": ["File Reader", "Agent Manager", "Database Query"],
+      "llm_hints": ["Use title case", "Be descriptive but concise"]
+    },
+    "tool_description": {
+      "type": "string",
+      "description": "Brief description of what the tool does",
+      "required": true,
+      "maxLength": 200,
+      "examples": ["Read file contents with workspace safety checks", "Manage agent lifecycle operations"],
+      "llm_hints": ["Start with action verb", "Mention key features"]
+    },
+    "function_name": {
+      "type": "string",
+      "description": "Main function name for the tool",
+      "required": true,
+      "pattern": "^[a-z_]+$",
+      "examples": ["read_file", "create_agent", "process_data"],
+      "llm_hints": ["Use snake_case", "Be descriptive"]
+    },
+    "domain": {
+      "type": "string",
+      "description": "Domain/category this tool belongs to",
+      "required": true,
+      "enum": ["core", "mcp", "api", "agents", "file", "database"],
+      "examples": ["mcp", "core", "api"]
+    },
+    "category": {
+      "type": "string",
+      "description": "Subcategory within the domain",
+      "required": true,
+      "pattern": "^[a-z_]+$",
+      "examples": ["tools", "handlers", "utilities"],
+      "llm_hints": ["Use snake_case", "Be specific"]
+    },
+    "imports": {
+      "type": "array",
+      "description": "Additional import statements needed",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "examples": [
+        ["from pathlib import Path", "import json"],
+        ["from typing import Optional", "import sqlite3"]
+      ]
+    },
+    "required_params": {
+      "type": "array",
+      "description": "Required parameters for the main function",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "examples": [["file_path", "agent_id"], ["query", "database_name"]]
+    },
+    "optional_params": {
+      "type": "object",
+      "description": "Optional parameters with default values",
+      "required": false,
+      "additionalProperties": {
+        "type": "string"
+      },
+      "examples": [
+        {"overwrite": "false", "encoding": "'utf-8'"},
+        {"limit": "50", "offset": "0"}
+      ]
+    },
+    "helper_functions": {
+      "type": "array",
+      "description": "Helper functions to generate",
+      "required": false,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "params": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "return_type": {"type": "string"}
+        }
+      },
+      "examples": [
+        [
+          {
+            "name": "validate_path",
+            "description": "Validate file path within workspace",
+            "params": ["path", "workspace_root"],
+            "return_type": "bool"
+          }
+        ]
+      ]
+    }
+  },
+  "validation_rules": [
+    {
+      "name": "line_limit",
+      "type": "line_count",
+      "parameters": {
+        "max_lines": 300
+      },
+      "severity": "error",
+      "message": "MCP tool files should not exceed 300 lines"
+    },
+    {
+      "name": "required_functions",
+      "type": "contains",
+      "parameters": {
+        "required_text": "def _create_success"
+      },
+      "severity": "error",
+      "message": "Must include _create_success helper function"
+    },
+    {
+      "name": "error_handling",
+      "type": "contains",
+      "parameters": {
+        "required_text": "except Exception as e:"
+      },
+      "severity": "warning",
+      "message": "Should include proper exception handling"
+    },
+    {
+      "name": "logging_import",
+      "type": "contains",
+      "parameters": {
+        "required_text": "import logging"
+      },
+      "severity": "warning",
+      "message": "Should include logging for debugging"
+    }
+  ],
+  "post_generation_hooks": [
+    {
+      "name": "format_python",
+      "command": "black --line-length 100 {output_file}",
+      "description": "Format Python code with Black formatter",
+      "when": "on_success"
+    },
+    {
+      "name": "check_syntax",
+      "command": "python -m py_compile {output_file}",
+      "description": "Validate Python syntax",
+      "when": "always"
+    },
+    {
+      "name": "type_check",
+      "command": "mypy {output_file} --ignore-missing-imports",
+      "description": "Run type checking",
+      "when": "on_success",
+      "timeout": 60
+    }
+  ],
+  "file_outputs": [
+    {
+      "template_file": "base/mcp_tool_base.py.j2",
+      "output_path": "src/{domain}/{category}/{function_name}.py",
+      "description": "Main MCP tool implementation",
+      "overwrite": false
+    }
+  ],
+  "dependencies": [],
+  "metadata": {
+    "author": "Local LLM MCP System",
+    "created_date": "2024-01-01",
+    "tags": ["mcp", "base", "tool"],
+    "examples": [
+      {
+        "name": "simple_file_tool",
+        "description": "Basic file operation tool",
+        "variables": {
+          "tool_name": "File Reader",
+          "tool_description": "Read file contents safely",
+          "function_name": "read_file",
+          "domain": "mcp",
+          "category": "tools",
+          "required_params": ["file_path"],
+          "optional_params": {
+            "encoding": "'utf-8'",
+            "max_size": "1048576"
+          }
+        }
+      }
+    ]
+  },
+  "llm_instructions": {
+    "context": "This is the foundation template for all MCP tools. It provides standardized error handling, response formatting, and logging patterns that should be consistent across all tools.",
+    "constraints": [
+      "Always include the three helper functions: _create_success, _create_error, _handle_exception",
+      "Main function must be async and return dict[str, Any]",
+      "Response format must match MCP specification",
+      "Include proper parameter validation",
+      "Keep individual functions under 50 lines",
+      "Use type hints throughout"
+    ],
+    "suggestions": [
+      "Consider what validation the parameters need",
+      "Think about error conditions and how to handle them gracefully",
+      "Add helpful logging messages for debugging",
+      "Consider if the tool needs access to configuration or workspace",
+      "Think about security implications if dealing with file paths or external resources"
+    ],
+    "common_patterns": [
+      {
+        "name": "file_operation",
+        "description": "Tools that work with files",
+        "example_variables": {
+          "imports": ["from pathlib import Path", "from src.core.config.manager.manager import ConfigManager"],
+          "required_params": ["file_path"],
+          "optional_params": {"encoding": "'utf-8'"},
+          "helper_functions": [
+            {
+              "name": "resolve_path",
+              "description": "Resolve and validate file path",
+              "params": ["file_path", "workspace_root"],
+              "return_type": "Path"
+            }
+          ]
+        }
+      },
+      {
+        "name": "agent_operation",
+        "description": "Tools that work with agents",
+        "example_variables": {
+          "imports": ["from src.core.agents.registry.registry import AgentRegistry"],
+          "required_params": ["agent_id"],
+          "helper_functions": [
+            {
+              "name": "get_agent_registry",
+              "description": "Get configured agent registry",
+              "params": [],
+              "return_type": "AgentRegistry"
+            }
+          ]
+        }
+      },
+      {
+        "name": "database_operation",
+        "description": "Tools that work with databases",
+        "example_variables": {
+          "imports": ["import sqlite3", "from typing import Optional"],
+          "optional_params": {"limit": "50", "offset": "0"},
+          "helper_functions": [
+            {
+              "name": "get_db_connection",
+              "description": "Get database connection",
+              "params": [],
+              "return_type": "sqlite3.Connection"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

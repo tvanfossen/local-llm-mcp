@@ -39,10 +39,7 @@ async def git_commit(args: dict[str, Any]) -> dict[str, Any]:
 
         files = args.get("files", [])
         add_result = _add_files_to_git(files)
-        if add_result:
-            return add_result
-
-        return _create_git_commit(message, files)
+        return add_result if add_result else _create_git_commit(message, files)
     except Exception as e:
         return _handle_exception(e, "Git Commit")
 

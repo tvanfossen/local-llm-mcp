@@ -1,0 +1,369 @@
+{
+  "name": "crud_api",
+  "description": "Complete CRUD API endpoint with database operations and validation",
+  "template_type": "api",
+  "version": "1.0.0",
+  "extends": "base/mcp_tool_base.py.j2",
+  "variables": {
+    "resource_name": {
+      "type": "string",
+      "description": "Name of the resource being managed (singular form)",
+      "required": true,
+      "pattern": "^[a-z_]+$",
+      "maxLength": 30,
+      "examples": ["user", "product", "order", "customer"],
+      "llm_hints": ["Use singular form", "Use snake_case", "Be descriptive"]
+    },
+    "table_name": {
+      "type": "string",
+      "description": "Database table name (usually plural form of resource)",
+      "required": true,
+      "pattern": "^[a-z_]+$",
+      "maxLength": 50,
+      "examples": ["users", "products", "orders", "customers"],
+      "llm_hints": ["Use plural form", "Match database schema"]
+    },
+    "primary_key": {
+      "type": "string",
+      "description": "Primary key field name",
+      "required": false,
+      "default": "id",
+      "pattern": "^[a-z_]+$",
+      "examples": ["id", "uuid", "user_id", "product_code"]
+    },
+    "database_name": {
+      "type": "string",
+      "description": "Database file name (for SQLite)",
+      "required": false,
+      "default": "app",
+      "pattern": "^[a-z_]+$",
+      "examples": ["app", "main", "data"]
+    },
+    "database_type": {
+      "type": "string",
+      "description": "Type of database system",
+      "required": false,
+      "default": "sqlite",
+      "enum": ["sqlite", "postgresql", "mysql"],
+      "examples": ["sqlite", "postgresql"]
+    },
+    "required_fields": {
+      "type": "array",
+      "description": "Fields required for creating the resource",
+      "required": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z_]+$"
+      },
+      "minItems": 1,
+      "maxItems": 10,
+      "examples": [
+        ["name", "email"],
+        ["title", "description", "price"],
+        ["username", "password", "email"]
+      ],
+      "llm_hints": ["Include essential fields only", "Use snake_case"]
+    },
+    "optional_fields": {
+      "type": "object",
+      "description": "Optional fields with their default values",
+      "required": false,
+      "additionalProperties": {
+        "type": "string"
+      },
+      "examples": [
+        {"first_name": "''", "last_name": "''", "is_active": "true"},
+        {"description": "''", "created_by": "None"}
+      ]
+    },
+    "display_fields": {
+      "type": "array",
+      "description": "Fields to display in detailed view",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "examples": [
+        ["id", "name", "email", "created_at"],
+        ["id", "title", "price", "description"]
+      ]
+    },
+    "summary_fields": {
+      "type": "array",
+      "description": "Fields to show in list/summary view",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 3,
+      "examples": [
+        ["name", "email"],
+        ["title", "price"]
+      ]
+    },
+    "updatable_fields": {
+      "type": "array",
+      "description": "Fields that can be updated",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "examples": [
+        ["name", "email", "first_name", "last_name"],
+        ["title", "description", "price"]
+      ]
+    },
+    "filterable_fields": {
+      "type": "array",
+      "description": "Fields that can be used for filtering in list operations",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "examples": [
+        ["is_active", "created_at"],
+        ["category", "price_range"]
+      ]
+    },
+    "soft_delete": {
+      "type": "boolean",
+      "description": "Whether to use soft delete (deleted_at field) instead of hard delete",
+      "required": false,
+      "default": false,
+      "examples": [true, false]
+    },
+    "all_fields": {
+      "type": "array",
+      "description": "All fields (computed from required + optional)",
+      "required": false,
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "validation_rules": [
+    {
+      "name": "crud_functions",
+      "type": "custom",
+      "description": "Must contain all CRUD functions",
+      "parameters": {
+        "custom_function": "validate_crud_completeness"
+      },
+      "severity": "error",
+      "message": "CRUD API must include create, read, update, delete, and list functions"
+    },
+    {
+      "name": "line_limit",
+      "type": "line_count",
+      "parameters": {
+        "max_lines": 400
+      },
+      "severity": "warning",
+      "message": "CRUD files can be longer but consider splitting if over 400 lines"
+    },
+    {
+      "name": "database_connection",
+      "type": "contains",
+      "parameters": {
+        "required_text": "_get_database_connection"
+      },
+      "severity": "error",
+      "message": "Must include database connection helper function"
+    },
+    {
+      "name": "error_handling",
+      "type": "contains",
+      "parameters": {
+        "required_text": "try:"
+      },
+      "severity": "error",
+      "message": "All database operations must include error handling"
+    },
+    {
+      "name": "sql_injection_protection",
+      "type": "not_contains",
+      "parameters": {
+        "forbidden_text": "f\"SELECT * FROM {table_name}"
+      },
+      "severity": "error",
+      "message": "Must use parameterized queries to prevent SQL injection"
+    }
+  ],
+  "post_generation_hooks": [
+    {
+      "name": "format_python",
+      "command": "black --line-length 100 {output_file}",
+      "description": "Format Python code with Black",
+      "when": "on_success"
+    },
+    {
+      "name": "check_syntax",
+      "command": "python -m py_compile {output_file}",
+      "description": "Validate Python syntax",
+      "when": "always"
+    },
+    {
+      "name": "security_scan",
+      "command": "bandit -r {output_file}",
+      "description": "Security vulnerability scan",
+      "when": "on_success",
+      "timeout": 30
+    },
+    {
+      "name": "create_migration",
+      "command": "python scripts/create_migration.py --table {table_name} --fields {required_fields}",
+      "description": "Create database migration file",
+      "when": "on_success",
+      "timeout": 15
+    }
+  ],
+  "file_outputs": [
+    {
+      "template_file": "api/crud_endpoint.py.j2",
+      "output_path": "src/api/{resource_name}/{resource_name}.py",
+      "description": "Main CRUD endpoint implementation",
+      "overwrite": false
+    },
+    {
+      "template_file": "test/crud_test.py.j2",
+      "output_path": "tests/api/test_{resource_name}.py",
+      "description": "Comprehensive test suite for CRUD operations",
+      "overwrite": false
+    },
+    {
+      "template_file": "schema/crud_schema.json.j2",
+      "output_path": "schemas/{resource_name}_schema.json",
+      "description": "JSON schema for resource validation",
+      "overwrite": false
+    }
+  ],
+  "dependencies": [
+    "base/mcp_tool_base.py.j2",
+    "test/test_suite.py.j2",
+    "schema/validator.py.j2"
+  ],
+  "metadata": {
+    "author": "Local LLM MCP System",
+    "created_date": "2024-01-01",
+    "tags": ["crud", "api", "database", "rest"],
+    "documentation_url": "https://docs.example.com/crud-api",
+    "examples": [
+      {
+        "name": "user_management",
+        "description": "Standard user CRUD operations",
+        "variables": {
+          "resource_name": "user",
+          "table_name": "users",
+          "required_fields": ["username", "email", "password"],
+          "optional_fields": {
+            "first_name": "''",
+            "last_name": "''",
+            "is_active": "true",
+            "last_login": "None"
+          },
+          "display_fields": ["id", "username", "email", "first_name", "last_name", "is_active", "created_at"],
+          "summary_fields": ["username", "email"],
+          "updatable_fields": ["email", "first_name", "last_name", "is_active"],
+          "filterable_fields": ["is_active", "created_at"],
+          "soft_delete": true
+        }
+      },
+      {
+        "name": "product_catalog",
+        "description": "E-commerce product management",
+        "variables": {
+          "resource_name": "product",
+          "table_name": "products",
+          "required_fields": ["name", "price", "category"],
+          "optional_fields": {
+            "description": "''",
+            "sku": "None",
+            "in_stock": "true",
+            "weight": "0.0"
+          },
+          "display_fields": ["id", "name", "price", "category", "sku", "in_stock"],
+          "summary_fields": ["name", "price", "category"],
+          "updatable_fields": ["name", "price", "description", "in_stock", "weight"],
+          "filterable_fields": ["category", "in_stock", "price"],
+          "soft_delete": false
+        }
+      }
+    ]
+  },
+  "llm_instructions": {
+    "context": "This template generates a complete CRUD (Create, Read, Update, Delete) API endpoint with database operations, validation, error handling, and proper security measures. It's designed to be production-ready with comprehensive testing.",
+    "constraints": [
+      "Always use parameterized queries to prevent SQL injection",
+      "Include proper error handling for all database operations",
+      "Validate all input parameters before database operations",
+      "Implement proper pagination for list operations",
+      "Include transaction handling for data consistency",
+      "Follow RESTful conventions in function naming",
+      "Provide detailed error messages for debugging",
+      "Include proper logging for all operations"
+    ],
+    "suggestions": [
+      "Consider the database schema and relationships when defining fields",
+      "Think about which fields should be required vs optional",
+      "Consider data validation rules (email format, password strength, etc.)",
+      "Think about indexing for filterable fields",
+      "Consider if soft delete is appropriate for the use case",
+      "Add business logic validation where appropriate",
+      "Consider rate limiting and access control",
+      "Think about data export/import functionality"
+    ],
+    "common_patterns": [
+      {
+        "name": "user_management",
+        "description": "Standard user account management with authentication",
+        "example_variables": {
+          "resource_name": "user",
+          "table_name": "users",
+          "required_fields": ["username", "email", "password_hash"],
+          "optional_fields": {
+            "first_name": "''",
+            "last_name": "''",
+            "is_active": "true",
+            "email_verified": "false"
+          },
+          "soft_delete": true,
+          "filterable_fields": ["is_active", "email_verified"]
+        }
+      },
+      {
+        "name": "content_management",
+        "description": "Content management system with versioning",
+        "example_variables": {
+          "resource_name": "article",
+          "table_name": "articles",
+          "required_fields": ["title", "content", "author_id"],
+          "optional_fields": {
+            "summary": "''",
+            "published": "false",
+            "featured": "false",
+            "view_count": "0"
+          },
+          "soft_delete": true,
+          "filterable_fields": ["published", "author_id", "featured"]
+        }
+      },
+      {
+        "name": "inventory_management",
+        "description": "Product inventory with stock tracking",
+        "example_variables": {
+          "resource_name": "product",
+          "table_name": "products",
+          "required_fields": ["name", "sku", "price"],
+          "optional_fields": {
+            "description": "''",
+            "category_id": "None",
+            "stock_quantity": "0",
+            "reorder_level": "10"
+          },
+          "soft_delete": false,
+          "filterable_fields": ["category_id", "stock_quantity"]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,438 @@
+{# 
+Template: Schema Validator
+Description: Comprehensive schema validation with JSON Schema and custom rules
+Variables: schema_name, validation_rules, schema_version
+#}
+"""{{ schema_name|title }} Schema Validator
+
+Responsibilities:
+- Validate data against JSON Schema
+- Apply custom validation rules
+- Provide detailed error reporting
+- Support schema versioning and migration
+
+Generated from template on {{ generation_date }}
+Schema Version: {{ schema_version|default('1.0.0') }}
+"""
+
+import json
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+try:
+    import jsonschema
+    from jsonschema import validate, ValidationError, Draft7Validator
+    JSONSCHEMA_AVAILABLE = True
+except ImportError:
+    JSONSCHEMA_AVAILABLE = False
+    logging.warning("jsonschema library not available - schema validation will be limited")
+
+from src.core.config.manager.manager import ConfigManager
+
+logger = logging.getLogger(__name__)
+
+
+class {{ schema_name|title }}Validator:
+    """Comprehensive validator for {{ schema_name }} data"""
+    
+    def __init__(self, schema_path: Optional[str] = None):
+        self.schema_path = schema_path
+        self.schema = None
+        self.validator = None
+        self.config_manager = ConfigManager()
+        
+        if schema_path:
+            self._load_schema(schema_path)
+    
+    def _load_schema(self, schema_path: str) -> None:
+        """Load JSON schema from file"""
+        try:
+            workspace_root = self.config_manager.system.get_workspace_root()
+            
+            # Resolve schema path
+            if not Path(schema_path).is_absolute():
+                full_path = workspace_root / "schemas" / schema_path
+            else:
+                full_path = Path(schema_path)
+            
+            if not full_path.exists():
+                raise FileNotFoundError(f"Schema file not found: {full_path}")
+            
+            with open(full_path, 'r', encoding='utf-8') as f:
+                self.schema = json.load(f)
+            
+            if JSONSCHEMA_AVAILABLE:
+                self.validator = Draft7Validator(self.schema)
+            
+            logger.info(f"Loaded schema from {full_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to load schema: {e}")
+            raise
+    
+    def validate(self, data: Any) -> Dict[str, Any]:
+        """Validate data against schema and custom rules"""
+        result = {
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "schema_errors": [],
+            "custom_errors": [],
+            "metadata": {
+                "schema_version": "{{ schema_version|default('1.0.0') }}",
+                "validation_time": datetime.now().isoformat(),
+                "validator": "{{ schema_name|title }}Validator"
+            }
+        }
+        
+        try:
+            # 1. JSON Schema validation
+            if self.schema and JSONSCHEMA_AVAILABLE:
+                schema_result = self._validate_json_schema(data)
+                result["schema_errors"] = schema_result["errors"]
+                if schema_result["errors"]:
+                    result["valid"] = False
+            
+            # 2. Custom validation rules
+            custom_result = self._validate_custom_rules(data)
+            result["custom_errors"] = custom_result["errors"]
+            result["warnings"] = custom_result["warnings"]
+            if custom_result["errors"]:
+                result["valid"] = False
+            
+            # 3. Combine all errors
+            result["errors"] = result["schema_errors"] + result["custom_errors"]
+            
+            # 4. Data quality checks
+            quality_result = self._check_data_quality(data)
+            result["warnings"].extend(quality_result["warnings"])
+            
+        except Exception as e:
+            result["valid"] = False
+            result["errors"].append(f"Validation error: {str(e)}")
+            logger.error(f"Validation failed: {e}")
+        
+        return result
+    
+    def _validate_json_schema(self, data: Any) -> Dict[str, List[str]]:
+        """Validate against JSON Schema"""
+        errors = []
+        
+        if not JSONSCHEMA_AVAILABLE:
+            return {"errors": ["JSON Schema validation not available"]}
+        
+        if not self.validator:
+            return {"errors": ["No schema loaded"]}
+        
+        try:
+            # Validate using jsonschema
+            validation_errors = list(self.validator.iter_errors(data))
+            
+            for error in validation_errors:
+                error_path = " -> ".join(str(p) for p in error.absolute_path)
+                error_msg = f"Path '{error_path}': {error.message}"
+                errors.append(error_msg)
+        
+        except Exception as e:
+            errors.append(f"Schema validation error: {str(e)}")
+        
+        return {"errors": errors}
+    
+    def _validate_custom_rules(self, data: Any) -> Dict[str, List[str]]:
+        """Apply custom validation rules"""
+        errors = []
+        warnings = []
+        
+        try:
+            # Apply schema-specific validation rules
+            {% if validation_rules %}
+            {% for rule in validation_rules %}
+            rule_result = self._apply_rule_{{ rule.name }}(data)
+            errors.extend(rule_result.get("errors", []))
+            warnings.extend(rule_result.get("warnings", []))
+            {% endfor %}
+            {% else %}
+            # Default validation rules for {{ schema_name }}
+            default_result = self._apply_default_rules(data)
+            errors.extend(default_result.get("errors", []))
+            warnings.extend(default_result.get("warnings", []))
+            {% endif %}
+            
+        except Exception as e:
+            errors.append(f"Custom validation error: {str(e)}")
+        
+        return {"errors": errors, "warnings": warnings}
+    
+    def _check_data_quality(self, data: Any) -> Dict[str, List[str]]:
+        """Check data quality and provide recommendations"""
+        warnings = []
+        
+        try:
+            if isinstance(data, dict):
+                # Check for empty values
+                empty_fields = [k for k, v in data.items() if v in [None, "", [], {}]]
+                if empty_fields:
+                    warnings.append(f"Empty fields detected: {', '.join(empty_fields)}")
+                
+                # Check for very long strings
+                long_strings = [k for k, v in data.items() if isinstance(v, str) and len(v) > 1000]
+                if long_strings:
+                    warnings.append(f"Very long string values: {', '.join(long_strings)}")
+                
+                # Check for missing common fields
+                {% if required_fields %}
+                expected_fields = {{ required_fields|tojson }}
+                missing_fields = [f for f in expected_fields if f not in data]
+                if missing_fields:
+                    warnings.append(f"Missing expected fields: {', '.join(missing_fields)}")
+                {% endif %}
+            
+            elif isinstance(data, list):
+                # Check list consistency
+                if data and len(set(type(item).__name__ for item in data)) > 1:
+                    warnings.append("List contains mixed data types")
+                
+                # Check for very large lists
+                if len(data) > 1000:
+                    warnings.append(f"Very large list ({len(data)} items)")
+        
+        except Exception as e:
+            warnings.append(f"Quality check error: {str(e)}")
+        
+        return {"warnings": warnings}
+    
+    {% if validation_rules %}
+    {% for rule in validation_rules %}
+    def _apply_rule_{{ rule.name }}(self, data: Any) -> Dict[str, List[str]]:
+        """Apply {{ rule.name }} validation rule"""
+        errors = []
+        warnings = []
+        
+        try:
+            {% if rule.type == "required_field" %}
+            # Check if required field exists
+            if not isinstance(data, dict) or "{{ rule.field }}" not in data:
+                errors.append("Required field '{{ rule.field }}' is missing")
+            elif not data["{{ rule.field }}"]:
+                errors.append("Required field '{{ rule.field }}' is empty")
+            
+            {% elif rule.type == "value_range" %}
+            # Check value range
+            if isinstance(data, dict) and "{{ rule.field }}" in data:
+                value = data["{{ rule.field }}"]
+                if isinstance(value, (int, float)):
+                    if value < {{ rule.min_value|default(0) }}:
+                        errors.append(f"{{ rule.field }} value {value} below minimum {{ rule.min_value|default(0) }}")
+                    elif value > {{ rule.max_value|default(100) }}:
+                        errors.append(f"{{ rule.field }} value {value} above maximum {{ rule.max_value|default(100) }}")
+            
+            {% elif rule.type == "string_length" %}
+            # Check string length
+            if isinstance(data, dict) and "{{ rule.field }}" in data:
+                value = data["{{ rule.field }}"]
+                if isinstance(value, str):
+                    if len(value) < {{ rule.min_length|default(1) }}:
+                        errors.append(f"{{ rule.field }} too short (minimum {{ rule.min_length|default(1) }} characters)")
+                    elif len(value) > {{ rule.max_length|default(255) }}:
+                        errors.append(f"{{ rule.field }} too long (maximum {{ rule.max_length|default(255) }} characters)")
+            
+            {% elif rule.type == "format_validation" %}
+            # Check format (email, URL, etc.)
+            if isinstance(data, dict) and "{{ rule.field }}" in data:
+                value = data["{{ rule.field }}"]
+                if isinstance(value, str) and value:
+                    {% if rule.format == "email" %}
+                    import re
+                    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                    if not re.match(email_pattern, value):
+                        errors.append(f"{{ rule.field }} is not a valid email address")
+                    {% elif rule.format == "url" %}
+                    if not value.startswith(('http://', 'https://')):
+                        errors.append(f"{{ rule.field }} is not a valid URL")
+                    {% endif %}
+            
+            {% elif rule.type == "custom" %}
+            # Custom rule implementation
+            {% if rule.code %}
+            {{ rule.code|indent(12) }}
+            {% else %}
+            # TODO: Implement custom rule {{ rule.name }}
+            pass
+            {% endif %}
+            
+            {% else %}
+            # Generic rule
+            warnings.append(f"Unknown rule type: {{ rule.type }}")
+            {% endif %}
+            
+        except Exception as e:
+            errors.append(f"Rule {{ rule.name }} error: {str(e)}")
+        
+        return {"errors": errors, "warnings": warnings}
+    
+    {% endfor %}
+    {% endif %}
+    
+    def _apply_default_rules(self, data: Any) -> Dict[str, List[str]]:
+        """Apply default validation rules for {{ schema_name }}"""
+        errors = []
+        warnings = []
+        
+        try:
+            # Basic data type validation
+            if data is None:
+                errors.append("Data cannot be None")
+                return {"errors": errors, "warnings": warnings}
+            
+            {% if schema_name == "function" %}
+            # Function-specific validation
+            if isinstance(data, dict):
+                if "function_name" not in data:
+                    errors.append("Function name is required")
+                elif not isinstance(data["function_name"], str):
+                    errors.append("Function name must be a string")
+                elif not data["function_name"].strip():
+                    errors.append("Function name cannot be empty")
+                
+                if "description" in data and len(data["description"]) > 500:
+                    warnings.append("Description is very long")
+            
+            {% elif schema_name == "agent" %}
+            # Agent-specific validation
+            if isinstance(data, dict):
+                if "agent_id" not in data:
+                    errors.append("Agent ID is required")
+                elif not isinstance(data["agent_id"], str):
+                    errors.append("Agent ID must be a string")
+                
+                if "name" not in data:
+                    errors.append("Agent name is required")
+                elif len(data.get("name", "")) > 100:
+                    errors.append("Agent name too long (max 100 characters)")
+            
+            {% elif schema_name == "mcp_response" %}
+            # MCP response validation
+            if isinstance(data, dict):
+                if "content" not in data:
+                    errors.append("MCP response must have 'content' field")
+                elif not isinstance(data["content"], list):
+                    errors.append("MCP response 'content' must be a list")
+                
+                if "isError" not in data:
+                    errors.append("MCP response must have 'isError' field")
+                elif not isinstance(data["isError"], bool):
+                    errors.append("MCP response 'isError' must be boolean")
+            
+            {% else %}
+            # Generic validation for {{ schema_name }}
+            if isinstance(data, dict):
+                # Check for common required fields
+                common_fields = ["id", "name", "type"]
+                for field in common_fields:
+                    if field in data and not data[field]:
+                        warnings.append(f"Field '{field}' is empty")
+            {% endif %}
+            
+        except Exception as e:
+            errors.append(f"Default validation error: {str(e)}")
+        
+        return {"errors": errors, "warnings": warnings}
+    
+    def create_error_report(self, validation_result: Dict[str, Any]) -> str:
+        """Create a formatted error report"""
+        if validation_result["valid"]:
+            return "✅ **Validation Passed** - No errors found"
+        
+        report = "❌ **Validation Failed**\n\n"
+        
+        # Schema errors
+        if validation_result["schema_errors"]:
+            report += f"**Schema Errors ({len(validation_result['schema_errors'])}):**\n"
+            for error in validation_result["schema_errors"]:
+                report += f"   • {error}\n"
+            report += "\n"
+        
+        # Custom rule errors
+        if validation_result["custom_errors"]:
+            report += f"**Custom Rule Errors ({len(validation_result['custom_errors'])}):**\n"
+            for error in validation_result["custom_errors"]:
+                report += f"   • {error}\n"
+            report += "\n"
+        
+        # Warnings
+        if validation_result["warnings"]:
+            report += f"**Warnings ({len(validation_result['warnings'])}):**\n"
+            for warning in validation_result["warnings"]:
+                report += f"   ⚠️ {warning}\n"
+            report += "\n"
+        
+        # Metadata
+        metadata = validation_result["metadata"]
+        report += f"**Validation Info:**\n"
+        report += f"   • Schema Version: {metadata['schema_version']}\n"
+        report += f"   • Validation Time: {metadata['validation_time']}\n"
+        report += f"   • Validator: {metadata['validator']}"
+        
+        return report
+    
+    @staticmethod
+    def validate_mcp_response(response: Dict[str, Any]) -> Dict[str, Any]:
+        """Quick validation for MCP response format"""
+        validator = {{ schema_name|title }}Validator()
+        
+        # Define inline MCP response schema
+        mcp_schema = {
+            "type": "object",
+            "required": ["content", "isError"],
+            "properties": {
+                "content": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["type", "text"],
+                        "properties": {
+                            "type": {"type": "string", "enum": ["text"]},
+                            "text": {"type": "string"}
+                        }
+                    }
+                },
+                "isError": {"type": "boolean"}
+            }
+        }
+        
+        validator.schema = mcp_schema
+        if JSONSCHEMA_AVAILABLE:
+            validator.validator = Draft7Validator(mcp_schema)
+        
+        return validator.validate(response)
+
+
+# Factory function for creating validators
+def create_validator(schema_name: str, schema_path: Optional[str] = None) -> {{ schema_name|title }}Validator:
+    """Factory function to create validator instances"""
+    return {{ schema_name|title }}Validator(schema_path)
+
+
+# Helper functions for common validation scenarios
+def validate_function_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate function data"""
+    validator = create_validator("function", "function_schema.json")
+    return validator.validate(data)
+
+
+def validate_agent_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate agent data"""
+    validator = create_validator("agent", "agent_schema.json")
+    return validator.validate(data)
+
+
+def quick_validate(data: Any, schema_type: str = "{{ schema_name }}") -> bool:
+    """Quick validation that returns only pass/fail"""
+    try:
+        validator = create_validator(schema_type)
+        result = validator.validate(data)
+        return result["valid"]
+    except Exception:
+        return False
