@@ -14,17 +14,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.core.utils import create_success, create_error
+
 logger = logging.getLogger(__name__)
 
 
-def _create_success(text: str) -> dict[str, Any]:
-    """Create success response format"""
-    return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _create_error(title: str, message: str) -> dict[str, Any]:
-    """Create error response format"""
-    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
 
 
 async def validate_file_length(args: dict[str, Any]) -> dict[str, Any]:
@@ -34,7 +28,7 @@ async def validate_file_length(args: dict[str, Any]) -> dict[str, Any]:
         max_lines = args.get("max_lines", 300)
 
         if not file_paths:
-            return _create_error("No Files", "No file paths provided")
+            return create_error("No Files", "No file paths provided")
 
         violations = []
         valid_files = []
@@ -63,7 +57,7 @@ async def validate_file_length(args: dict[str, Any]) -> dict[str, Any]:
             result = f"✅ **All Files Valid** (max {max_lines} lines)\n\n"
             result += "**Validated Files:**\n"
             result += "\n".join(valid_files)
-            return _create_success(result)
+            return create_success(result)
         else:
             result = "❌ **File Length Violations Found**\n\n"
             result += "**Violations:**\n"
@@ -73,8 +67,8 @@ async def validate_file_length(args: dict[str, Any]) -> dict[str, Any]:
                 result += "\n\n**Valid Files:**\n"
                 result += "\n".join(valid_files)
 
-            return _create_error("Length Violations", result)
+            return create_error("Length Violations", result)
 
     except Exception as e:
         logger.error(f"File length validation failed: {e}")
-        return _create_error("Validation Failed", str(e))
+        return create_error("Validation Failed", str(e))

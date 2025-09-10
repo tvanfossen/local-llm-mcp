@@ -12,23 +12,11 @@ from typing import Any
 
 from src.core.agents.registry.registry import AgentRegistry
 from src.core.config.manager.manager import ConfigManager
+from src.core.utils import create_success, create_error, handle_exception
 
 logger = logging.getLogger(__name__)
 
 
-def _create_success(text: str) -> dict[str, Any]:
-    """Create success response format"""
-    return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _create_error(title: str, message: str) -> dict[str, Any]:
-    """Create error response format"""
-    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
-
-
-def _handle_exception(e: Exception, context: str) -> dict[str, Any]:
-    """Handle exceptions with consistent error format"""
-    return {"content": [{"type": "text", "text": f"❌ **{context} Error:** {str(e)}"}], "isError": True}
 
 
 async def list_agents(args: dict[str, Any] = None) -> dict[str, Any]:
@@ -40,7 +28,7 @@ async def list_agents(args: dict[str, Any] = None) -> dict[str, Any]:
         agents = registry.list_agents()
 
         if not agents:
-            return _create_success(
+            return create_success(
                 "📋 **Agent Registry**\n\nNo agents found. Use the create agent tool to create your first agent."
             )
 
@@ -49,11 +37,11 @@ async def list_agents(args: dict[str, Any] = None) -> dict[str, Any]:
         stats_summary = _format_registry_stats(registry_stats)
 
         result = f"📋 **Agent Registry** ({len(agents)} agents)\n\n{agent_list}\n\n{stats_summary}"
-        return _create_success(result)
+        return create_success(result)
 
     except Exception as e:
         logger.error(f"Failed to list agents: {e}")
-        return _handle_exception(e, "List Agents")
+        return handle_exception(e, "List Agents")
 
 
 def _format_agent_list(agents: list) -> str:

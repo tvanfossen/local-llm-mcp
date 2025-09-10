@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM Agent Orchestrator - MCP Integration</title>
+    <title>MCP Debug Interface</title>
     <link rel="stylesheet" href="/static/css/orchestrator.css">
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 Agent Orchestrator - MCP Protocol</h1>
-            <p>Direct MCP JSON-RPC Integration with Local LLM Server <span class="secure-badge">🔐 Secured</span></p>
+            <h1>🤖 MCP Debug Interface</h1>
+            <p>Direct MCP Protocol Testing</p>
         </div>
 
         <div class="auth-section">
@@ -18,7 +18,6 @@
                 <div class="status-indicator" id="authIndicator"></div>
                 <div class="auth-details">
                     <span class="auth-status-text" id="authStatusText">Not Authenticated</span>
-                    <span class="auth-session-info" id="authSessionInfo">MCP operations require authentication</span>
                 </div>
             </div>
             <textarea class="key-input" id="privateKey" placeholder="Paste your RSA private key here..." rows="4"></textarea>
@@ -26,106 +25,44 @@
         </div>
 
         <div class="main-grid">
-            <div class="panel auth-protected" id="agentsPanel">
+            <div class="panel auth-protected">
                 <div class="panel-header">
                     <h3>📦 Agent Registry</h3>
                     <button class="btn" onclick="refreshAgents()">Refresh</button>
                 </div>
-                <div id="agentsList"></div>
+                <div id="agentsList">
+                    <p style="opacity: 0.7;">Authenticate to load agents</p>
+                </div>
             </div>
 
-            <div class="panel auth-protected" id="toolsPanel">
+            <div class="panel auth-protected">
                 <div class="panel-header">
                     <h3>🎮 MCP Tools</h3>
-                    <span id="selectedAgentName">No agent selected</span>
                 </div>
-
                 <div class="form-group">
-                    <label>MCP Tool:</label>
-                    <select class="tool-selector" id="toolSelector" onchange="updateToolInputs()">
-                        <option value="">Select a tool...</option>
-                        <optgroup label="Agent Management">
-                            <option value="create_agent">Create Agent</option>
-                            <option value="list_agents">List Agents</option>
-                            <option value="get_agent_info">Get Agent Info</option>
-                            <option value="delete_agent">Delete Agent</option>
-                            <option value="chat_with_agent">Chat with Agent</option>
-                            <option value="get_agent_file">Get Agent File</option>
-                        </optgroup>
-                        <optgroup label="Git Operations">
-                            <option value="git_status">Git Status</option>
-                            <option value="git_diff">Git Diff</option>
-                            <option value="git_commit">Git Commit</option>
-                            <option value="git_log">Git Log</option>
-                        </optgroup>
-                        <optgroup label="Testing & Validation">
-                            <option value="run_tests">Run Tests</option>
-                            <option value="run_pre_commit">Run Pre-commit</option>
-                            <option value="validate_file_length">Validate File Length</option>
-                            <option value="validate_agent_file">Validate Agent File</option>
-                        </optgroup>
-                        <optgroup label="System">
-                            <option value="system_status">System Status</option>
-                        </optgroup>
+                    <label>Tool:</label>
+                    <select class="tool-selector" id="toolSelector" onchange="onToolSelected()">
+                        <option value="">Authenticate to load tools...</option>
                     </select>
                 </div>
-
-                <div id="toolInputs">
-                    <!-- Dynamic tool inputs will be inserted here -->
-                </div>
-
+                <div id="toolInputs"></div>
                 <div class="controls">
-                    <button class="btn" onclick="executeMCPTool()" disabled id="executeBtn">Execute Tool</button>
+                    <button class="btn" onclick="executeTool()">Execute</button>
                 </div>
             </div>
 
-            <div class="panel auth-protected" id="actionsPanel">
+            <div class="panel">
                 <div class="panel-header">
-                    <h3>🚀 Quick Actions</h3>
-                    <span id="mcpStatus">MCP Ready</span>
+                    <h3>📜 Terminal</h3>
+                    <button class="btn" onclick="document.getElementById('terminal').innerHTML=''">Clear</button>
                 </div>
-
-                <div class="controls">
-                    <button class="btn" onclick="quickListAgents()">List All Agents</button>
-                    <button class="btn" onclick="getSystemStatus()">System Status</button>
-                </div>
-
-                <div class="form-group" style="margin-top: 20px;">
-                    <label>Quick Agent Chat:</label>
-                    <textarea class="text-area" id="quickMessage" placeholder="Message for selected agent..."></textarea>
-                    <button class="btn" onclick="quickChatWithAgent()" disabled id="quickChatBtn" style="margin-top: 10px;">Send Message</button>
-                </div>
+                <div class="terminal" id="terminal"></div>
             </div>
         </div>
-
-        <div class="terminal" id="terminal">
-            <div class="terminal-line info">MCP-based orchestrator ready. Authenticate to begin.</div>
-        </div>
     </div>
 
-    <div class="websocket-status">
-        <div class="status-indicator" id="wsIndicator"></div>
-        <span id="wsStatus">Disconnected</span>
-    </div>
-
-    <div class="mcp-indicator">
-        <div class="status-indicator" id="mcpIndicator"></div>
-        <span>MCP Protocol</span>
-    </div>
-
-    <div class="auth-indicator">
-        <div class="status-indicator" id="authIndicator2"></div>
-        <span id="authStatus2">Not Authenticated</span>
-    </div>
-
-    <!-- Load MCP client and UI handlers -->
-    <script src="/static/js/mcp-auth-handlers.js"></script>
-    <script src="/static/js/mcp-parsers.js"></script>
+    <!-- Load scripts in correct order -->
     <script src="/static/js/mcp-client.js"></script>
-    <script src="/static/js/agent-helpers.js"></script>
-    <script src="/static/js/agent-operations.js"></script>
-    <script src="/static/js/ui-templates.js"></script>
-    <script src="/static/js/ui-handlers.js"></script>
-    <script src="/static/js/orchestrator-main.js"></script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

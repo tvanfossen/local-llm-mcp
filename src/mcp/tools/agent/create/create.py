@@ -12,23 +12,11 @@ from typing import Any
 
 from src.core.agents.registry.registry import AgentRegistry
 from src.core.config.manager.manager import ConfigManager
+from src.core.utils import create_success, create_error, handle_exception
 
 logger = logging.getLogger(__name__)
 
 
-def _create_success(text: str) -> dict[str, Any]:
-    """Create success response format"""
-    return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _create_error(title: str, message: str) -> dict[str, Any]:
-    """Create error response format"""
-    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
-
-
-def _handle_exception(e: Exception, context: str) -> dict[str, Any]:
-    """Handle exceptions with consistent error format"""
-    return {"content": [{"type": "text", "text": f"❌ **{context} Error:** {str(e)}"}], "isError": True}
 
 
 async def create_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -41,16 +29,16 @@ async def create_agent(args: dict[str, Any]) -> dict[str, Any]:
         initial_context = args.get("initial_context", "")
 
         if not name:
-            return _create_error("Missing Parameter", "Agent name is required")
+            return create_error("Missing Parameter", "Agent name is required")
 
         if not description:
-            return _create_error("Missing Parameter", "Agent description is required")
+            return create_error("Missing Parameter", "Agent description is required")
 
         if not system_prompt:
-            return _create_error("Missing Parameter", "System prompt is required")
+            return create_error("Missing Parameter", "System prompt is required")
 
         if not managed_file:
-            return _create_error("Missing Parameter", "Managed file is required")
+            return create_error("Missing Parameter", "Managed file is required")
 
         config_manager = ConfigManager()
         registry = AgentRegistry(config_manager)
@@ -58,7 +46,7 @@ async def create_agent(args: dict[str, Any]) -> dict[str, Any]:
         # Check if agent with same name already exists
         existing_agent = registry.get_agent_by_name(name)
         if existing_agent:
-            return _create_error("Agent Exists", f"Agent with name '{name}' already exists")
+            return create_error("Agent Exists", f"Agent with name '{name}' already exists")
 
         specialized_files = [managed_file] if managed_file else []
         agent = registry.create_agent(name, description, specialized_files)
@@ -83,11 +71,11 @@ async def create_agent(args: dict[str, Any]) -> dict[str, Any]:
             f"📁 Managed File: {managed_file}"
         )
 
-        return _create_success(success_msg)
+        return create_success(success_msg)
 
     except Exception as e:
         logger.error(f"Failed to create agent: {e}")
-        return _handle_exception(e, "Create Agent")
+        return handle_exception(e, "Create Agent")
 
 
 def _validate_agent_name(name: str) -> str | None:
