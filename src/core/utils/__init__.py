@@ -1,5 +1,5 @@
 """Core utilities package"""
 
-from .response import create_success, create_error, handle_exception
+from .response import create_success, create_error, handle_exception, create_success_with_data
 
-__all__ = ["create_success", "create_error", "handle_exception"]
+__all__ = ["create_success", "create_error", "handle_exception", "create_success_with_data"]

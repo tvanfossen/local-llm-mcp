@@ -5,8 +5,9 @@ Replaces the duplicate _create_success, _create_error, and _handle_exception
 functions scattered throughout the codebase.
 """
 
+import json
 import logging
-from typing import Any
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -48,3 +49,19 @@ def handle_exception(e: Exception, context: str) -> dict[str, Any]:
     """
     logger.error(f"{context} error: {e}")
     return {"content": [{"type": "text", "text": f"❌ **{context} Error:** {str(e)}"}], "isError": True}
+
+
+def create_success_with_data(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create successful MCP response with optional JSON data
+    
+    Args:
+        message: Success message text
+        data: Optional dictionary data to include as JSON
+        
+    Returns:
+        Standardized MCP success response with optional data
+    """
+    content = [{"type": "text", "text": message}]
+    if data:
+        content.append({"type": "text", "text": f"```json\n{json.dumps(data, indent=2)}\n```"})
+    return {"content": content, "isError": False}

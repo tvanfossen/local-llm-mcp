@@ -9,12 +9,6 @@ class MCPClient {
         this.baseUrl = '/mcp';
     }
 
-    /**
-     * Call an MCP tool
-     * @param {string} toolName - Name of the tool
-     * @param {object} args - Tool arguments
-     * @returns {Promise<object>} Tool response
-     */
     async callTool(toolName, args = {}) {
         const request = {
             jsonrpc: "2.0",
@@ -55,10 +49,6 @@ class MCPClient {
     }
 }
 
-/**
- * Main authentication function
- * Called when user clicks the Authenticate button
- */
 async function authenticate() {
     const keyInput = document.getElementById('privateKey');
     const authBtn = document.getElementById('authBtn');
@@ -76,7 +66,6 @@ async function authenticate() {
         return;
     }
 
-    // Validate key format
     if (!privateKey.includes('BEGIN RSA PRIVATE KEY') && !privateKey.includes('BEGIN PRIVATE KEY')) {
         addTerminalLine('❌ Invalid key format. Please paste a valid RSA private key', 'error');
         keyInput.classList.add('error');
@@ -101,29 +90,23 @@ async function authenticate() {
         const data = await response.json();
 
         if (response.ok && data.session_token) {
-            // Authentication successful
             window.authenticated = true;
             window.sessionToken = data.session_token;
             window.sessionId = data.session_id;
             
-            // Store in localStorage for session persistence
             localStorage.setItem('mcp_auth_token', data.session_token);
             localStorage.setItem('mcp_session_id', data.session_id);
             
-            // Calculate session expiry
             if (data.expires_in) {
                 window.sessionExpiry = Date.now() + (data.expires_in * 1000);
                 localStorage.setItem('mcp_session_expiry', window.sessionExpiry);
             }
             
-            // Initialize MCP client with token
             window.mcpClient = new MCPClient(data.session_token);
             
-            // Update UI
             updateAuthUI(true);
             updateMCPStatus('active');
             
-            // Clear the key input for security
             keyInput.value = '';
             
             addTerminalLine('✅ Authentication successful!', 'success');
@@ -134,14 +117,12 @@ async function authenticate() {
                 addTerminalLine(`⏱️ Session expires in ${minutes} minutes`, 'info');
             }
             
-            // Auto-refresh agents after authentication
             setTimeout(() => {
                 addTerminalLine('🔄 Loading agents...', 'info');
                 refreshAgents();
             }, 500);
             
         } else {
-            // Authentication failed
             const errorMsg = data.error || 'Authentication failed';
             throw new Error(errorMsg);
         }
@@ -151,7 +132,6 @@ async function authenticate() {
         addTerminalLine(`❌ Authentication failed: ${error.message}`, 'error');
         keyInput.classList.add('error');
         
-        // Clear any stored session
         localStorage.removeItem('mcp_auth_token');
         localStorage.removeItem('mcp_session_id');
         localStorage.removeItem('mcp_session_expiry');
@@ -169,9 +149,6 @@ async function authenticate() {
     }
 }
 
-/**
- * Handle session expiry
- */
 function handleSessionExpiry() {
     window.authenticated = false;
     window.sessionToken = null;
@@ -179,18 +156,15 @@ function handleSessionExpiry() {
     window.sessionExpiry = null;
     window.mcpClient = null;
     
-    // Clear localStorage
     localStorage.removeItem('mcp_auth_token');
     localStorage.removeItem('mcp_session_id');
     localStorage.removeItem('mcp_session_expiry');
     
-    // Update UI
     updateAuthUI(false);
     updateMCPStatus('inactive');
     
     addTerminalLine('⏰ Session expired - please authenticate again', 'warning');
     
-    // Focus on key input
     const keyInput = document.getElementById('privateKey');
     if (keyInput) {
         keyInput.focus();
@@ -198,55 +172,42 @@ function handleSessionExpiry() {
     }
 }
 
-/**
- * Check and restore session on page load
- */
 function checkSessionOnLoad() {
     const storedToken = localStorage.getItem('mcp_auth_token');
     const storedSessionId = localStorage.getItem('mcp_session_id');
     const storedExpiry = localStorage.getItem('mcp_session_expiry');
     
     if (storedToken && storedSessionId) {
-        // Check if session is still valid
         if (storedExpiry && Date.now() < parseInt(storedExpiry)) {
-            // Restore session
             window.authenticated = true;
             window.sessionToken = storedToken;
             window.sessionId = storedSessionId;
             window.sessionExpiry = parseInt(storedExpiry);
             window.mcpClient = new MCPClient(storedToken);
             
-            // Update UI
             updateAuthUI(true);
             updateMCPStatus('active');
             
             const remainingMinutes = Math.floor((window.sessionExpiry - Date.now()) / 60000);
             addTerminalLine(`✅ Session restored (${remainingMinutes} minutes remaining)`, 'success');
             
-            // Auto-refresh agents
             setTimeout(() => refreshAgents(), 500);
             
-            // Set up session expiry check
             const timeUntilExpiry = window.sessionExpiry - Date.now();
             setTimeout(() => handleSessionExpiry(), timeUntilExpiry);
             
         } else {
-            // Session expired
             handleSessionExpiry();
         }
     }
 }
 
-/**
- * Logout function
- */
 function logout() {
     if (!window.authenticated) {
         addTerminalLine('Not currently authenticated', 'info');
         return;
     }
     
-    // Clear session
     handleSessionExpiry();
     addTerminalLine('✅ Logged out successfully', 'success');
 }
