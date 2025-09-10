@@ -18,27 +18,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.core.config.manager.manager import ConfigManager
+from src.core.utils import create_success, create_error, handle_exception
 
 logger = logging.getLogger(__name__)
 
 
-def _create_success(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create successful MCP response"""
+def _create_success_with_data_with_data(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create successful MCP response with optional JSON data"""
     content = [{"type": "text", "text": message}]
     if data:
         content.append({"type": "text", "text": f"```json\n{data}\n```"})
     return {"content": content, "isError": False}
-
-
-def _create_error(message: str) -> Dict[str, Any]:
-    """Create error MCP response"""
-    return {"content": [{"type": "text", "text": f"❌ **Testing Error:** {message}"}], "isError": True}
-
-
-def _handle_exception(e: Exception, context: str) -> Dict[str, Any]:
-    """Handle exceptions with proper MCP formatting"""
-    logger.error(f"Exception in {context}: {str(e)}", exc_info=True)
-    return _create_error(f"{context}: {str(e)}")
 
 
 class TestGenerator:
@@ -575,7 +565,7 @@ async def generate_tests(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         source_file = args.get("source_file")
         if not source_file:
-            return _create_error("source_file parameter is required")
+            return create_error("Missing Parameter", "source_file parameter is required")
         
         test_file = args.get("test_file")  # Optional
         generate_code = args.get("generate_code", False)
@@ -594,7 +584,7 @@ async def generate_tests(args: Dict[str, Any]) -> Dict[str, Any]:
         try:
             source_path.resolve().relative_to(workspace_root.resolve())
         except ValueError:
-            return _create_error(f"Source path outside workspace: {source_file}")
+            return create_error("Security Error", f"Source path outside workspace: {source_file}")
         
         # Resolve test file path
         test_path = None
@@ -612,12 +602,12 @@ async def generate_tests(args: Dict[str, Any]) -> Dict[str, Any]:
         analysis = generator.analyze_test_coverage(source_path, test_path if test_path.exists() else None)
         
         if "error" in analysis:
-            return _create_error(analysis["error"])
+            return create_error("Analysis Error", analysis["error"])
         
         return _format_test_analysis(source_path, test_path, analysis, generate_code)
     
     except Exception as e:
-        return _handle_exception(e, "generate_tests")
+        return handle_exception(e, "generate_tests")
 
 
 async def analyze_test_coverage(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -670,7 +660,7 @@ async def analyze_test_coverage(args: Dict[str, Any]) -> Dict[str, Any]:
         return _format_coverage_report(coverage_results, coverage_threshold)
     
     except Exception as e:
-        return _handle_exception(e, "analyze_test_coverage")
+        return handle_exception(e, "analyze_test_coverage")
 
 
 def _format_test_analysis(source_path: Path, test_path: Path, analysis: Dict, generate_code: bool) -> Dict[str, Any]:
@@ -742,7 +732,7 @@ def _format_test_analysis(source_path: Path, test_path: Path, analysis: Dict, ge
     else:
         summary += f"\n🎉 **Perfect Test Coverage!** All components have tests.\n"
     
-    return _create_success(summary, {
+    return _create_success_with_data(summary, {
         "source_file": str(source_path),
         "test_file": str(test_path),
         "coverage_percentage": coverage_percent,
@@ -755,7 +745,7 @@ def _format_test_analysis(source_path: Path, test_path: Path, analysis: Dict, ge
 def _format_coverage_report(results: List[Dict], threshold: float) -> Dict[str, Any]:
     """Format project-wide test coverage report"""
     if not results:
-        return _create_success("📊 **No files analyzed** for test coverage")
+        return create_success("📊 **No files analyzed** for test coverage")
     
     # Calculate aggregate statistics
     total_files = len(results)
@@ -842,7 +832,7 @@ def _format_coverage_report(results: List[Dict], threshold: float) -> Dict[str, 
     
     summary += f"\n**Estimated Effort:** {_estimate_testing_effort(results)} hours\n"
     
-    return _create_success(summary, {
+    return _create_success_with_data(summary, {
         "total_files": total_files,
         "overall_coverage": overall_coverage,
         "threshold": threshold,
@@ -877,7 +867,7 @@ async def create_test_suite(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         source_file = args.get("source_file")
         if not source_file:
-            return _create_error("source_file parameter is required")
+            return create_error("Missing Parameter", "source_file parameter is required")
         
         config_manager = ConfigManager()
         workspace_root = config_manager.system.get_workspace_root()
@@ -892,7 +882,7 @@ async def create_test_suite(args: Dict[str, Any]) -> Dict[str, Any]:
         analysis = generator.analyze_test_coverage(source_path)
         
         if "error" in analysis:
-            return _create_error(analysis["error"])
+            return create_error("Analysis Error", analysis["error"])
         
         # Generate test code
         test_code = "# Generated test suite\n"
@@ -916,7 +906,7 @@ async def create_test_suite(args: Dict[str, Any]) -> Dict[str, Any]:
                 generated_code = generator.generate_test_code(func_info, test_cases)
                 test_code += generated_code
         
-        return _create_success(f"🧪 **Generated Test Suite**\n\n```python\n{test_code}\n```")
+        return create_success(f"🧪 **Generated Test Suite**\n\n```python\n{test_code}\n```")
     
     except Exception as e:
-        return _handle_exception(e, "create_test_suite")
+        return handle_exception(e, "create_test_suite")

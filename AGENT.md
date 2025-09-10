@@ -143,7 +143,7 @@ Expected Results:
   - No duplicate agents allowed
 
 Validation Points:
-  - [ ] Agent created successfully
+  - [x] Agent created successfully
   - [ ] Agent appears in list
   - [ ] File ownership enforced
   - [ ] Agent metadata correct

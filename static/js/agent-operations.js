@@ -3,6 +3,57 @@
  * Handles agent management and operations through MCP protocol
  */
 
+// Global variable for current selected agent
+window.currentSelectedAgent = null;
+
+/**
+ * List agents using MCP tool
+ * @returns {object} Result with success flag, message, and data
+ */
+async function listAgents() {
+    if (!window.mcpClient || !window.authenticated) {
+        console.error('MCP client not ready or not authenticated');
+        return { success: false, message: 'Not authenticated', data: [] };
+    }
+
+    try {
+        const response = await window.mcpClient.callTool('list_agents', {});
+        
+        // Debug logging
+        console.log('Raw list_agents response:', response);
+        
+        if (response.isError) {
+            console.error('Error from MCP:', response);
+            return { 
+                success: false, 
+                message: response.content?.[0]?.text || 'Unknown error',
+                data: [] 
+            };
+        }
+
+        // Parse the response using the parser
+        const agents = window.MCPParsers.parseListAgentsResponse(response);
+        
+        // Store globally for debugging
+        window.currentAgents = agents;
+        
+        return {
+            success: true,
+            message: response.content?.[0]?.text || '',
+            data: agents,
+            response: response
+        };
+        
+    } catch (error) {
+        console.error('Failed to list agents:', error);
+        return { 
+            success: false, 
+            message: error.message,
+            data: [] 
+        };
+    }
+}
+
 /**
  * Refresh agents list using MCP
  */
@@ -16,292 +67,214 @@ async function refreshAgents() {
         addTerminalLine('🔄 Refreshing agents via MCP...', 'info');
         const result = await listAgents();
 
-        if (result.success && result.data) {
-            displayAgents(result.data);
-            addTerminalLine(`📚 Loaded ${result.data.length} agents via MCP`, 'success');
+        if (result.success) {
+            if (result.data && result.data.length > 0) {
+                displayAgents(result.data);
+                addTerminalLine(`📚 Loaded ${result.data.length} agents via MCP`, 'success');
+            } else if (result.message.includes('No agents found')) {
+                document.getElementById('agentsList').innerHTML = 
+                    '<p style="opacity: 0.7;">No agents available. Use the create agent tool to create your first agent.</p>';
+                addTerminalLine('📚 No agents found in registry', 'info');
+            } else {
+                // Agents exist but parsing may have issues - show raw message
+                document.getElementById('agentsList').innerHTML = 
+                    '<div style="color: #ff9500; padding: 10px; background: rgba(255,149,0,0.1); border-radius: 4px;">' +
+                    '<strong>⚠️ Agent data present but display parsing failed</strong><br>' +
+                    '<pre style="font-size: 0.8em; margin-top: 10px;">' + 
+                    result.message.substring(0, 500) + '...</pre></div>';
+                addTerminalLine('⚠️ Agent data received but display parsing incomplete', 'warning');
+            }
         } else {
-            // Handle case where no structured data is available - show debug info
-            addTerminalLine('📚 Agents response received but parsing failed', 'warning');
-            if (result.message) {
-                addTerminalLine(`Raw response: ${result.message.substring(0, 100)}...`, 'info');
-            }
-            
-            // If we got a successful response but no parsed data, try to extract agent names manually
-            if (result.success && result.message && result.message.includes('🤖')) {
-                const agentNames = result.message.match(/🤖 \*\*([^*]+)\*\*/g);
-                if (agentNames) {
-                    const simpleList = agentNames.map(match => match.replace('🤖 **', '').replace('**', ''));
-                    document.getElementById('agentsList').innerHTML = 
-                        '<div style="color: #ff9500;"><strong>⚠️ Parsing failed, but found agents:</strong><br>' +
-                        simpleList.map(name => `<div style="margin: 5px 0; padding: 5px; background: rgba(255,149,0,0.1);">${name}</div>`).join('') +
-                        '<br><small>Click "Refresh" to retry parsing</small></div>';
-                    addTerminalLine(`Found ${simpleList.length} agents with manual parsing`, 'info');
-                    return;
-                }
-            }
-            
-            document.getElementById('agentsList').innerHTML = '<p style="opacity: 0.7;">No agents found or data parsing failed</p>';
+            addTerminalLine(`❌ Failed to refresh agents: ${result.message}`, 'error');
+            document.getElementById('agentsList').innerHTML = 
+                `<p style="color: #ff5555;">Error: ${result.message}</p>`;
         }
     } catch (error) {
-        addTerminalLine(`Failed to refresh agents: ${error.message}`, 'error');
+        console.error('Error refreshing agents:', error);
+        addTerminalLine(`❌ Error: ${error.message}`, 'error');
     }
 }
 
-// Display agents function moved to agent-helpers.js
-
-// Select agent function moved to agent-helpers.js
-
 /**
- * Execute selected MCP tool
+ * Display agents in the UI
+ * @param {array} agents - Array of agent objects
  */
-async function executeMCPTool() {
-    const toolSelect = document.getElementById('toolSelector');
-    const toolName = toolSelect.value;
+function displayAgents(agents) {
+    const container = document.getElementById('agentsList');
+    container.innerHTML = '';
 
-    if (!toolName) {
-        addTerminalLine('Please select a tool', 'warning');
+    if (!agents || agents.length === 0) {
+        container.innerHTML = '<p style="opacity: 0.7;">No agents available</p>';
         return;
     }
 
+    agents.forEach(agent => {
+        const card = document.createElement('div');
+        card.className = 'agent-card';
+        card.innerHTML = `
+            <div class="agent-name">${agent.name || agent.id}</div>
+            <div class="agent-file">📄 ${agent.managed_file || `${agent.managed_files_count || 0} files`}</div>
+            <div class="agent-stats">
+                <span>📊 ${agent.total_interactions || 0} interactions</span>
+                <span>✅ ${Math.round((agent.success_rate || 0) * 100)}%</span>
+            </div>
+        `;
+
+        card.onclick = () => selectAgent(agent, card);
+        container.appendChild(card);
+    });
+}
+
+/**
+ * Select an agent for operations
+ * @param {object} agent - Agent object
+ * @param {HTMLElement} card - Agent card element
+ */
+function selectAgent(agent, card) {
+    // Remove previous selection
+    document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
+
+    // Update selection
+    card.classList.add('selected');
+    window.currentSelectedAgent = agent;
+
+    // Update UI
+    const selectedNameEl = document.getElementById('selectedAgentName');
+    if (selectedNameEl) {
+        selectedNameEl.textContent = `${agent.name || agent.id} (${agent.managed_file || 'files'})`;
+        selectedNameEl.style.color = '#00d4ff';
+    }
+
+    // Enable tools that require agent selection
+    updateToolAvailability();
+
+    addTerminalLine(`📌 Selected agent: ${agent.name || agent.id}`, 'info');
+}
+
+/**
+ * Update tool availability based on selection
+ */
+function updateToolAvailability() {
+    const executeBtn = document.getElementById('executeBtn');
+    const quickChatBtn = document.getElementById('quickChatBtn');
+    const toolSelect = document.getElementById('toolSelector');
+
+    if (!executeBtn || !toolSelect) return;
+
+    const selectedTool = toolSelect.value;
+    const agentRequiredTools = [
+        'chat_with_agent', 
+        'get_agent_info',
+        'update_agent',
+        'delete_agent',
+        'validate_agent_file'
+    ];
+
+    // Enable/disable execute button
+    const needsAgent = agentRequiredTools.includes(selectedTool);
+    executeBtn.disabled = !authenticated || !selectedTool || (needsAgent && !window.currentSelectedAgent);
+
+    // Enable/disable quick chat
+    if (quickChatBtn) {
+        quickChatBtn.disabled = !authenticated || !window.currentSelectedAgent;
+    }
+}
+
+/**
+ * Quick list agents action
+ */
+async function quickListAgents() {
     if (!authenticated) {
-        addTerminalLine('Authentication required', 'error');
+        addTerminalLine('Please authenticate first', 'warning');
+        return;
+    }
+
+    await refreshAgents();
+}
+
+/**
+ * Quick chat with selected agent
+ */
+async function quickChatWithAgent() {
+    if (!window.currentSelectedAgent) {
+        addTerminalLine('Please select an agent first', 'warning');
+        return;
+    }
+
+    const messageEl = document.getElementById('quickMessage');
+    const message = messageEl?.value?.trim();
+
+    if (!message) {
+        addTerminalLine('Please enter a message', 'warning');
         return;
     }
 
     try {
-        const parameters = buildToolParameters(toolName);
+        addTerminalLine(`💬 Sending message to ${window.currentSelectedAgent.name}...`, 'info');
+        
+        const result = await window.mcpClient.callTool('chat_with_agent', {
+            agent_id: window.currentSelectedAgent.id,
+            message: message,
+            task_type: 'analyze'
+        });
 
-        if (!validateToolParameters(toolName, parameters)) {
-            return;
-        }
-
-        addTerminalLine(`🚀 Executing MCP tool: ${toolName}`, 'info');
-
-        let result;
-
-        switch (toolName) {
-            case 'create_agent':
-                result = await createAgent(parameters);
-                if (result.success) {
-                    refreshAgents(); // Refresh the list
-                }
-                break;
-
-            case 'list_agents':
-                result = await listAgents();
-                if (result.success && result.data) {
-                    displayAgents(result.data);
-                }
-                break;
-
-            case 'get_agent_info':
-                result = await getAgentInfo(parameters.agent_id);
-                break;
-
-            case 'delete_agent':
-                result = await deleteAgent(parameters.agent_id);
-                if (result.success) {
-                    refreshAgents(); // Refresh the list
-                    currentSelectedAgent = null;
-                    updateSelectedAgentDisplay();
-                }
-                break;
-
-            case 'chat_with_agent':
-                if (!currentSelectedAgent) {
-                    addTerminalLine('Please select an agent first', 'warning');
-                    return;
-                }
-                result = await chatWithAgent(
-                    currentSelectedAgent.id,
-                    parameters.message,
-                    parameters.task_type
-                );
-                break;
-
-            case 'get_agent_file':
-                if (!currentSelectedAgent) {
-                    addTerminalLine('Please select an agent first', 'warning');
-                    return;
-                }
-                result = await getAgentFile(currentSelectedAgent.id);
-                break;
-
-            case 'system_status':
-                result = await getSystemStatus();
-                break;
-
-            // Git Tools
-            case 'git_status':
-                result = await gitStatus();
-                break;
-
-            case 'git_diff':
-                result = await gitDiff(parameters);
-                break;
-
-            case 'git_commit':
-                result = await gitCommit(parameters);
-                if (result.success) {
-                    addTerminalLine('🎉 Git commit successful!', 'success');
-                }
-                break;
-
-            case 'git_log':
-                result = await gitLog(parameters);
-                break;
-
-            // Testing & Validation Tools
-            case 'run_tests':
-                result = await runTests(parameters);
-                break;
-
-            case 'run_pre_commit':
-                result = await runPreCommit(parameters);
-                break;
-
-            case 'validate_file_length':
-                result = await validateFileLength(parameters);
-                break;
-
-            case 'validate_agent_file':
-                if (!currentSelectedAgent) {
-                    addTerminalLine('Please select an agent first', 'warning');
-                    return;
-                }
-                result = await validateAgentFile(currentSelectedAgent.id);
-                break;
-
-            default:
-                addTerminalLine(`Unknown tool: ${toolName}`, 'error');
-                return;
-        }
-
-        if (result.success) {
-            addTerminalLine(`✅ ${toolName} completed successfully`, 'success');
-            if (result.message) {
-                addTerminalLine(`📝 ${result.message.substring(0, 100)}...`, 'info');
-            }
+        const parsed = window.MCPParsers.parseGenericResponse(result);
+        
+        if (parsed.success) {
+            addTerminalLine(`✅ Agent response received`, 'success');
+            addTerminalLine(parsed.message, 'info');
         } else {
-            addTerminalLine(`❌ ${toolName} failed: ${result.error || 'Unknown error'}`, 'error');
+            addTerminalLine(`❌ Agent error: ${parsed.message}`, 'error');
         }
 
-        clearToolInputs();
-
+        // Clear message input
+        if (messageEl) messageEl.value = '';
+        
     } catch (error) {
-        addTerminalLine(`🚫 Tool execution error: ${error.message}`, 'error');
+        console.error('Chat error:', error);
+        addTerminalLine(`❌ Failed to chat: ${error.message}`, 'error');
     }
 }
 
 /**
- * Build parameters for the selected tool from UI inputs
- * @param {string} toolName - Name of the tool
- * @returns {object} - Parameters object
+ * Get system status
  */
-function buildToolParameters(toolName) {
-    const parameters = {};
-
-    switch (toolName) {
-        case 'create_agent':
-            parameters.name = getInputValue('agent_name');
-            parameters.description = getInputValue('agent_description');
-            parameters.system_prompt = getInputValue('agent_system_prompt');
-            parameters.managed_file = getInputValue('agent_managed_file');
-            parameters.initial_context = getInputValue('agent_initial_context');
-            break;
-
-        case 'get_agent_info':
-        case 'delete_agent':
-            parameters.agent_id = getInputValue('target_agent_id') || (currentSelectedAgent && currentSelectedAgent.id);
-            break;
-
-        case 'chat_with_agent':
-            parameters.message = getInputValue('chat_message');
-            parameters.task_type = getInputValue('chat_task_type') || 'update';
-            parameters.context = getInputValue('chat_context');
-            break;
-
-        // Git Tools
-        case 'git_diff':
-            parameters.file_path = getInputValue('git_file_path');
-            parameters.staged = document.getElementById('git_staged')?.checked || false;
-            break;
-
-        case 'git_commit':
-            parameters.message = getInputValue('git_message');
-            const filesText = getInputValue('git_files');
-            if (filesText) {
-                parameters.files = filesText.split('\n').filter(f => f.trim()).map(f => f.trim());
-            }
-            break;
-
-        case 'git_log':
-            parameters.limit = parseInt(getInputValue('git_limit')) || 10;
-            parameters.file_path = getInputValue('git_log_file_path');
-            break;
-
-        // Testing & Validation Tools
-        case 'run_tests':
-            parameters.test_path = getInputValue('test_path');
-            parameters.coverage = document.getElementById('test_coverage')?.checked !== false;
-            parameters.verbose = document.getElementById('test_verbose')?.checked || false;
-            break;
-
-        case 'run_pre_commit':
-            parameters.hook = getInputValue('precommit_hook');
-            parameters.all_files = document.getElementById('precommit_all_files')?.checked || false;
-            break;
-
-        case 'validate_file_length':
-            const filePathsText = getInputValue('file_paths');
-            parameters.file_paths = filePathsText.split('\n').filter(f => f.trim()).map(f => f.trim());
-            parameters.max_lines = parseInt(getInputValue('max_lines')) || 300;
-            break;
-
-        // No parameters needed for these tools
-        case 'list_agents':
-        case 'system_status':
-        case 'get_agent_file':
-        case 'git_status':
-        case 'validate_agent_file':
-            break;
+async function getSystemStatus() {
+    if (!authenticated) {
+        addTerminalLine('Please authenticate first', 'warning');
+        return;
     }
 
-    return parameters;
-}
-
-/**
- * Validate tool parameters
- * @param {string} toolName - Tool name
- * @param {object} parameters - Parameters to validate
- * @returns {boolean} - True if valid
- */
-function validateToolParameters(toolName, parameters) {
-    const validationRules = {
-        'create_agent': ['name', 'description', 'system_prompt', 'managed_file'],
-        'get_agent_info': ['agent_id'],
-        'delete_agent': ['agent_id'],
-        'chat_with_agent': ['message'],
-        'git_commit': ['message'],
-        'validate_file_length': ['file_paths']
-    };
-
-    const required = validationRules[toolName] || [];
-
-    for (const field of required) {
-        if (!parameters[field]) {
-            addTerminalLine(`Missing required field: ${field}`, 'warning');
-            return false;
+    try {
+        addTerminalLine('🔍 Getting system status...', 'info');
+        
+        const result = await window.mcpClient.callTool('system_status', {});
+        const status = window.MCPParsers.parseSystemStatusResponse(result);
+        
+        if (status) {
+            addTerminalLine('📊 System Status:', 'success');
+            addTerminalLine(`  Server: ${status.server.status || 'Unknown'}`, 'info');
+            addTerminalLine(`  Version: ${status.server.version || 'Unknown'}`, 'info');
+            addTerminalLine(`  Agents: ${status.agents.total || 0} total, ${status.agents.active || 0} active`, 'info');
+            addTerminalLine(`  Managed Files: ${status.agents.managedFiles || 0}`, 'info');
+        } else {
+            // Fallback to raw message
+            const parsed = window.MCPParsers.parseGenericResponse(result);
+            addTerminalLine(parsed.message, 'info');
         }
+        
+    } catch (error) {
+        console.error('Status error:', error);
+        addTerminalLine(`❌ Failed to get status: ${error.message}`, 'error');
     }
-
-    return true;
 }
 
-// Quick action functions moved to agent-helpers.js
-
-// Tool availability function moved to agent-helpers.js
-
-// Selected agent display function moved to agent-helpers.js
-
-// Utility functions moved to agent-helpers.js
+// Export functions for global use
+window.listAgents = listAgents;
+window.refreshAgents = refreshAgents;
+window.displayAgents = displayAgents;
+window.selectAgent = selectAgent;
+window.updateToolAvailability = updateToolAvailability;
+window.quickListAgents = quickListAgents;
+window.quickChatWithAgent = quickChatWithAgent;
+window.getSystemStatus = getSystemStatus;

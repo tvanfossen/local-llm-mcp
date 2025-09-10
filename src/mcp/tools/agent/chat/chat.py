@@ -12,23 +12,11 @@ from typing import Any
 
 from src.core.agents.registry.registry import AgentRegistry
 from src.core.config.manager.manager import ConfigManager
+from src.core.utils import create_success, create_error, handle_exception
 
 logger = logging.getLogger(__name__)
 
 
-def _create_success(text: str) -> dict[str, Any]:
-    """Create success response format"""
-    return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _create_error(title: str, message: str) -> dict[str, Any]:
-    """Create error response format"""
-    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
-
-
-def _handle_exception(e: Exception, context: str) -> dict[str, Any]:
-    """Handle exceptions with consistent error format"""
-    return {"content": [{"type": "text", "text": f"❌ **{context} Error:** {str(e)}"}], "isError": True}
 
 
 async def chat_with_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -39,22 +27,22 @@ async def chat_with_agent(args: dict[str, Any]) -> dict[str, Any]:
         task_type = args.get("task_type", "analyze")
 
         if not agent_id:
-            return _create_error("Missing Parameter", "Agent ID is required")
+            return create_error("Missing Parameter", "Agent ID is required")
 
         if not message:
-            return _create_error("Missing Parameter", "Message is required")
+            return create_error("Missing Parameter", "Message is required")
 
         # Validate task type
         valid_task_types = ["update", "create", "analyze", "refactor", "debug", "document", "test"]
         if task_type not in valid_task_types:
-            return _create_error("Invalid Task Type", f"Task type must be one of: {', '.join(valid_task_types)}")
+            return create_error("Invalid Task Type", f"Task type must be one of: {', '.join(valid_task_types)}")
 
         config_manager = ConfigManager()
         registry = AgentRegistry(config_manager)
 
         agent = registry.get_agent(agent_id)
         if not agent:
-            return _create_error("Agent Not Found", f"No agent found with ID: {agent_id}")
+            return create_error("Agent Not Found", f"No agent found with ID: {agent_id}")
 
         # Process the message with the agent
         response = await _process_agent_message(agent, message, task_type)
@@ -66,11 +54,11 @@ async def chat_with_agent(args: dict[str, Any]) -> dict[str, Any]:
         # Save updated state
         agent._save_metadata()
 
-        return _create_success(response)
+        return create_success(response)
 
     except Exception as e:
         logger.error(f"Failed to chat with agent: {e}")
-        return _handle_exception(e, "Chat with Agent")
+        return handle_exception(e, "Chat with Agent")
 
 
 async def _process_agent_message(agent, message: str, task_type: str) -> str:

@@ -1,381 +1,259 @@
 /**
- * MCP JSON-RPC Client for Agent Orchestrator
- * Handles all communication with MCP tools via JSON-RPC 2.0 protocol
+ * MCP Client - Complete Implementation with Authentication
+ * Handles all MCP protocol communication and authentication
  */
+
+class MCPClient {
+    constructor(sessionToken) {
+        this.sessionToken = sessionToken;
+        this.baseUrl = '/mcp';
+    }
+
+    /**
+     * Call an MCP tool
+     * @param {string} toolName - Name of the tool
+     * @param {object} args - Tool arguments
+     * @returns {Promise<object>} Tool response
+     */
+    async callTool(toolName, args = {}) {
+        const request = {
+            jsonrpc: "2.0",
+            id: Date.now(),
+            method: "tools/call",
+            params: {
+                name: toolName,
+                arguments: args
+            }
+        };
+
+        try {
+            const response = await fetch(this.baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.sessionToken}`
+                },
+                body: JSON.stringify(request)
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const jsonrpcResponse = await response.json();
+
+            if (jsonrpcResponse.error) {
+                throw new Error(jsonrpcResponse.error.message || 'MCP error');
+            }
+
+            return jsonrpcResponse.result;
+
+        } catch (error) {
+            console.error('MCP call failed:', error);
+            throw error;
+        }
+    }
+}
 
 /**
- * Core MCP communication function
- * @param {string} toolName - Name of the MCP tool to call
- * @param {object} arguments - Arguments to pass to the tool
- * @returns {Promise<object>} - MCP tool result
+ * Main authentication function
+ * Called when user clicks the Authenticate button
  */
-async function callMCPTool(toolName, arguments = {}) {
-    if (!authenticated) {
-        const authError = new Error('Authentication required for MCP calls');
-        authError.code = 'AUTH_REQUIRED';
-        throw authError;
+async function authenticate() {
+    const keyInput = document.getElementById('privateKey');
+    const authBtn = document.getElementById('authBtn');
+    
+    if (!keyInput || !authBtn) {
+        console.error('Authentication elements not found');
+        return;
     }
 
-    if (sessionExpiry && Date.now() >= sessionExpiry) {
-        handleSessionExpiry();
-        const expiredError = new Error('Session expired - please re-authenticate');
-        expiredError.code = 'SESSION_EXPIRED';
-        throw expiredError;
+    const privateKey = keyInput.value.trim();
+    
+    if (!privateKey) {
+        addTerminalLine('❌ Please paste your RSA private key', 'error');
+        keyInput.classList.add('error');
+        return;
     }
 
-    const request = {
-        "jsonrpc": "2.0",
-        "id": Date.now(),
-        "method": "tools/call",
-        "params": {
-            "name": toolName,
-            "arguments": arguments
-        }
-    };
+    // Validate key format
+    if (!privateKey.includes('BEGIN RSA PRIVATE KEY') && !privateKey.includes('BEGIN PRIVATE KEY')) {
+        addTerminalLine('❌ Invalid key format. Please paste a valid RSA private key', 'error');
+        keyInput.classList.add('error');
+        return;
+    }
+
+    keyInput.classList.remove('error');
+    authBtn.disabled = true;
+    authBtn.textContent = 'Authenticating...';
 
     try {
-        addTerminalLine(`🔗 MCP Call: ${toolName}`, 'info');
-
-        const response = await fetch('/mcp', {
+        addTerminalLine('🔐 Authenticating with MCP server...', 'info');
+        
+        const response = await fetch('/api/orchestrator/authenticate', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': sessionToken ? `Bearer ${sessionToken}` : undefined
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify(request)
+            body: JSON.stringify({ private_key: privateKey })
         });
 
-        if (!response.ok) {
-            await handleHTTPError(response, toolName);
-        }
+        const data = await response.json();
 
-        const jsonrpcResponse = await response.json();
-
-        if (jsonrpcResponse.error) {
-            await handleMCPError(jsonrpcResponse.error, toolName);
-        }
-
-        if (!jsonrpcResponse.result) {
-            throw new Error('No result in MCP response');
-        }
-
-        addTerminalLine(`✅ MCP Success: ${toolName}`, 'success');
-        return jsonrpcResponse.result;
-
-    } catch (error) {
-        await handleMCPCallError(error, toolName);
-        throw error;
-    }
-}
-
-
-
-/**
- * Convert agent management request to MCP format with retry logic
- * @param {string} action - Action type (create, delete, etc.)
- * @param {object} data - Request data
- * @param {number} retryCount - Number of retry attempts (default: 1)
- * @returns {Promise<object>} - Formatted response
- */
-async function executeAgentManagement(action, data, retryCount = 1) {
-    const toolMapping = {
-        'create': 'create_agent',
-        'delete': 'delete_agent',
-        'list': 'list_agents',
-        'info': 'get_agent_info'
-    };
-
-    const toolName = toolMapping[action];
-    if (!toolName) {
-        throw new Error(`Unknown agent management action: ${action}`);
-    }
-
-    try {
-        const result = await callMCPTool(toolName, data);
-        const parsed = parseMCPContent(result);
-
-        // Convert to expected format for UI compatibility
-        return {
-            success: !parsed.isError,
-            data: parsed.data,
-            message: parsed.text,
-            response: parsed.data // For backwards compatibility
-        };
-    } catch (error) {
-        if (shouldRetryAuthentication(error) && retryCount > 0) {
-            addTerminalLine(`🔄 Retrying ${action} after authentication check...`, 'warning');
-
-            // Wait a moment and retry
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return await executeAgentManagement(action, data, retryCount - 1);
-        }
-
-        return {
-            success: false,
-            message: error.message,
-            error: error.code || 'OPERATION_FAILED'
-        };
-    }
-}
-
-
-/**
- * Execute agent operation (chat, file operations, etc.) with retry logic
- * @param {string} operation - Operation type
- * @param {string} agentId - Agent ID
- * @param {object} data - Operation data
- * @param {number} retryCount - Number of retry attempts (default: 1)
- * @returns {Promise<object>} - Operation result
- */
-async function executeAgentOperation(operation, agentId, data, retryCount = 1) {
-    const toolMapping = {
-        'chat': 'chat_with_agent',
-        'get_file': 'get_agent_file',
-        'update_file': 'agent_update_file',
-        'write_file': 'agent_write_file',
-        'validate_file': 'validate_agent_file'
-    };
-
-    const toolName = toolMapping[operation];
-    if (!toolName) {
-        throw new Error(`Unknown agent operation: ${operation}`);
-    }
-
-    try {
-        // Prepare arguments
-        const args = { agent_id: agentId, ...data };
-
-        const result = await callMCPTool(toolName, args);
-        const parsed = parseMCPContent(result);
-
-        return {
-            success: !parsed.isError,
-            response: {
-                message: parsed.text,
-                data: parsed.data,
-                agent_id: agentId
+        if (response.ok && data.session_token) {
+            // Authentication successful
+            window.authenticated = true;
+            window.sessionToken = data.session_token;
+            window.sessionId = data.session_id;
+            
+            // Store in localStorage for session persistence
+            localStorage.setItem('mcp_auth_token', data.session_token);
+            localStorage.setItem('mcp_session_id', data.session_id);
+            
+            // Calculate session expiry
+            if (data.expires_in) {
+                window.sessionExpiry = Date.now() + (data.expires_in * 1000);
+                localStorage.setItem('mcp_session_expiry', window.sessionExpiry);
             }
-        };
-    } catch (error) {
-        if (shouldRetryAuthentication(error) && retryCount > 0) {
-            addTerminalLine(`🔄 Retrying ${operation} for agent ${agentId}...`, 'warning');
-
-            // Wait a moment and retry
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return await executeAgentOperation(operation, agentId, data, retryCount - 1);
-        }
-
-        return {
-            success: false,
-            response: {
-                message: error.message,
-                error: error.code || 'OPERATION_FAILED',
-                agent_id: agentId
+            
+            // Initialize MCP client with token
+            window.mcpClient = new MCPClient(data.session_token);
+            
+            // Update UI
+            updateAuthUI(true);
+            updateMCPStatus('active');
+            
+            // Clear the key input for security
+            keyInput.value = '';
+            
+            addTerminalLine('✅ Authentication successful!', 'success');
+            addTerminalLine(`📍 Session ID: ${data.session_id.substring(0, 8)}...`, 'info');
+            
+            if (data.expires_in) {
+                const minutes = Math.floor(data.expires_in / 60);
+                addTerminalLine(`⏱️ Session expires in ${minutes} minutes`, 'info');
             }
-        };
+            
+            // Auto-refresh agents after authentication
+            setTimeout(() => {
+                addTerminalLine('🔄 Loading agents...', 'info');
+                refreshAgents();
+            }, 500);
+            
+        } else {
+            // Authentication failed
+            const errorMsg = data.error || 'Authentication failed';
+            throw new Error(errorMsg);
+        }
+        
+    } catch (error) {
+        console.error('Authentication error:', error);
+        addTerminalLine(`❌ Authentication failed: ${error.message}`, 'error');
+        keyInput.classList.add('error');
+        
+        // Clear any stored session
+        localStorage.removeItem('mcp_auth_token');
+        localStorage.removeItem('mcp_session_id');
+        localStorage.removeItem('mcp_session_expiry');
+        
+        window.authenticated = false;
+        window.sessionToken = null;
+        window.mcpClient = null;
+        
+        updateAuthUI(false);
+        updateMCPStatus('inactive');
+        
+    } finally {
+        authBtn.disabled = false;
+        authBtn.textContent = window.authenticated ? 'Re-authenticate' : 'Authenticate';
     }
 }
 
 /**
- * Chat with agent using MCP
- * @param {string} agentId - Agent ID
- * @param {string} message - Message to send
- * @param {string} taskType - Task type (optional)
- * @returns {Promise<object>} - Chat response
+ * Handle session expiry
  */
-async function chatWithAgent(agentId, message, taskType = 'update') {
-    return await executeAgentOperation('chat', agentId, {
-        message: message,
-        task_type: taskType
-    });
-}
-
-/**
- * Get agent file content using MCP
- * @param {string} agentId - Agent ID
- * @returns {Promise<object>} - File content
- */
-async function getAgentFile(agentId) {
-    const result = await executeAgentOperation('get_file', agentId, {});
-
-    // Parse file content from response
-    if (result.response && result.response.data) {
-        return {
-            success: true,
-            file: result.response.data
-        };
+function handleSessionExpiry() {
+    window.authenticated = false;
+    window.sessionToken = null;
+    window.sessionId = null;
+    window.sessionExpiry = null;
+    window.mcpClient = null;
+    
+    // Clear localStorage
+    localStorage.removeItem('mcp_auth_token');
+    localStorage.removeItem('mcp_session_id');
+    localStorage.removeItem('mcp_session_expiry');
+    
+    // Update UI
+    updateAuthUI(false);
+    updateMCPStatus('inactive');
+    
+    addTerminalLine('⏰ Session expired - please authenticate again', 'warning');
+    
+    // Focus on key input
+    const keyInput = document.getElementById('privateKey');
+    if (keyInput) {
+        keyInput.focus();
+        keyInput.placeholder = 'Session expired - paste private key to re-authenticate...';
     }
-
-    return result;
 }
 
 /**
- * Create agent using MCP
- * @param {object} agentData - Agent creation data
- * @returns {Promise<object>} - Creation result
+ * Check and restore session on page load
  */
-async function createAgent(agentData) {
-    return await executeAgentManagement('create', agentData);
+function checkSessionOnLoad() {
+    const storedToken = localStorage.getItem('mcp_auth_token');
+    const storedSessionId = localStorage.getItem('mcp_session_id');
+    const storedExpiry = localStorage.getItem('mcp_session_expiry');
+    
+    if (storedToken && storedSessionId) {
+        // Check if session is still valid
+        if (storedExpiry && Date.now() < parseInt(storedExpiry)) {
+            // Restore session
+            window.authenticated = true;
+            window.sessionToken = storedToken;
+            window.sessionId = storedSessionId;
+            window.sessionExpiry = parseInt(storedExpiry);
+            window.mcpClient = new MCPClient(storedToken);
+            
+            // Update UI
+            updateAuthUI(true);
+            updateMCPStatus('active');
+            
+            const remainingMinutes = Math.floor((window.sessionExpiry - Date.now()) / 60000);
+            addTerminalLine(`✅ Session restored (${remainingMinutes} minutes remaining)`, 'success');
+            
+            // Auto-refresh agents
+            setTimeout(() => refreshAgents(), 500);
+            
+            // Set up session expiry check
+            const timeUntilExpiry = window.sessionExpiry - Date.now();
+            setTimeout(() => handleSessionExpiry(), timeUntilExpiry);
+            
+        } else {
+            // Session expired
+            handleSessionExpiry();
+        }
+    }
 }
 
 /**
- * Delete agent using MCP
- * @param {string} agentId - Agent ID to delete
- * @returns {Promise<object>} - Deletion result
+ * Logout function
  */
-async function deleteAgent(agentId) {
-    return await executeAgentManagement('delete', { agent_id: agentId });
+function logout() {
+    if (!window.authenticated) {
+        addTerminalLine('Not currently authenticated', 'info');
+        return;
+    }
+    
+    // Clear session
+    handleSessionExpiry();
+    addTerminalLine('✅ Logged out successfully', 'success');
 }
 
-/**
- * List all agents using MCP
- * @returns {Promise<object>} - Agents list
- */
-async function listAgents() {
-    return await executeAgentManagement('list', {});
-}
-
-/**
- * Get agent info using MCP
- * @param {string} agentId - Agent ID
- * @returns {Promise<object>} - Agent info
- */
-async function getAgentInfo(agentId) {
-    return await executeAgentManagement('info', { agent_id: agentId });
-}
-
-/**
- * Get system status using MCP
- * @returns {Promise<object>} - System status
- */
-async function getSystemStatus() {
-    const result = await callMCPTool('system_status', {});
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        status: parsed.data || { text: parsed.text },
-        message: parsed.text
-    };
-}
-
-// Git Tool Functions
-/**
- * Get git status using MCP
- * @returns {Promise<object>} - Git status result
- */
-async function gitStatus() {
-    const result = await callMCPTool('git_status', {});
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
-
-/**
- * Get git diff using MCP
- * @param {object} params - Git diff parameters
- * @returns {Promise<object>} - Git diff result
- */
-async function gitDiff(params = {}) {
-    const result = await callMCPTool('git_diff', params);
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
-
-/**
- * Create git commit using MCP
- * @param {object} params - Git commit parameters
- * @returns {Promise<object>} - Git commit result
- */
-async function gitCommit(params) {
-    const result = await callMCPTool('git_commit', params);
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
-
-/**
- * Get git log using MCP
- * @param {object} params - Git log parameters
- * @returns {Promise<object>} - Git log result
- */
-async function gitLog(params = {}) {
-    const result = await callMCPTool('git_log', params);
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
-
-// Testing & Validation Tool Functions
-/**
- * Run tests using MCP
- * @param {object} params - Test parameters
- * @returns {Promise<object>} - Test result
- */
-async function runTests(params = {}) {
-    const result = await callMCPTool('run_tests', params);
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
-
-/**
- * Run pre-commit hooks using MCP
- * @param {object} params - Pre-commit parameters
- * @returns {Promise<object>} - Pre-commit result
- */
-async function runPreCommit(params = {}) {
-    const result = await callMCPTool('run_pre_commit', params);
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
-
-/**
- * Validate file length using MCP
- * @param {object} params - File length validation parameters
- * @returns {Promise<object>} - Validation result
- */
-async function validateFileLength(params) {
-    const result = await callMCPTool('validate_file_length', params);
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
-
-/**
- * Validate agent file using MCP
- * @param {string} agentId - Agent ID to validate
- * @returns {Promise<object>} - Validation result
- */
-async function validateAgentFile(agentId) {
-    const result = await callMCPTool('validate_agent_file', { agent_id: agentId });
-    const parsed = parseMCPContent(result);
-
-    return {
-        success: !parsed.isError,
-        message: parsed.text
-    };
-}
+// Export functions for global use
+window.MCPClient = MCPClient;
+window.authenticate = authenticate;
+window.handleSessionExpiry = handleSessionExpiry;
+window.checkSessionOnLoad = checkSessionOnLoad;
+window.logout = logout;

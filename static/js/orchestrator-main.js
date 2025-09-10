@@ -1,210 +1,222 @@
 /**
- * Orchestrator Main Application Logic
- * Handles authentication, WebSocket, and application initialization
+ * Main Orchestrator Entry Point
+ * Initializes the application and manages global state
  */
 
 // Global state
-let authenticated = false;
-let sessionToken = null;
-let currentSelectedAgent = null;
-let ws = null;
-let sessionExpiry = null;
+window.authenticated = false;
+window.mcpClient = null;
+window.currentAgents = [];
+window.currentSelectedAgent = null;
 
-// Initialize on load
-window.onload = () => {
-    initializeApplication();
-};
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Orchestrator initializing...');
+    
+    // Initialize components
+    initializeUI();
+    initializeEventListeners();
+    checkAuthStatus();
+    
+    // Set initial states
+    updateAuthUI(false);
+    updateToolAvailability();
+    
+    console.log('✅ Orchestrator ready');
+});
 
-function initializeApplication() {
-    initWebSocket();
-    updateMCPStatus(true);
-    updateToolInputs();
-    updateAuthenticationUI();
-    addTerminalLine('🔗 MCP JSON-RPC client initialized', 'info');
-    addTerminalLine('📡 All agent operations now use MCP protocol', 'info');
-    addTerminalLine('🔐 Authentication integration enabled', 'info');
-}
-
-function updateMCPStatus(ready) {
-    document.getElementById('mcpIndicator').style.background = ready ? '#50fa7b' : '#ff5555';
-    document.getElementById('mcpStatus').textContent = ready ? 'MCP Ready' : 'MCP Error';
-}
-
-function updateAuthenticationUI() {
-    const panels = ['agentsPanel', 'toolsPanel', 'actionsPanel'];
-    const authIndicators = ['authIndicator', 'authIndicator2'];
-    const authTexts = ['authStatusText', 'authStatus2'];
-
-    panels.forEach(panelId => {
-        const panel = document.getElementById(panelId);
-        if (authenticated) {
-            panel.classList.remove('require-auth');
-        } else {
-            panel.classList.add('require-auth');
-        }
+/**
+ * Initialize UI components
+ */
+function initializeUI() {
+    // Set initial terminal message
+    addTerminalLine('🤖 MCP-based orchestrator ready. Authenticate to begin.', 'info');
+    
+    // Disable protected elements initially
+    document.querySelectorAll('.auth-protected').forEach(el => {
+        el.classList.add('disabled');
     });
-
-    authIndicators.forEach(indicatorId => {
-        const indicator = document.getElementById(indicatorId);
-        indicator.className = 'status-indicator';
-        if (authenticated) {
-            indicator.classList.add('authenticated');
-        } else {
-            indicator.classList.remove('authenticated');
-        }
-    });
-
-    const sessionInfo = document.getElementById('authSessionInfo');
-    if (authenticated && sessionExpiry) {
-        const timeLeft = Math.max(0, Math.floor((sessionExpiry - Date.now()) / 1000));
-        sessionInfo.textContent = `Session expires in ${timeLeft}s`;
-    } else {
-        sessionInfo.textContent = 'MCP operations require authentication';
-    }
+    
+    // Set initial status indicators
+    updateWSStatus('disconnected');
+    updateMCPStatus('inactive');
 }
 
-async function authenticate() {
-    const keyInput = document.getElementById('privateKey');
-    const authBtn = document.getElementById('authBtn');
-
-    if (!keyInput.value) {
-        addTerminalLine('No private key provided', 'error');
-        keyInput.classList.add('error');
-        return;
+/**
+ * Initialize event listeners
+ */
+function initializeEventListeners() {
+    // Tool selector change
+    const toolSelector = document.getElementById('toolSelector');
+    if (toolSelector) {
+        toolSelector.addEventListener('change', handleToolSelectionChange);
     }
-
-    keyInput.classList.remove('error');
-    authBtn.disabled = true;
-    authBtn.textContent = 'Authenticating...';
-
-    try {
-        const response = await fetch('/api/orchestrator/authenticate', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({private_key: keyInput.value})
+    
+    // Quick message enter key
+    const quickMessage = document.getElementById('quickMessage');
+    if (quickMessage) {
+        quickMessage.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                quickChatWithAgent();
+            }
         });
+    }
+    
+    // Private key enter
+    const privateKeyInput = document.getElementById('privateKey');
+    if (privateKeyInput) {
+        privateKeyInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                authenticate();
+            }
+        });
+    }
+}
 
-        if (response.ok) {
-            const data = await response.json();
-            authenticated = true;
-            sessionToken = data.session_token;
-            sessionExpiry = Date.now() + (data.expires_in * 1000);
+/**
+ * Check authentication status on load
+ */
+function checkAuthStatus() {
+    const token = localStorage.getItem('mcp_auth_token');
+    const sessionId = localStorage.getItem('mcp_session_id');
+    
+    if (token && sessionId) {
+        console.log('Found existing session, attempting to restore...');
+        restoreSession(token, sessionId);
+    }
+}
 
-            document.getElementById('authStatusText').textContent = 'Authenticated';
-            document.getElementById('authStatus2').textContent = 'Authenticated';
-
-            addTerminalLine('🔐 Authentication successful - MCP tools enabled', 'success');
-            addTerminalLine(`⏰ Session expires in ${data.expires_in} seconds`, 'info');
-
-            keyInput.value = '';
-            updateAuthenticationUI();
-
-            // Auto-refresh agents after authentication
-            refreshAgents();
-
-            // Start session monitoring
-            startSessionMonitoring();
+/**
+ * Restore existing session
+ */
+async function restoreSession(token, sessionId) {
+    try {
+        // Initialize MCP client with existing token
+        window.mcpClient = new MCPClient(token);
+        
+        // Test the connection
+        const testResult = await window.mcpClient.callTool('system_status', {});
+        
+        if (testResult && !testResult.isError) {
+            window.authenticated = true;
+            updateAuthUI(true);
+            addTerminalLine('✅ Session restored successfully', 'success');
+            
+            // Auto-refresh agents
+            setTimeout(() => refreshAgents(), 500);
         } else {
-            const error = await response.json();
-            addTerminalLine(`❌ Authentication failed: ${error.error || error.message}`, 'error');
-            keyInput.classList.add('error');
+            throw new Error('Session invalid');
         }
     } catch (error) {
-        addTerminalLine(`🚫 Authentication error: ${error}`, 'error');
-        keyInput.classList.add('error');
+        console.error('Failed to restore session:', error);
+        localStorage.removeItem('mcp_auth_token');
+        localStorage.removeItem('mcp_session_id');
+        addTerminalLine('⚠️ Previous session expired, please authenticate again', 'warning');
     }
-
-    authBtn.disabled = false;
-    authBtn.textContent = 'Authenticate';
 }
 
-function startSessionMonitoring() {
-    // Update session info every 10 seconds
-    setInterval(() => {
-        if (authenticated && sessionExpiry) {
-            const timeLeft = Math.max(0, Math.floor((sessionExpiry - Date.now()) / 1000));
-            const sessionInfo = document.getElementById('authSessionInfo');
-            sessionInfo.textContent = `Session expires in ${timeLeft}s`;
+/**
+ * Update WebSocket status indicator
+ */
+function updateWSStatus(status) {
+    const indicator = document.getElementById('wsIndicator');
+    const text = document.getElementById('wsStatus');
+    
+    if (!indicator || !text) return;
+    
+    switch(status) {
+        case 'connected':
+            indicator.style.background = '#00ff88';
+            text.textContent = 'Connected';
+            break;
+        case 'connecting':
+            indicator.style.background = '#ffaa00';
+            text.textContent = 'Connecting...';
+            break;
+        default:
+            indicator.style.background = '#ff5555';
+            text.textContent = 'Disconnected';
+    }
+}
 
-            // Warn when session is about to expire
-            if (timeLeft < 300 && timeLeft > 0) { // 5 minutes
-                const indicator = document.getElementById('authIndicator');
-                indicator.classList.add('expired');
-                if (timeLeft === 299) {
-                    addTerminalLine('⚠️ Session expires in 5 minutes - consider re-authenticating', 'warning');
-                }
-            }
-
-            // Handle session expiry
-            if (timeLeft <= 0) {
-                handleSessionExpiry();
-            }
+/**
+ * Update MCP status indicator
+ */
+function updateMCPStatus(status) {
+    const indicator = document.getElementById('mcpIndicator');
+    const statusText = document.getElementById('mcpStatus');
+    
+    if (indicator) {
+        switch(status) {
+            case 'active':
+                indicator.style.background = '#00ff88';
+                break;
+            case 'processing':
+                indicator.style.background = '#ffaa00';
+                break;
+            default:
+                indicator.style.background = '#ff5555';
         }
-    }, 10000);
-}
-
-function handleSessionExpiry() {
-    authenticated = false;
-    sessionToken = null;
-    sessionExpiry = null;
-
-    document.getElementById('authStatusText').textContent = 'Session Expired';
-    document.getElementById('authStatus2').textContent = 'Session Expired';
-
-    updateAuthenticationUI();
-    addTerminalLine('🔐 Session expired - please re-authenticate', 'warning');
-
-    const keyInput = document.getElementById('privateKey');
-    keyInput.placeholder = 'Session expired - paste private key to re-authenticate...';
-    keyInput.focus();
-}
-
-function initWebSocket() {
-    const wsUrl = `ws://${window.location.host}/ws`;
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-        updateWSStatus('Connected', true);
-        addTerminalLine('WebSocket connected', 'success');
-    };
-
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleWSMessage(data);
-    };
-
-    ws.onclose = () => {
-        updateWSStatus('Disconnected', false);
-        addTerminalLine('WebSocket disconnected', 'error');
-        setTimeout(initWebSocket, 3000);
-    };
-
-    ws.onerror = (error) => {
-        addTerminalLine(`WebSocket error: ${error}`, 'error');
-    };
-}
-
-function updateWSStatus(text, connected) {
-    document.getElementById('wsStatus').textContent = text;
-    document.getElementById('wsIndicator').style.background = connected ? '#50fa7b' : '#ff5555';
-}
-
-function handleWSMessage(data) {
-    if (data.message) {
-        addTerminalLine(data.message, data.level || 'info');
+    }
+    
+    if (statusText) {
+        switch(status) {
+            case 'active':
+                statusText.textContent = 'MCP Ready';
+                statusText.style.color = '#00ff88';
+                break;
+            case 'processing':
+                statusText.textContent = 'Processing...';
+                statusText.style.color = '#ffaa00';
+                break;
+            default:
+                statusText.textContent = 'MCP Inactive';
+                statusText.style.color = '#ff5555';
+        }
     }
 }
 
-function addTerminalLine(text, type = '') {
+/**
+ * Add line to terminal
+ */
+function addTerminalLine(message, type = 'info') {
     const terminal = document.getElementById('terminal');
+    if (!terminal) return;
+    
     const line = document.createElement('div');
     line.className = `terminal-line ${type}`;
-    line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+    
+    // Add timestamp
+    const timestamp = new Date().toLocaleTimeString();
+    line.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+    
     terminal.appendChild(line);
+    
+    // Auto-scroll to bottom
     terminal.scrollTop = terminal.scrollHeight;
-
-    // Limit terminal lines to prevent memory issues
-    while (terminal.children.length > 100) {
+    
+    // Limit terminal history
+    const maxLines = 100;
+    while (terminal.children.length > maxLines) {
         terminal.removeChild(terminal.firstChild);
     }
 }
+
+/**
+ * Clear terminal
+ */
+function clearTerminal() {
+    const terminal = document.getElementById('terminal');
+    if (terminal) {
+        terminal.innerHTML = '';
+        addTerminalLine('Terminal cleared', 'info');
+    }
+}
+
+// Export functions for global use
+window.addTerminalLine = addTerminalLine;
+window.clearTerminal = clearTerminal;
+window.updateWSStatus = updateWSStatus;
+window.updateMCPStatus = updateMCPStatus;

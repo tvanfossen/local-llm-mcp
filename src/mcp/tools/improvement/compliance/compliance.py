@@ -18,27 +18,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.config.manager.manager import ConfigManager
+from src.core.utils import create_success, create_error, handle_exception
 
 logger = logging.getLogger(__name__)
 
 
-def _create_success(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create successful MCP response"""
+def _create_success_with_data_with_data(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create successful MCP response with optional JSON data"""
     content = [{"type": "text", "text": message}]
     if data:
         content.append({"type": "text", "text": f"```json\n{data}\n```"})
     return {"content": content, "isError": False}
-
-
-def _create_error(message: str) -> Dict[str, Any]:
-    """Create error MCP response"""
-    return {"content": [{"type": "text", "text": f"❌ **Compliance Error:** {message}"}], "isError": True}
-
-
-def _handle_exception(e: Exception, context: str) -> Dict[str, Any]:
-    """Handle exceptions with proper MCP formatting"""
-    logger.error(f"Exception in {context}: {str(e)}", exc_info=True)
-    return _create_error(f"{context}: {str(e)}")
 
 
 class ComplianceValidator:
@@ -461,7 +451,7 @@ async def ensure_compliance(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         file_path = args.get("file_path")
         if not file_path:
-            return _create_error("file_path parameter is required")
+            return create_error("file_path parameter is required")
         
         auto_fix = args.get("auto_fix", False)
         report_only = args.get("report_only", True)
@@ -479,10 +469,10 @@ async def ensure_compliance(args: Dict[str, Any]) -> Dict[str, Any]:
         try:
             full_path.resolve().relative_to(workspace_root.resolve())
         except ValueError:
-            return _create_error(f"Path outside workspace: {file_path}")
+            return create_error(f"Path outside workspace: {file_path}")
         
         if not full_path.exists():
-            return _create_error(f"File not found: {file_path}")
+            return create_error(f"File not found: {file_path}")
         
         # Read file content
         content = full_path.read_text(encoding='utf-8')
@@ -494,7 +484,7 @@ async def ensure_compliance(args: Dict[str, Any]) -> Dict[str, Any]:
         return _format_compliance_report(full_path, compliance_result, auto_fix, report_only)
     
     except Exception as e:
-        return _handle_exception(e, "ensure_compliance")
+        return handle_exception(e, "ensure_compliance")
 
 
 async def check_project_compliance(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -534,7 +524,7 @@ async def check_project_compliance(args: Dict[str, Any]) -> Dict[str, Any]:
         return _format_project_compliance_report(results, processed_files)
     
     except Exception as e:
-        return _handle_exception(e, "check_project_compliance")
+        return handle_exception(e, "check_project_compliance")
 
 
 def _format_compliance_report(file_path: Path, result: Dict[str, Any], auto_fix: bool, report_only: bool) -> Dict[str, Any]:
@@ -628,7 +618,7 @@ def _format_compliance_report(file_path: Path, result: Dict[str, Any], auto_fix:
         metrics = cat_result.get("metrics", {})
         file_metrics.update({f"{category}_{k}": v for k, v in metrics.items()})
     
-    return _create_success(summary, {
+    return _create_success_with_data(summary, {
         "file_path": str(file_path),
         "compliance_score": score,
         "compliant": result.get("compliant", False),
@@ -642,7 +632,7 @@ def _format_compliance_report(file_path: Path, result: Dict[str, Any], auto_fix:
 def _format_project_compliance_report(results: List[Dict[str, Any]], processed_files: int) -> Dict[str, Any]:
     """Format project-wide compliance report"""
     if not results:
-        return _create_success(f"📊 **No files processed** from {processed_files} candidates")
+        return _create_success_with_data(f"📊 **No files processed** from {processed_files} candidates")
     
     # Calculate aggregate statistics
     total_violations = sum(len(r.get("violations", [])) for r in results)
@@ -732,7 +722,7 @@ def _format_project_compliance_report(results: List[Dict[str, Any]], processed_f
     
     summary += f"\n**Estimated Effort:** {_estimate_compliance_effort(results)} hours\n"
     
-    return _create_success(summary, {
+    return _create_success_with_data(summary, {
         "processed_files": processed_files,
         "analyzed_files": len(results),
         "average_score": avg_score,
@@ -773,7 +763,7 @@ async def fix_compliance_issues(args: Dict[str, Any]) -> Dict[str, Any]:
         issue_types = args.get("issue_types", ["trailing_whitespace", "line_length"])
         
         if not file_path:
-            return _create_error("file_path parameter is required")
+            return create_error("file_path parameter is required")
         
         # Only allow safe automatic fixes
         safe_fixes = [
@@ -784,7 +774,7 @@ async def fix_compliance_issues(args: Dict[str, Any]) -> Dict[str, Any]:
         
         unsafe_requested = [t for t in issue_types if t not in safe_fixes]
         if unsafe_requested:
-            return _create_error(f"Automatic fixing not available for: {', '.join(unsafe_requested)}")
+            return create_error(f"Automatic fixing not available for: {', '.join(unsafe_requested)}")
         
         config_manager = ConfigManager()
         workspace_root = config_manager.system.get_workspace_root()
@@ -798,10 +788,10 @@ async def fix_compliance_issues(args: Dict[str, Any]) -> Dict[str, Any]:
         try:
             full_path.resolve().relative_to(workspace_root.resolve())
         except ValueError:
-            return _create_error(f"Path outside workspace: {file_path}")
+            return create_error(f"Path outside workspace: {file_path}")
         
         if not full_path.exists():
-            return _create_error(f"File not found: {file_path}")
+            return create_error(f"File not found: {file_path}")
         
         # Read and fix content
         original_content = full_path.read_text(encoding='utf-8')
@@ -849,13 +839,13 @@ async def fix_compliance_issues(args: Dict[str, Any]) -> Dict[str, Any]:
             for fix in fixes_applied:
                 summary += f"   ✅ {fix}\n"
             
-            return _create_success(summary, {
+            return _create_success_with_data(summary, {
                 "file_path": str(full_path),
                 "fixes_applied": fixes_applied,
                 "changes_made": True
             })
         else:
-            return _create_success(f"✅ **No fixes needed** for {full_path.name} - file already compliant for requested issues")
+            return _create_success_with_data(f"✅ **No fixes needed** for {full_path.name} - file already compliant for requested issues")
     
     except Exception as e:
-        return _handle_exception(e, "fix_compliance_issues")
+        return handle_exception(e, "fix_compliance_issues")

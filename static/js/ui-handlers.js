@@ -1,218 +1,369 @@
 /**
- * UI Handlers - Dynamic UI Management for MCP Tools
- * Handles tool input generation and UI updates
+ * UI Event Handlers
+ * Handles all UI interactions and updates
  */
 
 /**
- * Update tool inputs based on selected tool
+ * Handle tool selection change
  */
-function updateToolInputs() {
-    const toolSelect = document.getElementById('toolSelector');
-    const toolName = toolSelect.value;
-    const container = document.getElementById('toolInputs');
-
-    if (!toolName) {
-        container.innerHTML = '<p style="opacity: 0.7; font-style: italic;">Select a tool to see its parameters</p>';
-        updateToolAvailability();
+function handleToolSelectionChange() {
+    const toolSelector = document.getElementById('toolSelector');
+    const toolInputs = document.getElementById('toolInputs');
+    const executeBtn = document.getElementById('executeBtn');
+    
+    if (!toolSelector || !toolInputs) return;
+    
+    const selectedTool = toolSelector.value;
+    
+    // Clear previous inputs
+    toolInputs.innerHTML = '';
+    
+    if (!selectedTool) {
+        if (executeBtn) executeBtn.disabled = true;
         return;
     }
-
-    const toolInputTemplates = {
-        'create_agent': generateCreateAgentInputs(),
-        'list_agents': generateNoParamsMessage('Lists all agents in the registry'),
-        'get_agent_info': generateAgentIdInput('Get detailed information about an agent'),
-        'delete_agent': generateAgentIdInput('⚠️ Warning: This will permanently delete the agent'),
-        'chat_with_agent': generateChatInputs(),
-        'get_agent_file': generateNoParamsMessage('Gets the file content managed by the selected agent'),
-        'system_status': generateNoParamsMessage('Displays system and model status information'),
-        // Git Tools
-        'git_status': generateNoParamsMessage('Check git repository status and changes (system-wide operation)'),
-        'git_diff': generateGitDiffInputs(),
-        'git_commit': generateGitCommitInputs(),
-        'git_log': generateGitLogInputs(),
-        // Testing & Validation Tools
-        'run_tests': generateRunTestsInputs(),
-        'run_pre_commit': generatePreCommitInputs(),
-        'validate_file_length': generateFileLengthInputs(),
-        'validate_agent_file': generateAgentIdInput('Validate agent file meets all requirements')
-    };
-
-    container.innerHTML = toolInputTemplates[toolName] || '<p style="color: #ff5555;">Unknown tool selected</p>';
+    
+    // Generate inputs based on tool
+    const inputs = generateToolInputs(selectedTool);
+    toolInputs.innerHTML = inputs;
+    
+    // Update button availability
     updateToolAvailability();
-}
-
-// Template generation functions moved to ui-templates.js
-
-
-
-
-/**
- * Handle tool selection changes
- */
-function onToolSelectionChange() {
-    updateToolInputs();
-
-    // Auto-fill agent ID if an agent is selected
-    const toolSelect = document.getElementById('toolSelector');
-    const agentIdInput = document.getElementById('target_agent_id');
-
-    if (agentIdInput && currentSelectedAgent) {
-        agentIdInput.value = currentSelectedAgent.id;
-    }
+    
+    // Add event listeners to new inputs
+    attachInputValidation();
 }
 
 /**
- * Format MCP response for display
+ * Generate input fields for selected tool
+ * @param {string} toolName - Name of the selected tool
+ * @returns {string} HTML string for inputs
  */
-function formatMCPResponse(response) {
-    if (typeof response === 'string') {
-        return response;
+function generateToolInputs(toolName) {
+    const toolInputConfigs = {
+        'create_agent': [
+            { name: 'name', label: 'Agent Name', type: 'text', required: true },
+            { name: 'description', label: 'Description', type: 'text', required: true },
+            { name: 'managed_file', label: 'File to Manage', type: 'text', required: true },
+            { name: 'system_prompt', label: 'System Prompt', type: 'textarea', required: true }
+        ],
+        'chat_with_agent': [
+            { name: 'agent_id', label: 'Agent ID', type: 'agent-select', required: true },
+            { name: 'message', label: 'Message', type: 'textarea', required: true },
+            { name: 'task_type', label: 'Task Type', type: 'select', 
+              options: ['analyze', 'update', 'create', 'refactor', 'debug', 'document', 'test'],
+              required: true }
+        ],
+        'update_agent': [
+            { name: 'agent_id', label: 'Agent ID', type: 'agent-select', required: true },
+            { name: 'name', label: 'New Name', type: 'text' },
+            { name: 'description', label: 'New Description', type: 'text' },
+            { name: 'system_prompt', label: 'New System Prompt', type: 'textarea' }
+        ],
+        'delete_agent': [
+            { name: 'agent_id', label: 'Agent ID', type: 'agent-select', required: true },
+            { name: 'force', label: 'Force Delete', type: 'checkbox' }
+        ],
+        'read_file': [
+            { name: 'file_path', label: 'File Path', type: 'text', required: true },
+            { name: 'start_line', label: 'Start Line', type: 'number', min: 1 },
+            { name: 'end_line', label: 'End Line', type: 'number', min: 1 },
+            { name: 'show_line_numbers', label: 'Show Line Numbers', type: 'checkbox', checked: true }
+        ],
+        'write_file': [
+            { name: 'file_path', label: 'File Path', type: 'text', required: true },
+            { name: 'content', label: 'Content', type: 'textarea', required: true },
+            { name: 'overwrite', label: 'Overwrite if Exists', type: 'checkbox' },
+            { name: 'create_dirs', label: 'Create Directories', type: 'checkbox', checked: true }
+        ],
+        'list_files': [
+            { name: 'directory_path', label: 'Directory', type: 'text', placeholder: '.' },
+            { name: 'pattern', label: 'Pattern', type: 'text', placeholder: '*.py' },
+            { name: 'recursive', label: 'Recursive', type: 'checkbox' },
+            { name: 'include_hidden', label: 'Include Hidden', type: 'checkbox' }
+        ],
+        'git_commit': [
+            { name: 'message', label: 'Commit Message', type: 'text', required: true },
+            { name: 'files', label: 'Files (comma-separated)', type: 'text', placeholder: 'Leave empty for all' }
+        ],
+        'run_tests': [
+            { name: 'test_path', label: 'Test Path', type: 'text', placeholder: 'src/' },
+            { name: 'coverage', label: 'Generate Coverage', type: 'checkbox', checked: true },
+            { name: 'verbose', label: 'Verbose Output', type: 'checkbox' }
+        ]
+    };
+    
+    const config = toolInputConfigs[toolName] || [];
+    
+    if (config.length === 0) {
+        return '<p style="opacity: 0.7;">No parameters required for this tool</p>';
     }
-
-    if (response.message) {
-        return response.message;
-    }
-
-    if (response.text) {
-        return response.text;
-    }
-
-    return JSON.stringify(response, null, 2);
-}
-
-
-/**
- * Show loading state for buttons
- */
-function setButtonLoading(buttonId, loading) {
-    const button = document.getElementById(buttonId);
-    if (!button) return;
-
-    if (loading) {
-        button.disabled = true;
-        button.textContent = button.textContent.replace(/^/, '⏳ ');
-    } else {
-        button.disabled = false;
-        button.textContent = button.textContent.replace('⏳ ', '');
-    }
-}
-
-/**
- * Handle keyboard shortcuts
- */
-document.addEventListener('keydown', function(event) {
-    // Ctrl/Cmd + Enter to execute tool
-    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        const executeBtn = document.getElementById('executeBtn');
-        if (!executeBtn.disabled) {
-            executeMCPTool();
+    
+    return config.map(input => {
+        const requiredAttr = input.required ? 'required' : '';
+        const inputId = `tool_input_${input.name}`;
+        
+        let html = `<div class="form-group">`;
+        html += `<label for="${inputId}">${input.label}${input.required ? ' *' : ''}</label>`;
+        
+        switch(input.type) {
+            case 'textarea':
+                html += `<textarea id="${inputId}" name="${input.name}" 
+                        class="text-area" ${requiredAttr}></textarea>`;
+                break;
+                
+            case 'checkbox':
+                html += `<input type="checkbox" id="${inputId}" name="${input.name}" 
+                        ${input.checked ? 'checked' : ''}>`;
+                break;
+                
+            case 'number':
+                html += `<input type="number" id="${inputId}" name="${input.name}" 
+                        class="tool-input" ${input.min ? `min="${input.min}"` : ''} 
+                        ${input.max ? `max="${input.max}"` : ''} ${requiredAttr}>`;
+                break;
+                
+            case 'select':
+                html += `<select id="${inputId}" name="${input.name}" class="tool-selector" ${requiredAttr}>`;
+                html += `<option value="">Select...</option>`;
+                input.options.forEach(opt => {
+                    html += `<option value="${opt}">${opt}</option>`;
+                });
+                html += `</select>`;
+                break;
+                
+            case 'agent-select':
+                html += `<select id="${inputId}" name="${input.name}" class="tool-selector" ${requiredAttr}>`;
+                html += `<option value="">Select agent...</option>`;
+                if (window.currentAgents) {
+                    window.currentAgents.forEach(agent => {
+                        const selected = window.currentSelectedAgent?.id === agent.id ? 'selected' : '';
+                        html += `<option value="${agent.id}" ${selected}>${agent.name || agent.id}</option>`;
+                    });
+                }
+                html += `</select>`;
+                break;
+                
+            default:
+                html += `<input type="${input.type || 'text'}" id="${inputId}" 
+                        name="${input.name}" class="tool-input" 
+                        ${input.placeholder ? `placeholder="${input.placeholder}"` : ''} 
+                        ${requiredAttr}>`;
         }
-        event.preventDefault();
-    }
+        
+        html += `</div>`;
+        return html;
+    }).join('');
+}
 
-    // Escape to clear selection
-    if (event.key === 'Escape') {
-        currentSelectedAgent = null;
-        document.querySelectorAll('.agent-card').forEach(card => {
-            card.classList.remove('selected');
+/**
+ * Execute selected MCP tool
+ */
+async function executeMCPTool() {
+    const toolSelector = document.getElementById('toolSelector');
+    const selectedTool = toolSelector?.value;
+    
+    if (!selectedTool) {
+        addTerminalLine('Please select a tool', 'warning');
+        return;
+    }
+    
+    // Gather input values
+    const inputs = {};
+    document.querySelectorAll('#toolInputs input, #toolInputs textarea, #toolInputs select').forEach(el => {
+        if (el.type === 'checkbox') {
+            inputs[el.name] = el.checked;
+        } else if (el.value) {
+            // Parse arrays if needed
+            if (el.name === 'files' && el.value.includes(',')) {
+                inputs[el.name] = el.value.split(',').map(f => f.trim()).filter(f => f);
+            } else {
+                inputs[el.name] = el.value;
+            }
+        }
+    });
+    
+    // Validate required fields
+    const requiredFields = document.querySelectorAll('#toolInputs [required]');
+    for (let field of requiredFields) {
+        if (!field.value) {
+            addTerminalLine(`Missing required field: ${field.previousElementSibling.textContent}`, 'error');
+            field.focus();
+            return;
+        }
+    }
+    
+    try {
+        updateMCPStatus('processing');
+        addTerminalLine(`🔧 Executing tool: ${selectedTool}`, 'info');
+        
+        const result = await window.mcpClient.callTool(selectedTool, inputs);
+        
+        // Parse response based on tool type
+        let parsed;
+        if (selectedTool === 'list_agents') {
+            const agents = window.MCPParsers.parseListAgentsResponse(result);
+            if (agents.length > 0) {
+                window.currentAgents = agents;
+                displayAgents(agents);
+            }
+            parsed = window.MCPParsers.parseGenericResponse(result);
+        } else if (selectedTool === 'get_agent_info') {
+            const agentInfo = window.MCPParsers.parseAgentInfoResponse(result);
+            if (agentInfo) {
+                addTerminalLine(`Agent: ${agentInfo.name} (${agentInfo.id})`, 'success');
+                addTerminalLine(`Files: ${agentInfo.managed_files_count}, Interactions: ${agentInfo.total_interactions}`, 'info');
+            }
+            parsed = window.MCPParsers.parseGenericResponse(result);
+        } else if (selectedTool === 'system_status') {
+            const status = window.MCPParsers.parseSystemStatusResponse(result);
+            if (status) {
+                addTerminalLine('System Status:', 'success');
+                addTerminalLine(`  Server: ${status.server.status || 'Unknown'}`, 'info');
+                addTerminalLine(`  Agents: ${status.agents.total || 0}`, 'info');
+            }
+            parsed = window.MCPParsers.parseGenericResponse(result);
+        } else {
+            parsed = window.MCPParsers.parseGenericResponse(result);
+        }
+        
+        if (parsed.success) {
+            addTerminalLine('✅ Tool executed successfully', 'success');
+            if (parsed.message) {
+                // Split long messages into multiple lines
+                const lines = parsed.message.split('\n');
+                lines.forEach(line => {
+                    if (line.trim()) {
+                        addTerminalLine(line, 'info');
+                    }
+                });
+            }
+            
+            // Refresh agents if agent-related tool was used
+            if (['create_agent', 'delete_agent', 'update_agent'].includes(selectedTool)) {
+                setTimeout(() => refreshAgents(), 500);
+            }
+        } else {
+            addTerminalLine(`❌ Tool execution failed: ${parsed.message}`, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Tool execution error:', error);
+        addTerminalLine(`❌ Error: ${error.message}`, 'error');
+    } finally {
+        updateMCPStatus('active');
+    }
+}
+
+/**
+ * Attach validation to input fields
+ */
+function attachInputValidation() {
+    // Add real-time validation for file paths
+    document.querySelectorAll('input[name="file_path"], input[name="managed_file"]').forEach(input => {
+        input.addEventListener('input', function() {
+            const value = this.value;
+            if (value && (value.includes('..') || value.startsWith('/'))) {
+                this.classList.add('error');
+                this.setCustomValidity('Path must be relative and cannot contain ..');
+            } else {
+                this.classList.remove('error');
+                this.setCustomValidity('');
+            }
         });
-        updateSelectedAgentDisplay();
-    }
-});
-
-/**
- * Auto-resize textareas
- */
-function setupAutoResize() {
-    document.addEventListener('input', function(event) {
-        if (event.target.classList.contains('text-area')) {
-            event.target.style.height = 'auto';
-            event.target.style.height = event.target.scrollHeight + 'px';
-        }
+    });
+    
+    // Add validation for agent names
+    document.querySelectorAll('input[name="name"]').forEach(input => {
+        input.addEventListener('input', function() {
+            const value = this.value;
+            if (value && !/^[a-zA-Z0-9_-]+$/.test(value)) {
+                this.classList.add('error');
+                this.setCustomValidity('Name can only contain letters, numbers, hyphens, and underscores');
+            } else {
+                this.classList.remove('error');
+                this.setCustomValidity('');
+            }
+        });
     });
 }
 
 /**
- * Initialize UI handlers
+ * Update authentication UI
+ * @param {boolean} isAuthenticated - Authentication status
  */
-function initializeUIHandlers() {
-    setupAutoResize();
-
-    // Add event listener for tool selection
-    const toolSelect = document.getElementById('toolSelector');
-    if (toolSelect) {
-        toolSelect.addEventListener('change', onToolSelectionChange);
-    }
-
-    // Set up periodic UI updates
-    setInterval(updateToolAvailability, 1000);
-}
-
-/**
- * Copy text to clipboard
- */
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-        addTerminalLine('📋 Copied to clipboard', 'success');
-    } catch (error) {
-        addTerminalLine('Failed to copy to clipboard', 'error');
-    }
-}
-
-/**
- * Download content as file
- */
-function downloadAsFile(content, filename, type = 'text/plain') {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    addTerminalLine(`💾 Downloaded: ${filename}`, 'success');
-}
-
-/**
- * Show tooltip
- */
-function showTooltip(element, text) {
-    const tooltip = document.createElement('div');
-    tooltip.className = 'tooltip';
-    tooltip.textContent = text;
-    tooltip.style.cssText = `
-        position: absolute;
-        background: rgba(26, 31, 58, 0.9);
-        color: #e0e6ed;
-        padding: 8px 12px;
-        border-radius: 4px;
-        font-size: 0.8em;
-        border: 1px solid #2d3561;
-        z-index: 1000;
-        pointer-events: none;
-    `;
-
-    document.body.appendChild(tooltip);
-
-    const rect = element.getBoundingClientRect();
-    tooltip.style.left = rect.left + 'px';
-    tooltip.style.top = (rect.bottom + 5) + 'px';
-
-    setTimeout(() => {
-        if (tooltip.parentNode) {
-            tooltip.parentNode.removeChild(tooltip);
+function updateAuthUI(isAuthenticated) {
+    window.authenticated = isAuthenticated;
+    
+    const authIndicator = document.getElementById('authIndicator');
+    const authIndicator2 = document.getElementById('authIndicator2');
+    const authStatusText = document.getElementById('authStatusText');
+    const authStatus2 = document.getElementById('authStatus2');
+    const authSessionInfo = document.getElementById('authSessionInfo');
+    const authBtn = document.getElementById('authBtn');
+    
+    if (isAuthenticated) {
+        // Update indicators
+        if (authIndicator) authIndicator.style.background = '#00ff88';
+        if (authIndicator2) authIndicator2.style.background = '#00ff88';
+        
+        // Update text
+        if (authStatusText) authStatusText.textContent = 'Authenticated';
+        if (authStatus2) authStatus2.textContent = 'Authenticated';
+        
+        // Update session info
+        const sessionId = localStorage.getItem('mcp_session_id');
+        if (authSessionInfo && sessionId) {
+            authSessionInfo.textContent = `Session: ${sessionId.substring(0, 8)}...`;
         }
-    }, 3000);
+        
+        // Update button
+        if (authBtn) {
+            authBtn.textContent = 'Re-authenticate';
+            authBtn.classList.add('authenticated');
+        }
+        
+        // Enable protected panels
+        document.querySelectorAll('.auth-protected').forEach(el => {
+            el.classList.remove('disabled');
+        });
+        
+        // Update MCP status
+        updateMCPStatus('active');
+        
+    } else {
+        // Update indicators
+        if (authIndicator) authIndicator.style.background = '#ff5555';
+        if (authIndicator2) authIndicator2.style.background = '#ff5555';
+        
+        // Update text
+        if (authStatusText) authStatusText.textContent = 'Not Authenticated';
+        if (authStatus2) authStatus2.textContent = 'Not Authenticated';
+        
+        // Update session info
+        if (authSessionInfo) {
+            authSessionInfo.textContent = 'MCP operations require authentication';
+        }
+        
+        // Update button
+        if (authBtn) {
+            authBtn.textContent = 'Authenticate';
+            authBtn.classList.remove('authenticated');
+        }
+        
+        // Disable protected panels
+        document.querySelectorAll('.auth-protected').forEach(el => {
+            el.classList.add('disabled');
+        });
+        
+        // Update MCP status
+        updateMCPStatus('inactive');
+    }
 }
 
-// Initialize UI handlers when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeUIHandlers);
-} else {
-    initializeUIHandlers();
-}
+// Export functions
+window.handleToolSelectionChange = handleToolSelectionChange;
+window.generateToolInputs = generateToolInputs;
+window.executeMCPTool = executeMCPTool;
+window.attachInputValidation = attachInputValidation;
+window.updateAuthUI = updateAuthUI;

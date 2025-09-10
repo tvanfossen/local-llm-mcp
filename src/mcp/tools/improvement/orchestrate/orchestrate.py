@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.config.manager.manager import ConfigManager
+from src.core.utils import create_success, create_error, handle_exception
 from src.mcp.tools.improvement.analyze.analyze import analyze_code_quality, analyze_project_health
 from src.mcp.tools.improvement.refactor.refactor import suggest_refactoring, generate_refactoring_plan
 from src.mcp.tools.improvement.document.document import add_documentation, generate_type_hints
@@ -26,23 +27,12 @@ from src.mcp.tools.improvement.testing.testing import generate_tests, analyze_te
 logger = logging.getLogger(__name__)
 
 
-def _create_success(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create successful MCP response"""
+def _create_success_with_data(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create successful MCP response with optional JSON data"""
     content = [{"type": "text", "text": message}]
     if data:
         content.append({"type": "text", "text": f"```json\n{data}\n```"})
     return {"content": content, "isError": False}
-
-
-def _create_error(message: str) -> Dict[str, Any]:
-    """Create error MCP response"""
-    return {"content": [{"type": "text", "text": f"❌ **Orchestration Error:** {message}"}], "isError": True}
-
-
-def _handle_exception(e: Exception, context: str) -> Dict[str, Any]:
-    """Handle exceptions with proper MCP formatting"""
-    logger.error(f"Exception in {context}: {str(e)}", exc_info=True)
-    return _create_error(f"{context}: {str(e)}")
 
 
 class ImprovementOrchestrator:
@@ -290,7 +280,7 @@ async def auto_improve_file(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         file_path = args.get("file_path")
         if not file_path:
-            return _create_error("file_path parameter is required")
+            return create_error("Missing Parameter", "file_path parameter is required")
         
         dry_run = args.get("dry_run", True)  # Default to dry run for safety
         improvement_areas = args.get("improvement_areas", ["all"])  # quality, refactoring, documentation, compliance, testing
@@ -309,22 +299,22 @@ async def auto_improve_file(args: Dict[str, Any]) -> Dict[str, Any]:
         try:
             full_path.resolve().relative_to(workspace_root.resolve())
         except ValueError:
-            return _create_error(f"Path outside workspace: {file_path}")
+            return create_error("Security Error", f"Path outside workspace: {file_path}")
         
         if not full_path.exists():
-            return _create_error(f"File not found: {file_path}")
+            return create_error("File Error", f"File not found: {file_path}")
         
         # Run comprehensive analysis
         orchestrator = ImprovementOrchestrator()
         analysis = await orchestrator.analyze_file_comprehensively(full_path)
         
         if "error" in analysis:
-            return _create_error(f"Analysis failed: {analysis['error']}")
+            return create_error("Analysis Error", f"Analysis failed: {analysis['error']}")
         
         return _format_improvement_results(full_path, analysis, dry_run, improvement_areas)
     
     except Exception as e:
-        return _handle_exception(e, "auto_improve_file")
+        return handle_exception(e, "auto_improve_file")
 
 
 async def create_improvement_plan(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -379,7 +369,7 @@ async def create_improvement_plan(args: Dict[str, Any]) -> Dict[str, Any]:
         return _format_project_improvement_plan(project_analysis, focus_areas)
     
     except Exception as e:
-        return _handle_exception(e, "create_improvement_plan")
+        return handle_exception(e, "create_improvement_plan")
 
 
 def _generate_project_insights(project_analysis: Dict[str, Any]) -> Dict[str, Any]:
@@ -601,7 +591,7 @@ def _format_improvement_results(file_path: Path, analysis: Dict, dry_run: bool, 
     else:
         summary += f"\n🎉 **File is in excellent condition!** Minor polish recommended.\n"
     
-    return _create_success(summary, {
+    return _create_success_with_data(summary, {
         "file_path": str(file_path),
         "overall_score": overall_score,
         "category_scores": category_scores,
@@ -707,7 +697,7 @@ def _format_project_improvement_plan(project_analysis: Dict, focus_areas: List[s
     summary += f"   • 80%+ test coverage across project\n"
     summary += f"   • Complete documentation for all public APIs\n"
     
-    return _create_success(summary, {
+    return _create_success_with_data(summary, {
         "total_files": total_files,
         "analyzed_files": analyzed_files,
         "project_health": avg_score,
@@ -726,7 +716,7 @@ async def execute_improvement_plan(args: Dict[str, Any]) -> Dict[str, Any]:
         backup = args.get("backup", True)  # Create backup before changes
         
         if not target:
-            return _create_error("target parameter is required")
+            return create_error("Missing Parameter", "target parameter is required")
         
         # This would execute the actual improvement plan
         # For now, return a planning summary
@@ -754,7 +744,7 @@ async def execute_improvement_plan(args: Dict[str, Any]) -> Dict[str, Any]:
         summary += f"   3. Test changes incrementally\n"
         summary += f"   4. Monitor system health throughout the process\n"
         
-        return _create_success(summary)
+        return create_success(summary)
     
     except Exception as e:
-        return _handle_exception(e, "execute_improvement_plan")
+        return handle_exception(e, "execute_improvement_plan")

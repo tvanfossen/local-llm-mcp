@@ -13,17 +13,11 @@ Template version: 1.0.0
 import logging
 from typing import Any
 
+from src.core.utils import create_success, create_error, handle_exception
+
 logger = logging.getLogger(__name__)
 
 
-def _create_success(text: str) -> dict[str, Any]:
-    """Create success response format"""
-    return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _create_error(title: str, message: str) -> dict[str, Any]:
-    """Create error response format"""
-    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
 
 
 async def validate_agent_file(args: dict[str, Any]) -> dict[str, Any]:
@@ -32,7 +26,7 @@ async def validate_agent_file(args: dict[str, Any]) -> dict[str, Any]:
         agent_id = args.get("agent_id")
 
         if not agent_id:
-            return _create_error("Missing Parameter", "agent_id is required")
+            return create_error("Missing Parameter", "agent_id is required")
 
         # This would normally get the agent and check its file
         # For now, return a mock validation result
@@ -63,11 +57,11 @@ async def validate_agent_file(args: dict[str, Any]) -> dict[str, Any]:
         result += "\n**Overall Status:** "
         if all_valid:
             result += "✅ All checks passed!"
-            return _create_success(result)
+            return create_success(result)
         else:
             result += "❌ Some checks failed"
-            return _create_error("Validation Failed", result)
+            return create_error("Validation Failed", result)
 
     except Exception as e:
         logger.error(f"Agent file validation failed: {e}")
-        return _create_error("Validation Failed", str(e))
+        return create_error("Validation Failed", str(e))

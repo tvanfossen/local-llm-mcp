@@ -12,23 +12,11 @@ from typing import Any
 
 from src.core.agents.registry.registry import AgentRegistry
 from src.core.config.manager.manager import ConfigManager
+from src.core.utils import create_success, create_error, handle_exception
 
 logger = logging.getLogger(__name__)
 
 
-def _create_success(text: str) -> dict[str, Any]:
-    """Create success response format"""
-    return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _create_error(title: str, message: str) -> dict[str, Any]:
-    """Create error response format"""
-    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
-
-
-def _handle_exception(e: Exception, context: str) -> dict[str, Any]:
-    """Handle exceptions with consistent error format"""
-    return {"content": [{"type": "text", "text": f"❌ **{context} Error:** {str(e)}"}], "isError": True}
 
 
 async def delete_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -38,14 +26,14 @@ async def delete_agent(args: dict[str, Any]) -> dict[str, Any]:
         force = args.get("force", False)
 
         if not agent_id:
-            return _create_error("Missing Parameter", "Agent ID is required")
+            return create_error("Missing Parameter", "Agent ID is required")
 
         config_manager = ConfigManager()
         registry = AgentRegistry(config_manager)
 
         agent = registry.get_agent(agent_id)
         if not agent:
-            return _create_error("Agent Not Found", f"No agent found with ID: {agent_id}")
+            return create_error("Agent Not Found", f"No agent found with ID: {agent_id}")
 
         # Collect agent info before deletion
         agent_name = agent.state.name
@@ -54,7 +42,7 @@ async def delete_agent(args: dict[str, Any]) -> dict[str, Any]:
 
         # Safety check for agents with significant activity
         if not force and interaction_count > 10:
-            return _create_error(
+            return create_error(
                 "Deletion Blocked",
                 f"Agent '{agent_name}' has {interaction_count} interactions. Use 'force: true' to confirm deletion.",
             )
@@ -65,18 +53,18 @@ async def delete_agent(args: dict[str, Any]) -> dict[str, Any]:
         # Remove from registry
         success = registry.remove_agent(agent_id)
         if not success:
-            return _create_error("Deletion Failed", "Failed to remove agent from registry")
+            return create_error("Deletion Failed", "Failed to remove agent from registry")
 
         # Format success message
         success_msg = _format_deletion_success(
             agent_name, agent_id, managed_files_count, interaction_count, cleanup_results
         )
 
-        return _create_success(success_msg)
+        return create_success(success_msg)
 
     except Exception as e:
         logger.error(f"Failed to delete agent: {e}")
-        return _handle_exception(e, "Delete Agent")
+        return handle_exception(e, "Delete Agent")
 
 
 def _cleanup_agent_data(agent, config_manager) -> dict:
@@ -149,7 +137,7 @@ async def delete_all_agents(args: dict[str, Any] = None) -> dict[str, Any]:
         force = args.get("force", False) if args else False
 
         if not force:
-            return _create_error(
+            return create_error(
                 "Deletion Blocked", "This operation will delete ALL agents. Use 'force: true' to confirm."
             )
 
@@ -158,7 +146,7 @@ async def delete_all_agents(args: dict[str, Any] = None) -> dict[str, Any]:
 
         agents = registry.list_agents()
         if not agents:
-            return _create_success("🗑️ **No Agents to Delete**\n\nRegistry is already empty.")
+            return create_success("🗑️ **No Agents to Delete**\n\nRegistry is already empty.")
 
         deletion_results = {"successful_deletions": 0, "failed_deletions": 0, "total_files_removed": 0, "errors": []}
 
@@ -184,11 +172,11 @@ async def delete_all_agents(args: dict[str, Any] = None) -> dict[str, Any]:
 
         # Format results
         result_msg = _format_bulk_deletion_results(deletion_results, len(agents))
-        return _create_success(result_msg)
+        return create_success(result_msg)
 
     except Exception as e:
         logger.error(f"Failed to delete all agents: {e}")
-        return _handle_exception(e, "Delete All Agents")
+        return handle_exception(e, "Delete All Agents")
 
 
 def _format_bulk_deletion_results(results: dict, total_agents: int) -> str:
