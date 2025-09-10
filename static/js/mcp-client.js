@@ -78,9 +78,9 @@ window.mcpClient = null;
 function authenticate() {
     const keyInput = document.getElementById('privateKey');
     const authBtn = document.getElementById('authBtn');
-    
+
     const privateKey = keyInput.value.trim();
-    
+
     if (!privateKey) {
         if (typeof addTerminalLine !== 'undefined') {
             addTerminalLine('❌ Please paste your RSA private key', 'error');
@@ -100,7 +100,7 @@ async function authenticateAsync(privateKey, keyInput, authBtn) {
         if (typeof addTerminalLine !== 'undefined') {
             addTerminalLine('🔐 Authenticating...', 'info');
         }
-        
+
         const response = await fetch('/api/orchestrator/authenticate', {
             method: 'POST',
             headers: {
@@ -115,30 +115,30 @@ async function authenticateAsync(privateKey, keyInput, authBtn) {
             window.authenticated = true;
             window.sessionToken = data.session_token;
             window.mcpClient = new MCPClient(data.session_token);
-            
+
             keyInput.value = '';
-            
+
             if (typeof updateAuthUI !== 'undefined') {
                 updateAuthUI(true);
             }
             if (typeof addTerminalLine !== 'undefined') {
                 addTerminalLine('✅ Authentication successful!', 'success');
             }
-            
+
             // Load available tools
             if (typeof loadMCPTools !== 'undefined') {
                 await loadMCPTools();
             }
-            
+
             // Refresh agents
             if (typeof refreshAgents !== 'undefined') {
                 await refreshAgents();
             }
-            
+
         } else {
             throw new Error(data.error || 'Authentication failed');
         }
-        
+
     } catch (error) {
         console.error('Authentication error:', error);
         if (typeof addTerminalLine !== 'undefined') {

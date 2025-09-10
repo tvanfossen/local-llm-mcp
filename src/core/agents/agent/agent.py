@@ -71,10 +71,11 @@ class Agent:
         # Create agent log directory with proper permissions
         log_dir = self.system_config.logs_dir / self.state.agent_id
         log_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Ensure log directory is writable (fixes container permission issues)
         import os
         import stat
+
         try:
             os.chmod(log_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         except (OSError, PermissionError):
@@ -93,7 +94,7 @@ class Agent:
             # If we can't create log file due to permissions, use console logging only
             temp_logger = logging.getLogger(__name__)
             temp_logger.warning(f"Could not create log file {log_file}: {e}. Agent will use console logging only.")
-            
+
         agent_logger.setLevel(logging.INFO)
 
         return agent_logger

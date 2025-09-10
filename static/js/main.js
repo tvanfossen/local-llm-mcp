@@ -10,7 +10,7 @@ window.selectedAgent = null;
 function addTerminalLine(message, type = 'info') {
     const terminal = document.getElementById('terminal');
     if (!terminal) return;
-    
+
     const line = document.createElement('div');
     line.className = `terminal-line ${type}`;
     line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -22,15 +22,15 @@ function addTerminalLine(message, type = 'info') {
 function updateAuthUI(isAuthenticated) {
     const indicator = document.getElementById('authIndicator');
     const statusText = document.getElementById('authStatusText');
-    
+
     if (indicator) {
         indicator.style.background = isAuthenticated ? '#50fa7b' : '#ff5555';
     }
-    
+
     if (statusText) {
         statusText.textContent = isAuthenticated ? 'Authenticated' : 'Not Authenticated';
     }
-    
+
     // Enable/disable protected elements
     document.querySelectorAll('.auth-protected').forEach(el => {
         el.style.opacity = isAuthenticated ? '1' : '0.5';
@@ -41,18 +41,18 @@ function updateAuthUI(isAuthenticated) {
 // Load available MCP tools dynamically
 async function loadMCPTools() {
     if (!window.mcpClient) return;
-    
+
     try {
         addTerminalLine('📋 Loading available MCP tools...', 'info');
         const result = await window.mcpClient.listTools();
-        
+
         if (result && result.tools) {
             window.availableTools = {};
             const toolSelector = document.getElementById('toolSelector');
-            
+
             // Clear and rebuild selector
             toolSelector.innerHTML = '<option value="">Select a tool...</option>';
-            
+
             result.tools.forEach(tool => {
                 window.availableTools[tool.name] = tool;
                 const option = document.createElement('option');
@@ -60,7 +60,7 @@ async function loadMCPTools() {
                 option.textContent = `${tool.name} - ${tool.description || 'No description'}`;
                 toolSelector.appendChild(option);
             });
-            
+
             addTerminalLine(`✅ Loaded ${result.tools.length} tools`, 'success');
         }
     } catch (error) {
@@ -71,11 +71,11 @@ async function loadMCPTools() {
 // Parse agents from the response text
 function parseAgents(responseText) {
     const agents = [];
-    
+
     // Look for pattern: 🤖 **Name** (ID: xxx)
     const lines = responseText.split('\n');
     let currentAgent = null;
-    
+
     for (const line of lines) {
         // Check for agent header line
         if (line.includes('🤖')) {
@@ -83,11 +83,11 @@ function parseAgents(responseText) {
             if (currentAgent) {
                 agents.push(currentAgent);
             }
-            
+
             // Extract name and ID from line like: 🤖 **pyChessArchitect** (ID: 265b3ef2... )
             const nameMatch = line.match(/\*\*([^*]+)\*\*/);
             const idMatch = line.match(/ID:\s*([^)]+)/);
-            
+
             if (nameMatch && idMatch) {
                 currentAgent = {
                     name: nameMatch[1].trim(),
@@ -123,12 +123,12 @@ function parseAgents(responseText) {
             }
         }
     }
-    
+
     // Don't forget the last agent
     if (currentAgent) {
         agents.push(currentAgent);
     }
-    
+
     return agents;
 }
 
@@ -137,31 +137,31 @@ function createAgentCard(agent) {
     const card = document.createElement('div');
     card.className = 'agent-card';
     card.dataset.agentId = agent.id;
-    
+
     const nameDiv = document.createElement('div');
     nameDiv.className = 'agent-name';
     nameDiv.textContent = agent.name;
-    
+
     const idDiv = document.createElement('div');
     idDiv.className = 'agent-id';
     idDiv.textContent = `ID: ${agent.id.substring(0, 12)}...`;
-    
+
     const fileDiv = document.createElement('div');
     fileDiv.className = 'agent-file';
     fileDiv.textContent = agent.filesCount === 1 ? '📄 1 file' : `📁 ${agent.filesCount} files`;
-    
+
     const statsDiv = document.createElement('div');
     statsDiv.className = 'agent-stats';
     statsDiv.innerHTML = `
         <span>🔄 ${agent.interactions}</span>
         <span>✅ ${agent.successRate}</span>
     `;
-    
+
     card.appendChild(nameDiv);
     card.appendChild(idDiv);
     card.appendChild(fileDiv);
     card.appendChild(statsDiv);
-    
+
     // Add click handler
     card.addEventListener('click', () => {
         // Remove selected from all cards
@@ -177,53 +177,53 @@ function createAgentCard(agent) {
         }
         addTerminalLine(`Selected agent: ${agent.name}`, 'info');
     });
-    
+
     return card;
 }
 
 // Refresh agents list - NEW VERSION WITH CARDS
 async function refreshAgents() {
     if (!window.mcpClient) return;
-    
+
     try {
         addTerminalLine('🔄 Refreshing agents...', 'info');
         const result = await window.mcpClient.callTool('list_agents', {});
-        
+
         // Get the text from the response
         let responseText = '';
         if (result && result.content && result.content[0]) {
             responseText = result.content[0].text || '';
         }
-        
+
         const agentsContainer = document.getElementById('agentsList');
-        
+
         if (!responseText || responseText.includes('No agents found')) {
             agentsContainer.innerHTML = '<p style="opacity: 0.7;">No agents found</p>';
             addTerminalLine('No agents found', 'info');
             return;
         }
-        
+
         // Parse agents from response
         const agents = parseAgents(responseText);
         window.currentAgents = agents;
-        
+
         if (agents.length > 0) {
             // Clear container
             agentsContainer.innerHTML = '';
-            
+
             // Create and add agent cards
             agents.forEach(agent => {
                 const card = createAgentCard(agent);
                 agentsContainer.appendChild(card);
             });
-            
+
             addTerminalLine(`Loaded ${agents.length} agents as cards`, 'success');
         } else {
             // Couldn't parse - show raw text as fallback
             agentsContainer.innerHTML = `<pre style="font-size: 0.85em; color: #8892b0;">${responseText}</pre>`;
             addTerminalLine('Showing raw agent data (parsing failed)', 'warning');
         }
-        
+
     } catch (error) {
         addTerminalLine(`❌ Failed to refresh agents: ${error.message}`, 'error');
     }
@@ -234,33 +234,33 @@ function onToolSelected() {
     const toolSelector = document.getElementById('toolSelector');
     const toolInputs = document.getElementById('toolInputs');
     const selectedTool = toolSelector.value;
-    
+
     toolInputs.innerHTML = '';
-    
+
     if (!selectedTool || !window.availableTools[selectedTool]) {
         return;
     }
-    
+
     const tool = window.availableTools[selectedTool];
-    
+
     // Generate inputs based on tool schema
     if (tool.inputSchema && tool.inputSchema.properties) {
         const props = tool.inputSchema.properties;
         const required = tool.inputSchema.required || [];
-        
+
         Object.keys(props).forEach(key => {
             const prop = props[key];
             const isRequired = required.includes(key);
-            
+
             const div = document.createElement('div');
             div.className = 'form-group';
-            
+
             const label = document.createElement('label');
             label.textContent = `${key}${isRequired ? ' *' : ''}:`;
             div.appendChild(label);
-            
+
             let inputElement;
-            
+
             if (prop.type === 'string' && prop.description && prop.description.includes('multi-line')) {
                 inputElement = document.createElement('textarea');
                 inputElement.className = 'text-area';
@@ -272,22 +272,22 @@ function onToolSelected() {
                 inputElement.type = prop.type === 'number' ? 'number' : 'text';
                 inputElement.className = 'tool-input';
             }
-            
+
             inputElement.id = `input_${key}`;
             inputElement.placeholder = prop.description || '';
             if (isRequired && inputElement.type !== 'checkbox') {
                 inputElement.required = true;
             }
-            
+
             // AUTO-FILL AGENT_ID IF SELECTED
             if (key === 'agent_id' && window.selectedAgent) {
                 inputElement.value = window.selectedAgent.id;
             }
-            
+
             div.appendChild(inputElement);
             toolInputs.appendChild(div);
         });
-        
+
         // Show selected agent info if relevant
         if (props.agent_id && window.selectedAgent) {
             const info = document.createElement('div');
@@ -304,15 +304,15 @@ function onToolSelected() {
 async function executeTool() {
     const toolSelector = document.getElementById('toolSelector');
     const selectedTool = toolSelector.value;
-    
+
     if (!selectedTool || !window.mcpClient) {
         addTerminalLine('Select a tool first', 'warning');
         return;
     }
-    
+
     const tool = window.availableTools[selectedTool];
     const args = {};
-    
+
     // Gather inputs
     if (tool.inputSchema && tool.inputSchema.properties) {
         Object.keys(tool.inputSchema.properties).forEach(key => {
@@ -326,19 +326,19 @@ async function executeTool() {
             }
         });
     }
-    
+
     try {
         addTerminalLine(`🔧 Executing: ${selectedTool}`, 'info');
         const result = await window.mcpClient.callTool(selectedTool, args);
-        
+
         const text = result.content?.[0]?.text || 'No response';
         addTerminalLine(`✅ Success: ${text.substring(0, 200)}...`, 'success');
-        
+
         // Refresh agents if it was an agent-related operation
         if (selectedTool.includes('agent')) {
             await refreshAgents();
         }
-        
+
     } catch (error) {
         addTerminalLine(`❌ Error: ${error.message}`, 'error');
     }

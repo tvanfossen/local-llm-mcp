@@ -95,10 +95,10 @@ class SystemConfig:
         """Ensure all directories exist with proper permissions"""
         import os
         import stat
-        
+
         for directory in [self.workspace_root, self.state_dir, self.agents_dir, self.logs_dir, self.temp_dir]:
             directory.mkdir(parents=True, exist_ok=True)
-            
+
             # Ensure directories are user-writable (fixes container permission issues)
             try:
                 os.chmod(directory, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
