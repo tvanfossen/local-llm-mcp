@@ -159,15 +159,15 @@ async def run_all_validations(args: dict[str, Any] = None) -> dict[str, Any]:
     """Run all validation checks"""
     try:
         results = []
-        
+
         # Run tests
         test_result = await run_tests({"coverage": True})
         results.append(("Tests", not test_result.get("isError", False)))
-        
+
         # Run pre-commit
         precommit_result = await run_pre_commit({"all_files": True})
         results.append(("Pre-commit", not precommit_result.get("isError", False)))
-        
+
         # Check key file lengths
         key_files = [
             "src/mcp/tools/executor/executor.py",
@@ -178,21 +178,21 @@ async def run_all_validations(args: dict[str, Any] = None) -> dict[str, Any]:
         ]
         length_result = await validate_file_length({"file_paths": key_files, "max_lines": 300})
         results.append(("File Lengths", not length_result.get("isError", False)))
-        
+
         # Summarize results
         passed = sum(1 for _, success in results if success)
         total = len(results)
-        
+
         summary = f"📊 **Validation Summary: {passed}/{total} Passed**\n\n"
         for name, success in results:
             icon = "✅" if success else "❌"
             summary += f"{icon} {name}\n"
-        
+
         if passed == total:
             return _create_success(summary + "\n🎉 All validations passed!")
         else:
             return _create_error("Validation Issues", summary)
-            
+
     except Exception as e:
         logger.error(f"All validations failed: {e}")
         return _create_error("Validation Error", str(e))
