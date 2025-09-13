@@ -24,7 +24,7 @@ Consolidate the MCP toolchain to 4 core tools (Local Model, Git, Workspace, Vali
 ### Phase 1B: Consolidate Git Operations
 **Objective**: Update git tools to use single consolidated approach
 
-**File**: `src/mcp/tools/git_operations/git_operations.py`  
+**File**: `src/mcp/tools/git_operations/git_operations.py`
 **Action**: Ensure this file contains all git functionality referenced in executor
 
 **Requirements**:

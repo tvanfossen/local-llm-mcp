@@ -122,13 +122,17 @@ class Agent:
         return agent
 
     @classmethod
-    def from_json(cls, data: dict[str, Any], system_config: SystemConfig, llm_manager=None, tool_executor=None) -> "Agent":
+    def from_json(
+        cls, data: dict[str, Any], system_config: SystemConfig, llm_manager=None, tool_executor=None
+    ) -> "Agent":
         """Load agent from JSON data"""
         state = AgentState(**data)
         return cls(state, system_config, llm_manager, tool_executor)
 
     @classmethod
-    def load_from_disk(cls, agent_id: str, system_config: SystemConfig, llm_manager=None, tool_executor=None) -> "Agent":
+    def load_from_disk(
+        cls, agent_id: str, system_config: SystemConfig, llm_manager=None, tool_executor=None
+    ) -> "Agent":
         """Load agent from disk by ID"""
         agent_dir = system_config.agents_dir / agent_id
         metadata_file = agent_dir / "metadata.json"
@@ -205,11 +209,11 @@ class Agent:
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-        
+
         try:
             # Build context for LLM
             context = self.get_context_for_llm()
-            
+
             # Create prompt for file editing
             prompt = f"""Context: {context}
 
@@ -229,7 +233,7 @@ Provide a clear response about what you've done."""
                 content = llm_response["choices"][0]["text"].strip()
             else:
                 content = f"File edit task processed: {request.message} (mock mode - LLM not loaded)"
-            
+
             return AgentResponse(
                 success=True,
                 content=content,
@@ -237,7 +241,7 @@ Provide a clear response about what you've done."""
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-            
+
         except Exception as e:
             self.logger.error(f"File edit handling failed: {e}")
             return AgentResponse(
@@ -258,11 +262,11 @@ Provide a clear response about what you've done."""
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-        
+
         try:
             # Build context for LLM
             context = self.get_context_for_llm()
-            
+
             # Create prompt for code generation
             prompt = f"""Context: {context}
 
@@ -280,7 +284,7 @@ Provide clear, well-documented code that addresses the request."""
                 content = llm_response["choices"][0]["text"].strip()
             else:
                 content = f"Code generation task processed: {request.message} (mock mode - LLM not loaded)"
-            
+
             return AgentResponse(
                 success=True,
                 content=content,
@@ -288,7 +292,7 @@ Provide clear, well-documented code that addresses the request."""
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-            
+
         except Exception as e:
             self.logger.error(f"Code generation handling failed: {e}")
             return AgentResponse(
@@ -309,11 +313,11 @@ Provide clear, well-documented code that addresses the request."""
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-        
+
         try:
             # Build context for LLM
             context = self.get_context_for_llm()
-            
+
             # Create prompt for conversation
             prompt = f"""Context: {context}
 
@@ -329,7 +333,7 @@ Use your knowledge of the workspace and managed files to provide relevant respon
                 content = llm_response["choices"][0]["text"].strip()
             else:
                 content = f"Conversation response: {request.message} (mock mode - LLM not loaded)"
-            
+
             return AgentResponse(
                 success=True,
                 content=content,
@@ -337,7 +341,7 @@ Use your knowledge of the workspace and managed files to provide relevant respon
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-            
+
         except Exception as e:
             self.logger.error(f"Conversation handling failed: {e}")
             return AgentResponse(

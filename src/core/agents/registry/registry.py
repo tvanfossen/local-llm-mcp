@@ -39,7 +39,9 @@ class AgentRegistry:
         for agent_dir in self.system_config.agents_dir.iterdir():
             if agent_dir.is_dir():
                 try:
-                    agent = Agent.load_from_disk(agent_dir.name, self.system_config, self.llm_manager, self.tool_executor)
+                    agent = Agent.load_from_disk(
+                        agent_dir.name, self.system_config, self.llm_manager, self.tool_executor
+                    )
                     self.agents[agent.state.agent_id] = agent
                     loaded_count += 1
                 except Exception as e:
@@ -51,12 +53,12 @@ class AgentRegistry:
         """Update all agents with new LLM manager and tool executor"""
         self.llm_manager = llm_manager or self.llm_manager
         self.tool_executor = tool_executor or self.tool_executor
-        
+
         # Update existing agents
         for agent in self.agents.values():
             agent.llm_manager = self.llm_manager
             agent.tool_executor = self.tool_executor
-        
+
         logger.info(f"Updated {len(self.agents)} agents with consolidated toolchain")
 
     def create_agent(self, name: str, description: str, specialized_files: list[str] = None) -> Agent:

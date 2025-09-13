@@ -23,7 +23,13 @@
         },
         "type": {
           "type": "string",
-          "enum": ["web_app", "cli_tool", "game_application", "library", "api_service"],
+          "enum": [
+            "web_app",
+            "cli_tool",
+            "game_application",
+            "library",
+            "api_service"
+          ],
           "description": "Type of application"
         }
       }
@@ -69,7 +75,13 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "path", "responsibility", "agent_name", "agent_prompt"],
+            "required": [
+              "name",
+              "path",
+              "responsibility",
+              "agent_name",
+              "agent_prompt"
+            ],
             "properties": {
               "name": {
                 "type": "string",

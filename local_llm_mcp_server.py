@@ -91,7 +91,6 @@ class ServerOrchestrator:
             app = create_http_server(
                 agent_registry=self.agent_registry,
                 llm_manager=self.llm_manager,
-                tool_executor=self.tool_executor,
                 config=self.config_manager,
             )
 
@@ -118,7 +117,9 @@ class ServerOrchestrator:
 
     def _log_startup_info(self):
         """Log server startup information"""
-        logger.info(f"🚀 Starting Consolidated MCP Server on {self.config_manager.server.host}:{self.config_manager.server.port}")
+        logger.info(
+            f"🚀 Starting Consolidated MCP Server on {self.config_manager.server.host}:{self.config_manager.server.port}"
+        )
         logger.info("📡 MCP endpoint: POST /mcp (for Claude Code)")
         logger.info("🔧 HTTP API: /api/* (for testing/debugging)")
         logger.info("❤️ Health check: GET /health")
@@ -202,10 +203,10 @@ class ServerOrchestrator:
         """Initialize consolidated tool executor and update agent registry"""
         logger.info("Initializing consolidated tool executor (4 core tools)...")
         self.tool_executor = ConsolidatedToolExecutor(self.agent_registry, self.llm_manager)
-        
+
         # Update agent registry with consolidated toolchain
         self.agent_registry.update_toolchain(self.llm_manager, self.tool_executor)
-        
+
         logger.info("✅ Tool executor ready with: local_model, git_operations, workspace, validation")
         logger.info("✅ Agent registry updated with consolidated toolchain")
         return True

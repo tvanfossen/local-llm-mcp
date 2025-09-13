@@ -229,26 +229,26 @@ def ensure_parent_dirs(path: Path) -> bool:
 
 def validate_line_count(path: Path, max_lines: int = 300) -> dict:
     """Validate file line count against limit
-    
+
     Args:
         path: Path to file
         max_lines: Maximum allowed lines
-        
+
     Returns:
         Dict with validation result
     """
     try:
         if not path.exists():
             return {"valid": False, "error": f"File not found: {path}"}
-        
+
         lines = len(path.read_text().splitlines())
         valid = lines <= max_lines
-        
+
         return {
             "valid": valid,
             "lines": lines,
             "max_lines": max_lines,
-            "error": None if valid else f"File has {lines} lines, exceeds limit of {max_lines}"
+            "error": None if valid else f"File has {lines} lines, exceeds limit of {max_lines}",
         }
     except Exception as e:
         return {"valid": False, "error": str(e)}
@@ -300,8 +300,6 @@ def is_text_file(path: Path) -> bool:
     return path.suffix.lower() in text_extensions
 
 
-
-
 # String Utilities
 
 
@@ -324,12 +322,12 @@ def truncate_string(text: str, max_length: int = 1000, suffix: str = "...") -> s
 
 def build_prompt(context: str, task: str, request: str) -> str:
     """Build a structured prompt for LLM operations
-    
+
     Args:
         context: Agent/system context
         task: Task type description
         request: User request
-        
+
     Returns:
         Formatted prompt string
     """
@@ -343,16 +341,17 @@ Please provide a clear and helpful response based on the context and task requir
 
 def safe_json_loads(text: str, default=None) -> Any:
     """Safely parse JSON string with fallback
-    
+
     Args:
         text: JSON string to parse
         default: Default value if parsing fails
-        
+
     Returns:
         Parsed JSON or default value
     """
     try:
         import json
+
         return json.loads(text)
     except (json.JSONDecodeError, TypeError):
         return default or {}

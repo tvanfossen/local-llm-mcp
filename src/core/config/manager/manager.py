@@ -175,7 +175,6 @@ class ConfigManager:
                 is_container=False,
             )
 
-
     def _load_from_file(self, config_path: str):
         """Load configuration from file (TOML/JSON/YAML)"""
         # Implementation would depend on preferred config format

@@ -26,7 +26,6 @@ from src.mcp.tools.file.read.read import get_file_info, read_file
 from src.mcp.tools.file.update.update import insert_lines, replace_text, update_file_lines
 from src.mcp.tools.file.write.write import append_to_file, create_file, write_file
 from src.mcp.tools.git_operations.git_operations import git_tool
-from src.mcp.tools.local_model.local_model import local_model_tool
 
 # Phase 5: Self-Improvement Tools
 from src.mcp.tools.improvement.analyze.analyze import analyze_code_quality, analyze_project_health
@@ -47,6 +46,7 @@ from src.mcp.tools.improvement.refactor.refactor import (
     suggest_refactoring,
 )
 from src.mcp.tools.improvement.testing.testing import analyze_test_coverage, create_test_suite, generate_tests
+from src.mcp.tools.local_model.local_model import local_model_tool
 from src.mcp.tools.system.all_validation.all_validation import run_all_validations
 
 # Phase 3: Template Tools
@@ -798,20 +798,24 @@ class MCPToolExecutor:
                         "operation": {
                             "type": "string",
                             "description": "Git operation to perform",
-                            "enum": ["status", "diff", "commit", "log", "branch", "stash", "remote"]
+                            "enum": ["status", "diff", "commit", "log", "branch", "stash", "remote"],
                         },
                         "message": {"type": "string", "description": "Commit message (for commit operation)"},
                         "add_all": {"type": "boolean", "description": "Add all files (for commit)", "default": False},
                         "files": {"type": "array", "items": {"type": "string"}, "description": "Files to commit"},
-                        "staged": {"type": "boolean", "description": "Show staged changes (for diff)", "default": False},
+                        "staged": {
+                            "type": "boolean",
+                            "description": "Show staged changes (for diff)",
+                            "default": False,
+                        },
                         "file_path": {"type": "string", "description": "Specific file path"},
                         "limit": {"type": "integer", "description": "Number of log entries (for log)", "default": 10},
                         "action": {"type": "string", "description": "Action for branch/stash operations"},
                         "name": {"type": "string", "description": "Branch or stash name"},
-                        "short": {"type": "boolean", "description": "Short status format", "default": False}
+                        "short": {"type": "boolean", "description": "Short status format", "default": False},
                     },
-                    "required": ["operation"]
-                }
+                    "required": ["operation"],
+                },
             },
             # Testing & Validation Tools
             "run_tests": {

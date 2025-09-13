@@ -187,7 +187,7 @@ async function refreshAgents() {
 
     try {
         addTerminalLine('🔄 Refreshing agents...', 'info');
-        const result = await window.mcpClient.callTool('list_agents', {});
+        const result = await window.mcpClient.callTool('agent_operations', {operation: 'list'});
 
         // Get the text from the response
         let responseText = '';

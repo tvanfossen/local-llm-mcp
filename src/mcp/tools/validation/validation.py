@@ -156,7 +156,7 @@ async def validate_file_length(args: dict[str, Any] = None) -> dict[str, Any]:
             for v in violations:
                 summary += f"• {v}\n"
             return create_mcp_response(False, summary)
-        
+
         return create_mcp_response(True, f"✅ All {len(file_paths)} files within {max_lines} line limit")
     except Exception as e:
         return handle_exception(e, "File Length Validation")
