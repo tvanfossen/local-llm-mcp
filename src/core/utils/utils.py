@@ -227,21 +227,31 @@ def ensure_parent_dirs(path: Path) -> bool:
 # Validation Utilities
 
 
-def validate_file_size(path: Path, max_size_mb: float = 10) -> bool:
-    """Check if file size is within acceptable limits
-
+def validate_line_count(path: Path, max_lines: int = 300) -> dict:
+    """Validate file line count against limit
+    
     Args:
         path: Path to file
-        max_size_mb: Maximum size in megabytes
-
+        max_lines: Maximum allowed lines
+        
     Returns:
-        True if file size is acceptable
+        Dict with validation result
     """
     try:
-        size_mb = path.stat().st_size / (1024 * 1024)
-        return size_mb <= max_size_mb
-    except:
-        return False
+        if not path.exists():
+            return {"valid": False, "error": f"File not found: {path}"}
+        
+        lines = len(path.read_text().splitlines())
+        valid = lines <= max_lines
+        
+        return {
+            "valid": valid,
+            "lines": lines,
+            "max_lines": max_lines,
+            "error": None if valid else f"File has {lines} lines, exceeds limit of {max_lines}"
+        }
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
 
 
 def is_text_file(path: Path) -> bool:
@@ -290,57 +300,6 @@ def is_text_file(path: Path) -> bool:
     return path.suffix.lower() in text_extensions
 
 
-def is_binary_file(path: Path) -> bool:
-    """Check if file appears to be binary
-
-    Args:
-        path: Path to file
-
-    Returns:
-        True if file appears to be binary
-    """
-    binary_extensions = {
-        ".exe",
-        ".dll",
-        ".so",
-        ".dylib",
-        ".a",
-        ".lib",
-        ".zip",
-        ".tar",
-        ".gz",
-        ".bz2",
-        ".7z",
-        ".rar",
-        ".pdf",
-        ".doc",
-        ".docx",
-        ".xls",
-        ".xlsx",
-        ".ppt",
-        ".pptx",
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".gif",
-        ".bmp",
-        ".ico",
-        ".svg",
-        ".mp3",
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".wav",
-        ".flac",
-        ".db",
-        ".sqlite",
-        ".pickle",
-        ".pkl",
-        ".npy",
-        ".npz",
-    }
-
-    return path.suffix.lower() in binary_extensions
 
 
 # String Utilities
@@ -363,25 +322,37 @@ def truncate_string(text: str, max_length: int = 1000, suffix: str = "...") -> s
     return text[: max_length - len(suffix)] + suffix
 
 
-def sanitize_filename(filename: str) -> str:
-    """Sanitize filename for safe file operations
-
+def build_prompt(context: str, task: str, request: str) -> str:
+    """Build a structured prompt for LLM operations
+    
     Args:
-        filename: Filename to sanitize
-
+        context: Agent/system context
+        task: Task type description
+        request: User request
+        
     Returns:
-        Sanitized filename
+        Formatted prompt string
     """
-    # Remove invalid characters
-    invalid_chars = '<>:"|?*\x00'
-    for char in invalid_chars:
-        filename = filename.replace(char, "_")
+    return f"""Context: {context}
 
-    # Remove leading/trailing whitespace and dots
-    filename = filename.strip(". ")
+Task: {task}
+Request: {request}
 
-    # Ensure filename is not empty
-    if not filename:
-        filename = "unnamed"
+Please provide a clear and helpful response based on the context and task requirements."""
 
-    return filename
+
+def safe_json_loads(text: str, default=None) -> Any:
+    """Safely parse JSON string with fallback
+    
+    Args:
+        text: JSON string to parse
+        default: Default value if parsing fails
+        
+    Returns:
+        Parsed JSON or default value
+    """
+    try:
+        import json
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return default or {}

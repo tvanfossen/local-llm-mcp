@@ -1,4 +1,4 @@
-"""Validation Tool - Testing and Linting Operations
+"""Validation Tool - Consolidated Testing and Validation Operations
 
 Path: src/mcp/tools/validation/validation.py
 Responsibilities:
@@ -6,6 +6,7 @@ Responsibilities:
 - Run pre-commit hooks
 - Validate file lengths
 - Run all validations combined
+- Consolidated from testing directory duplicates
 """
 
 import logging
@@ -13,17 +14,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from src.core.utils.utils import create_mcp_response, handle_exception, truncate_string
+
 logger = logging.getLogger(__name__)
-
-
-def _create_success(text: str) -> dict[str, Any]:
-    """Create success response format"""
-    return {"content": [{"type": "text", "text": text}], "isError": False}
-
-
-def _create_error(title: str, message: str) -> dict[str, Any]:
-    """Create error response format"""
-    return {"content": [{"type": "text", "text": f"❌ **{title}:** {message}"}], "isError": True}
 
 
 async def run_tests(args: dict[str, Any] = None) -> dict[str, Any]:
@@ -44,40 +37,43 @@ async def run_tests(args: dict[str, Any] = None) -> dict[str, Any]:
             cmd.append("--tb=short")
 
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path.cwd())
-        output = result.stdout + "\n" + result.stderr
-
-        # Extract test summary
-        passed = failed = 0
-        for line in output.split("\n"):
-            if "passed" in line and "failed" in line:
-                parts = line.split()
-                for i, part in enumerate(parts):
-                    if part == "passed":
-                        passed = int(parts[i - 1])
-                    elif part == "failed":
-                        failed = int(parts[i - 1])
-
-        if result.returncode == 0:
-            summary = "✅ **Tests Passed**\n"
-            summary += f"📊 Results: {passed} passed"
-            if coverage:
-                for line in output.split("\n"):
-                    if "TOTAL" in line and "%" in line:
-                        parts = line.split()
-                        for part in parts:
-                            if "%" in part:
-                                summary += f"\n📈 Coverage: {part}"
-                                break
-            return _create_success(summary)
-        else:
-            summary = "❌ **Tests Failed**\n"
-            summary += f"📊 Results: {passed} passed, {failed} failed"
-            if len(output) > 1000:
-                output = output[:1000] + "\n\n... [output truncated]"
-            return _create_error("Test Failures", summary + f"\n\n```\n{output}\n```")
+        return _process_test_result(result, coverage)
     except Exception as e:
-        logger.error(f"Test execution failed: {e}")
-        return _create_error("Test Execution Failed", str(e))
+        return handle_exception(e, "Test Execution")
+
+
+def _process_test_result(result, coverage: bool) -> dict[str, Any]:
+    """Process test execution result"""
+    output = result.stdout + "\n" + result.stderr
+
+    # Extract test summary
+    passed = failed = 0
+    for line in output.split("\n"):
+        if "passed" in line and "failed" in line:
+            parts = line.split()
+            for i, part in enumerate(parts):
+                if part == "passed":
+                    passed = int(parts[i - 1])
+                elif part == "failed":
+                    failed = int(parts[i - 1])
+
+    if result.returncode == 0:
+        summary = "✅ **Tests Passed**\n"
+        summary += f"📊 Results: {passed} passed"
+        if coverage:
+            for line in output.split("\n"):
+                if "TOTAL" in line and "%" in line:
+                    parts = line.split()
+                    for part in parts:
+                        if "%" in part:
+                            summary += f"\n📈 Coverage: {part}"
+                            break
+        return create_mcp_response(True, summary)
+    else:
+        summary = "❌ **Tests Failed**\n"
+        summary += f"📊 Results: {passed} passed, {failed} failed"
+        output = truncate_string(output, 1000, "\n\n... [output truncated]")
+        return create_mcp_response(False, summary + f"\n\n```\n{output}\n```")
 
 
 async def run_pre_commit(args: dict[str, Any] = None) -> dict[str, Any]:
@@ -93,37 +89,49 @@ async def run_pre_commit(args: dict[str, Any] = None) -> dict[str, Any]:
 
         if all_files:
             cmd.append("--all-files")
+        else:
+            # Get staged files for targeted checking
+            staged_result = subprocess.run(
+                ["git", "diff", "--cached", "--name-only"], capture_output=True, text=True, cwd=Path.cwd()
+            )
+            if staged_result.stdout:
+                cmd.extend(["--files"] + staged_result.stdout.strip().split("\n"))
+            else:
+                return create_mcp_response(True, "✅ **Pre-commit:** No staged files to check")
 
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path.cwd())
-        output = result.stdout + result.stderr
-
-        if result.returncode == 0:
-            scope = "all files" if all_files else "staged files"
-            hook_name = hook if hook else "all hooks"
-            return _create_success(
-                f"✅ **Pre-commit Passed**\n🔍 Checked: {hook_name} on {scope}\nAll validation checks passed!"
-            )
-        else:
-            failures = []
-            for line in output.split("\n"):
-                if "Failed" in line or "ERROR" in line:
-                    failures.append(line.strip())
-
-            summary = "❌ **Pre-commit Validation Failed**\n\n"
-            if failures:
-                summary += "**Failures:**\n"
-                for failure in failures[:5]:
-                    summary += f"• {failure}\n"
-
-            if len(output) > 800:
-                output = output[:800] + "\n... [output truncated]"
-
-            return _create_error("Validation Failed", summary + f"\n```\n{output}\n```")
+        return _process_precommit_result(result, hook, all_files)
     except FileNotFoundError:
-        return _create_error("Pre-commit Not Installed", "Install with: pip install pre-commit")
+        return create_mcp_response(False, "Pre-commit not installed. Install with: pip install pre-commit")
     except Exception as e:
-        logger.error(f"Pre-commit failed: {e}")
-        return _create_error("Pre-commit Failed", str(e))
+        return handle_exception(e, "Pre-commit")
+
+
+def _process_precommit_result(result, hook: str, all_files: bool) -> dict[str, Any]:
+    """Process pre-commit result"""
+    output = result.stdout + result.stderr
+
+    if result.returncode == 0:
+        scope = "all files" if all_files else "staged files"
+        hook_name = hook if hook else "all hooks"
+        return create_mcp_response(
+            True, f"✅ **Pre-commit Passed**\n🔍 Checked: {hook_name} on {scope}\nAll validation checks passed!"
+        )
+
+    # Parse failures
+    failures = []
+    for line in output.split("\n"):
+        if "Failed" in line or "ERROR" in line:
+            failures.append(line.strip())
+
+    summary = "❌ **Pre-commit Validation Failed**\n\n"
+    if failures:
+        summary += "**Failures:**\n"
+        for failure in failures[:5]:  # Limit to 5
+            summary += f"• {failure}\n"
+
+    output = truncate_string(output, 800, "\n... [output truncated]")
+    return create_mcp_response(False, summary + f"\n```\n{output}\n```")
 
 
 async def validate_file_length(args: dict[str, Any] = None) -> dict[str, Any]:
@@ -133,7 +141,7 @@ async def validate_file_length(args: dict[str, Any] = None) -> dict[str, Any]:
         max_lines = args.get("max_lines", 300) if args else 300
 
         if not file_paths:
-            return _create_error("No Files", "file_paths parameter required")
+            return create_mcp_response(False, "file_paths parameter required")
 
         violations = []
         for file_path in file_paths:
@@ -147,12 +155,11 @@ async def validate_file_length(args: dict[str, Any] = None) -> dict[str, Any]:
             summary = f"❌ **File Length Violations ({len(violations)})**\n\n"
             for v in violations:
                 summary += f"• {v}\n"
-            return _create_error("Length Violations", summary)
-        else:
-            return _create_success(f"✅ All {len(file_paths)} files within {max_lines} line limit")
+            return create_mcp_response(False, summary)
+        
+        return create_mcp_response(True, f"✅ All {len(file_paths)} files within {max_lines} line limit")
     except Exception as e:
-        logger.error(f"File length validation failed: {e}")
-        return _create_error("Validation Failed", str(e))
+        return handle_exception(e, "File Length Validation")
 
 
 async def run_all_validations(args: dict[str, Any] = None) -> dict[str, Any]:
@@ -188,11 +195,9 @@ async def run_all_validations(args: dict[str, Any] = None) -> dict[str, Any]:
             icon = "✅" if success else "❌"
             summary += f"{icon} {name}\n"
 
-        if passed == total:
-            return _create_success(summary + "\n🎉 All validations passed!")
-        else:
-            return _create_error("Validation Issues", summary)
+        success_all = passed == total
+        final_message = summary + ("\n🎉 All validations passed!" if success_all else "")
+        return create_mcp_response(success_all, final_message)
 
     except Exception as e:
-        logger.error(f"All validations failed: {e}")
-        return _create_error("Validation Error", str(e))
+        return handle_exception(e, "All Validations")

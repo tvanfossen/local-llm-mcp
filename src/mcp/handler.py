@@ -17,8 +17,9 @@ from typing import Any
 from src.core.agents.registry.registry import AgentRegistry
 from src.core.llm.manager.manager import LLMManager
 from src.core.security.manager.manager import SecurityManager
+from src.core.utils.utils import handle_exception, create_mcp_response
 from src.mcp.auth.manager.manager import MCPAuthenticator
-from src.mcp.tools.executor.executor import MCPToolExecutor
+from src.mcp.tools.executor.executor import ConsolidatedToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class MCPHandler:
 
         # Initialize components
         self.authenticator = MCPAuthenticator(security_manager)
-        self.tool_executor = MCPToolExecutor(agent_registry, llm_manager)
+        self.tool_executor = ConsolidatedToolExecutor(agent_registry, llm_manager)
 
         # Session management
         self.sessions: dict[str, MCPSession] = {}
@@ -94,14 +95,22 @@ class MCPHandler:
 
         except Exception as e:
             logger.error(f"MCP handler error: {e}")
-            return self._create_internal_error(request.get("id"), str(e))
+            # Use shared utility for consistent error handling
+            error_response = handle_exception(e, "MCP Handler")
+            return self._create_internal_error(request.get("id"), error_response.get("content", [{}])[0].get("text", str(e)))
 
     async def _handle_initialize(self, request: dict, session: MCPSession) -> dict:
         """Handle MCP initialize request"""
         request_id = request.get("id")
 
-        # Mark session as initialized
-        capabilities = {"tools": {"listChanged": False}}
+        # Mark session as initialized with simplified capabilities for 4-tool system
+        capabilities = {
+            "tools": {"listChanged": False},
+            "consolidatedTools": {
+                "count": 4,
+                "tools": self.get_available_tools()
+            }
+        }
         session.mark_initialized(capabilities)
 
         return {
@@ -110,7 +119,11 @@ class MCPHandler:
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": capabilities,
-                "serverInfo": {"name": "Local LLM MCP Server", "version": "1.0.0"},
+                "serverInfo": {
+                    "name": "Consolidated LLM MCP Server", 
+                    "version": "2.0.0",
+                    "description": "4-tool consolidated MCP system"
+                },
                 "_session_id": session.session_id,
             },
         }
@@ -144,12 +157,15 @@ class MCPHandler:
 
         # Execute tool
         try:
-            result = await self.tool_executor.execute_tool(
-                params.get("name"), params.get("arguments", {}), auth_result.get("user_context")
-            )
+            tool_name = params.get("name")
+            arguments = params.get("arguments", {})
+            
+            # Execute using consolidated tool executor
+            result = await self.tool_executor.execute_tool(tool_name, arguments)
 
             return {"jsonrpc": "2.0", "id": request_id, "result": result}
         except Exception as e:
+            logger.error(f"Tool execution failed: {e}")
             return self._create_tool_error(request_id, str(e))
 
     async def _handle_initialized_notification(self, request: dict, session: MCPSession) -> None:
@@ -214,3 +230,23 @@ class MCPHandler:
             "authenticated_sessions": sum(1 for s in self.sessions.values() if s.authenticated),
             "initialized_sessions": sum(1 for s in self.sessions.values() if s.initialized),
         }
+    
+    def cleanup_inactive_sessions(self, max_sessions: int = 100) -> int:
+        """Clean up inactive sessions to maintain limits"""
+        if len(self.sessions) <= max_sessions:
+            return 0
+        
+        # Remove oldest sessions first (simple FIFO cleanup)
+        sessions_to_remove = len(self.sessions) - max_sessions
+        session_ids = list(self.sessions.keys())[:sessions_to_remove]
+        
+        for session_id in session_ids:
+            del self.sessions[session_id]
+        
+        logger.info(f"Cleaned up {sessions_to_remove} inactive sessions")
+        return sessions_to_remove
+    
+    def get_available_tools(self) -> list[str]:
+        """Get list of available tool names for the consolidated system"""
+        # Return the 4 core tools
+        return ["local_model", "git_operations", "workspace", "validation"]

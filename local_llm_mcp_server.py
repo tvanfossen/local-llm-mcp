@@ -25,6 +25,8 @@ from src.api.http.server.server import create_http_server
 from src.core.agents.registry.registry import AgentRegistry
 from src.core.config.manager.manager import ConfigManager
 from src.core.llm.manager.manager import LLMManager
+from src.core.utils.utils import handle_exception
+from src.mcp.tools.executor.executor import ConsolidatedToolExecutor
 
 # Add src to Python path for new structure
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -51,17 +53,19 @@ class ServerOrchestrator:
         self.config_manager = None
         self.llm_manager = None
         self.agent_registry = None
+        self.tool_executor = None
         self.server = None
         self.shutdown_event = asyncio.Event()
 
     async def initialize(self) -> bool:
         """Initialize all system components - simplified error handling"""
         try:
-            # Initialize components in sequence
+            # Initialize components in sequence for consolidated 4-tool system
             initialization_steps = [
                 ("config", self._initialize_config),
-                ("LLM", self._initialize_llm),
+                ("LLM manager", self._initialize_llm),
                 ("agent registry", self._initialize_agent_registry),
+                ("consolidated tool executor", self._initialize_tool_executor),
             ]
 
             for step_name, step_func in initialization_steps:
@@ -75,15 +79,19 @@ class ServerOrchestrator:
 
         except Exception as e:
             logger.error(f"Initialization failed: {e}")
+            # Use shared utility for consistent error handling
+            error_response = handle_exception(e, "Server Initialization")
+            logger.error(f"Error details: {error_response}")
             return False
 
     async def start_server(self):
         """Start the HTTP server with MCP endpoint"""
         try:
-            # Create HTTP application
+            # Create HTTP application with consolidated toolchain
             app = create_http_server(
                 agent_registry=self.agent_registry,
                 llm_manager=self.llm_manager,
+                tool_executor=self.tool_executor,
                 config=self.config_manager,
             )
 
@@ -110,11 +118,12 @@ class ServerOrchestrator:
 
     def _log_startup_info(self):
         """Log server startup information"""
-        logger.info(f"🚀 Starting server on {self.config_manager.server.host}:{self.config_manager.server.port}")
+        logger.info(f"🚀 Starting Consolidated MCP Server on {self.config_manager.server.host}:{self.config_manager.server.port}")
         logger.info("📡 MCP endpoint: POST /mcp (for Claude Code)")
         logger.info("🔧 HTTP API: /api/* (for testing/debugging)")
         logger.info("❤️ Health check: GET /health")
         logger.info("📊 System info: GET /")
+        logger.info("🛠️  4 Core Tools: local_model, git_operations, workspace, validation")
 
         # Model and agent info
         model_info = self.config_manager.get_model_info()
@@ -189,6 +198,18 @@ class ServerOrchestrator:
 
         return True
 
+    def _initialize_tool_executor(self) -> bool:
+        """Initialize consolidated tool executor and update agent registry"""
+        logger.info("Initializing consolidated tool executor (4 core tools)...")
+        self.tool_executor = ConsolidatedToolExecutor(self.agent_registry, self.llm_manager)
+        
+        # Update agent registry with consolidated toolchain
+        self.agent_registry.update_toolchain(self.llm_manager, self.tool_executor)
+        
+        logger.info("✅ Tool executor ready with: local_model, git_operations, workspace, validation")
+        logger.info("✅ Agent registry updated with consolidated toolchain")
+        return True
+
     def _initialize_agent_registry(self):
         """Initialize agent registry"""
         logger.info("Initializing agent registry...")
@@ -205,7 +226,7 @@ async def main():
         orchestrator.setup_signal_handlers()
 
         # Initialize system
-        logger.info("🔧 Initializing Standardized Agent-Based LLM Server...")
+        logger.info("🔧 Initializing Consolidated 4-Tool MCP Server...")
         success = await orchestrator.initialize()
 
         if not success:

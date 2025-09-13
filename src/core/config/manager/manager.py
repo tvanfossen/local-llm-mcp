@@ -15,6 +15,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.core.utils.utils import get_workspace_root
+
 
 @dataclass
 class ModelConfig:
@@ -162,8 +164,8 @@ class ConfigManager:
                 is_container=True,
             )
         else:
-            # Host environment - detect repository root
-            workspace = self._find_workspace_root()
+            # Host environment - use shared utility
+            workspace = get_workspace_root()
             return SystemConfig(
                 workspace_root=workspace,
                 state_dir=workspace / ".mcp-state",
@@ -173,19 +175,6 @@ class ConfigManager:
                 is_container=False,
             )
 
-    def _find_workspace_root(self) -> Path:
-        """Find workspace root by looking for repository markers"""
-        current = Path.cwd()
-
-        # Look for common repository markers
-        markers = [".git", ".mcp-agents", "pyproject.toml", "requirements.txt"]
-
-        for parent in [current] + list(current.parents):
-            if any((parent / marker).exists() for marker in markers):
-                return parent
-
-        # Fallback to current directory
-        return current
 
     def _load_from_file(self, config_path: str):
         """Load configuration from file (TOML/JSON/YAML)"""

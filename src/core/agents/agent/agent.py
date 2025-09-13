@@ -43,9 +43,11 @@ class AgentCreateParams:
 class Agent:
     """Agent with direct repository file access and JSON schema compliance"""
 
-    def __init__(self, state: AgentState, system_config: SystemConfig):
+    def __init__(self, state: AgentState, system_config: SystemConfig, llm_manager=None, tool_executor=None):
         self.state = state
         self.system_config = system_config
+        self.llm_manager = llm_manager
+        self.tool_executor = tool_executor
         self.conversation_history: list[ConversationEntry] = []
         self.managed_files: set[str] = set(state.managed_files)
 
@@ -100,7 +102,7 @@ class Agent:
         return agent_logger
 
     @classmethod
-    def create(cls, params: AgentCreateParams) -> "Agent":
+    def create(cls, params: AgentCreateParams, llm_manager=None, tool_executor=None) -> "Agent":
         """Create a new agent with fresh state"""
         state = AgentState(
             agent_id=cls._generate_agent_id(),
@@ -115,18 +117,18 @@ class Agent:
             recent_interactions=[],
         )
 
-        agent = cls(state, params.system_config)
+        agent = cls(state, params.system_config, llm_manager, tool_executor)
         agent._save_metadata()
         return agent
 
     @classmethod
-    def from_json(cls, data: dict[str, Any], system_config: SystemConfig) -> "Agent":
+    def from_json(cls, data: dict[str, Any], system_config: SystemConfig, llm_manager=None, tool_executor=None) -> "Agent":
         """Load agent from JSON data"""
         state = AgentState(**data)
-        return cls(state, system_config)
+        return cls(state, system_config, llm_manager, tool_executor)
 
     @classmethod
-    def load_from_disk(cls, agent_id: str, system_config: SystemConfig) -> "Agent":
+    def load_from_disk(cls, agent_id: str, system_config: SystemConfig, llm_manager=None, tool_executor=None) -> "Agent":
         """Load agent from disk by ID"""
         agent_dir = system_config.agents_dir / agent_id
         metadata_file = agent_dir / "metadata.json"
@@ -137,7 +139,7 @@ class Agent:
         with open(metadata_file) as f:
             data = json.load(f)
 
-        return cls.from_json(data, system_config)
+        return cls.from_json(data, system_config, llm_manager, tool_executor)
 
     async def process_request(self, request: AgentRequest) -> AgentResponse:
         """Process agent request with conversation tracking"""
@@ -194,38 +196,157 @@ class Agent:
             raise ValueError(f"Unsupported task type: {request.task_type}")
 
     async def _handle_file_edit(self, request: AgentRequest) -> AgentResponse:
-        """Handle file editing requests"""
-        # Implementation would integrate with LLM for file editing
-        # This is a placeholder for the actual implementation
-        return AgentResponse(
-            success=True,
-            content=f"File edit task received: {request.message}",
-            agent_id=self.state.agent_id,
-            task_type=request.task_type,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
+        """Handle file editing requests using LLM and tool executor"""
+        if not self.llm_manager or not self.tool_executor:
+            return AgentResponse(
+                success=False,
+                content="Agent not properly initialized with LLM manager and tool executor",
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        
+        try:
+            # Build context for LLM
+            context = self.get_context_for_llm()
+            
+            # Create prompt for file editing
+            prompt = f"""Context: {context}
+
+Task: File editing
+Request: {request.message}
+
+You are an AI agent that can edit files. Analyze the request and determine what file operations are needed.
+Use the available workspace tools to read, analyze, and modify files as requested.
+
+Available tools: workspace (read, write, list, search, etc.), git_operations, validation.
+
+Provide a clear response about what you've done."""
+
+            # Get response from LLM if loaded, otherwise provide structured response
+            if self.llm_manager.model_loaded:
+                llm_response = self.llm_manager.llm(prompt, max_tokens=512, temperature=0.3)
+                content = llm_response["choices"][0]["text"].strip()
+            else:
+                content = f"File edit task processed: {request.message} (mock mode - LLM not loaded)"
+            
+            return AgentResponse(
+                success=True,
+                content=content,
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+            
+        except Exception as e:
+            self.logger.error(f"File edit handling failed: {e}")
+            return AgentResponse(
+                success=False,
+                content=f"Error handling file edit: {str(e)}",
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
     async def _handle_code_generation(self, request: AgentRequest) -> AgentResponse:
-        """Handle code generation requests"""
-        # Implementation would integrate with LLM for code generation
-        return AgentResponse(
-            success=True,
-            content=f"Code generation task received: {request.message}",
-            agent_id=self.state.agent_id,
-            task_type=request.task_type,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
+        """Handle code generation requests using LLM"""
+        if not self.llm_manager:
+            return AgentResponse(
+                success=False,
+                content="Agent not properly initialized with LLM manager",
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        
+        try:
+            # Build context for LLM
+            context = self.get_context_for_llm()
+            
+            # Create prompt for code generation
+            prompt = f"""Context: {context}
+
+Task: Code generation
+Request: {request.message}
+
+You are an AI agent that can generate code. Analyze the request and generate appropriate code.
+Consider the managed files, workspace context, and conversation history.
+
+Provide clear, well-documented code that addresses the request."""
+
+            # Get response from LLM if loaded, otherwise provide structured response
+            if self.llm_manager.model_loaded:
+                llm_response = self.llm_manager.llm(prompt, max_tokens=512, temperature=0.3)
+                content = llm_response["choices"][0]["text"].strip()
+            else:
+                content = f"Code generation task processed: {request.message} (mock mode - LLM not loaded)"
+            
+            return AgentResponse(
+                success=True,
+                content=content,
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Code generation handling failed: {e}")
+            return AgentResponse(
+                success=False,
+                content=f"Error handling code generation: {str(e)}",
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
     async def _handle_conversation(self, request: AgentRequest) -> AgentResponse:
-        """Handle general conversation requests"""
-        # Implementation would integrate with LLM for conversation
-        return AgentResponse(
-            success=True,
-            content=f"Conversation response for: {request.message}",
-            agent_id=self.state.agent_id,
-            task_type=request.task_type,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
+        """Handle general conversation requests using LLM"""
+        if not self.llm_manager:
+            return AgentResponse(
+                success=False,
+                content="Agent not properly initialized with LLM manager",
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        
+        try:
+            # Build context for LLM
+            context = self.get_context_for_llm()
+            
+            # Create prompt for conversation
+            prompt = f"""Context: {context}
+
+Task: General conversation
+Request: {request.message}
+
+You are an AI agent having a conversation. Respond helpfully and naturally based on your context and role.
+Use your knowledge of the workspace and managed files to provide relevant responses."""
+
+            # Get response from LLM if loaded, otherwise provide structured response
+            if self.llm_manager.model_loaded:
+                llm_response = self.llm_manager.llm(prompt, max_tokens=256, temperature=0.7)
+                content = llm_response["choices"][0]["text"].strip()
+            else:
+                content = f"Conversation response: {request.message} (mock mode - LLM not loaded)"
+            
+            return AgentResponse(
+                success=True,
+                content=content,
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Conversation handling failed: {e}")
+            return AgentResponse(
+                success=False,
+                content=f"Error handling conversation: {str(e)}",
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
     def _add_conversation_entry(self, entry: ConversationEntry):
         """Add entry to conversation history with size management"""

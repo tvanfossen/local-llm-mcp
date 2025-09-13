@@ -1,0 +1,229 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Claude Code Agent Orchestration Prompt",
+  "description": "Schema for defining agent-based project development prompts",
+  "type": "object",
+  "required": ["project", "instructions", "architecture", "mcp_usage"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "path", "description", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute path to project directory"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief project description"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["web_app", "cli_tool", "game_application", "library", "api_service"],
+          "description": "Type of application"
+        }
+      }
+    },
+    "instructions": {
+      "type": "object",
+      "required": ["mode", "approach", "workflow"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["orchestrator", "direct"],
+          "description": "Operating mode - orchestrator uses agents"
+        },
+        "approach": {
+          "type": "string",
+          "description": "High-level approach instructions"
+        },
+        "workflow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Step-by-step workflow"
+        }
+      }
+    },
+    "architecture": {
+      "type": "object",
+      "required": ["overview", "structure", "components"],
+      "properties": {
+        "overview": {
+          "type": "string",
+          "description": "Architecture overview"
+        },
+        "structure": {
+          "type": "object",
+          "description": "Directory structure mapping",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "path", "responsibility", "agent_name", "agent_prompt"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Component name"
+              },
+              "path": {
+                "type": "string",
+                "description": "File path for component"
+              },
+              "responsibility": {
+                "type": "string",
+                "description": "What this component does"
+              },
+              "agent_name": {
+                "type": "string",
+                "description": "Name for the agent managing this component"
+              },
+              "agent_prompt": {
+                "type": "string",
+                "description": "System prompt for the agent"
+              }
+            }
+          }
+        }
+      }
+    },
+    "mcp_usage": {
+      "type": "object",
+      "required": ["tools", "agent_creation_sequence"],
+      "properties": {
+        "tools": {
+          "type": "object",
+          "required": ["workspace", "git", "validation", "local_model"],
+          "properties": {
+            "workspace": {
+              "type": "string",
+              "description": "How workspace tool is used"
+            },
+            "git": {
+              "type": "string",
+              "description": "How git tool is used"
+            },
+            "validation": {
+              "type": "string",
+              "description": "How validation tool is used"
+            },
+            "local_model": {
+              "type": "string",
+              "description": "How local model tool is used"
+            }
+          }
+        },
+        "agent_creation_sequence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["step", "tool"],
+            "properties": {
+              "step": {
+                "type": "integer",
+                "description": "Step number"
+              },
+              "tool": {
+                "type": "string",
+                "description": "MCP tool to use"
+              },
+              "operation": {
+                "type": "string",
+                "description": "Operation for consolidated tools"
+              },
+              "params": {
+                "type": "object",
+                "description": "Parameters for the tool"
+              },
+              "description": {
+                "type": "string",
+                "description": "What this step does"
+              }
+            }
+          }
+        }
+      }
+    },
+    "quality_standards": {
+      "type": "object",
+      "properties": {
+        "code_style": {
+          "type": "string",
+          "description": "Coding style requirements"
+        },
+        "max_file_length": {
+          "type": "integer",
+          "description": "Maximum lines per file"
+        },
+        "max_function_complexity": {
+          "type": "integer",
+          "description": "Maximum cognitive complexity"
+        },
+        "test_coverage": {
+          "type": "string",
+          "description": "Required test coverage"
+        },
+        "documentation": {
+          "type": "string",
+          "description": "Documentation requirements"
+        }
+      }
+    },
+    "validation_sequence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage", "commands"],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "description": "When to run validations"
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Validation commands to run"
+          }
+        }
+      }
+    },
+    "expected_outcome": {
+      "type": "object",
+      "properties": {
+        "deliverables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Expected project deliverables"
+        },
+        "run_command": {
+          "type": "string",
+          "description": "Command to run the application"
+        },
+        "test_command": {
+          "type": "string",
+          "description": "Command to run tests"
+        }
+      }
+    },
+    "important_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Critical reminders and constraints"
+    }
+  }
+}

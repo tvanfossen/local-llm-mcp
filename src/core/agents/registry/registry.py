@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
 class AgentRegistry:
     """Centralized registry for managing all agents"""
 
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_manager: ConfigManager, llm_manager=None, tool_executor=None):
         self.config_manager = config_manager
+        self.llm_manager = llm_manager
+        self.tool_executor = tool_executor
         self.agents: dict[str, Agent] = {}
         self.system_config = config_manager.system
 
@@ -37,13 +39,25 @@ class AgentRegistry:
         for agent_dir in self.system_config.agents_dir.iterdir():
             if agent_dir.is_dir():
                 try:
-                    agent = Agent.load_from_disk(agent_dir.name, self.system_config)
+                    agent = Agent.load_from_disk(agent_dir.name, self.system_config, self.llm_manager, self.tool_executor)
                     self.agents[agent.state.agent_id] = agent
                     loaded_count += 1
                 except Exception as e:
                     logger.warning(f"Failed to load agent from {agent_dir}: {e}")
 
         logger.info(f"Loaded {loaded_count} agents from disk")
+
+    def update_toolchain(self, llm_manager=None, tool_executor=None):
+        """Update all agents with new LLM manager and tool executor"""
+        self.llm_manager = llm_manager or self.llm_manager
+        self.tool_executor = tool_executor or self.tool_executor
+        
+        # Update existing agents
+        for agent in self.agents.values():
+            agent.llm_manager = self.llm_manager
+            agent.tool_executor = self.tool_executor
+        
+        logger.info(f"Updated {len(self.agents)} agents with consolidated toolchain")
 
     def create_agent(self, name: str, description: str, specialized_files: list[str] = None) -> Agent:
         """Create a new agent and register it"""
@@ -54,7 +68,7 @@ class AgentRegistry:
             specialized_files=specialized_files or [],
         )
 
-        agent = Agent.create(params)
+        agent = Agent.create(params, self.llm_manager, self.tool_executor)
         self.agents[agent.state.agent_id] = agent
 
         logger.info(f"Created new agent: {name} (ID: {agent.state.agent_id})")
