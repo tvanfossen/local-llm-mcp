@@ -212,10 +212,10 @@ class Agent:
 
         try:
             self.logger.info(f"Executing file edit request: {request.message}")
-            
+
             # Parse the request to determine what file operations are needed
             request_lower = request.message.lower()
-            
+
             # Handle file operations based on request content
             if "create" in request_lower or "write" in request_lower:
                 return await self._create_file_from_request(request)
@@ -284,10 +284,7 @@ Write the complete Python code for the file:"""
             if self.llm_manager and self.llm_manager.is_ready():
                 self.logger.info("Using LLM for code generation")
                 response = self.llm_manager.generate_response(
-                    code_gen_prompt,
-                    max_tokens=2048,
-                    temperature=0.3,
-                    stop_tokens=[]
+                    code_gen_prompt, max_tokens=2048, temperature=0.3, stop_tokens=[]
                 )
 
                 self.logger.info(f"LLM response success: {response['success']}")
@@ -307,13 +304,16 @@ Write the complete Python code for the file:"""
                 self.logger.info(f"Fallback code length: {len(generated_code)} characters")
 
             # Execute workspace write operation
-            write_result = await self.tool_executor.execute_tool("workspace", {
-                "action": "write",
-                "path": filename,
-                "content": generated_code,
-                "create_dirs": True,
-                "overwrite": True
-            })
+            write_result = await self.tool_executor.execute_tool(
+                "workspace",
+                {
+                    "action": "write",
+                    "path": filename,
+                    "content": generated_code,
+                    "create_dirs": True,
+                    "overwrite": True,
+                },
+            )
 
             self.logger.info(f"Workspace write result: {write_result}")
 
@@ -322,11 +322,13 @@ Write the complete Python code for the file:"""
             self.logger.info(f"Determined success status: {success}")
 
             if success:
-                success_message = f"✅ Successfully generated {filename}\n\n" \
-                                f"📁 **File**: {filename}\n" \
-                                f"📏 **Size**: {len(generated_code)} characters\n" \
-                                f"🎯 **Purpose**: Code generated based on request\n\n" \
-                                f"The file has been created with AI-generated content."
+                success_message = (
+                    f"✅ Successfully generated {filename}\n\n"
+                    f"📁 **File**: {filename}\n"
+                    f"📏 **Size**: {len(generated_code)} characters\n"
+                    f"🎯 **Purpose**: Code generated based on request\n\n"
+                    f"The file has been created with AI-generated content."
+                )
 
                 self.logger.info(f"Code generation completed for {filename}")
                 return AgentResponse(
@@ -335,7 +337,7 @@ Write the complete Python code for the file:"""
                     agent_id=self.state.agent_id,
                     task_type=request.task_type,
                     timestamp=datetime.now(timezone.utc).isoformat(),
-                    files_modified=[filename]
+                    files_modified=[filename],
                 )
             else:
                 error_msg = write_result.get("error", "Unknown error during file write")
@@ -490,13 +492,13 @@ Use your knowledge of the workspace and managed files to provide relevant respon
             else:
                 # Fallback if no managed files specified
                 filename = "main.py"
-            
+
             self.logger.info(f"Creating managed file: {filename}")
-            
+
             # Generate content based on file extension and request
-            if filename.endswith('.py'):
+            if filename.endswith(".py"):
                 content = self._generate_python_content(filename, request.message)
-            elif filename.endswith('.md'):
+            elif filename.endswith(".md"):
                 content = self._generate_markdown_content(filename, request.message)
             else:
                 content = f"""# {filename}
@@ -506,22 +508,21 @@ Content created by agent based on request:
 
 Created: {datetime.now(timezone.utc).isoformat()}
 """
-            
+
             # Execute workspace write operation
-            write_result = await self.tool_executor.execute_tool("workspace", {
-                "action": "write",
-                "path": filename,
-                "content": content,
-                "create_dirs": True
-            })
-            
+            write_result = await self.tool_executor.execute_tool(
+                "workspace", {"action": "write", "path": filename, "content": content, "create_dirs": True}
+            )
+
             if write_result.get("success"):
-                success_message = f"✅ Successfully created {filename}\n\n" \
-                                f"📁 **File**: {filename}\n" \
-                                f"📏 **Size**: {len(content)} characters\n" \
-                                f"🎯 **Purpose**: Document created based on request\n\n" \
-                                f"The file has been created with template content."
-                
+                success_message = (
+                    f"✅ Successfully created {filename}\n\n"
+                    f"📁 **File**: {filename}\n"
+                    f"📏 **Size**: {len(content)} characters\n"
+                    f"🎯 **Purpose**: Document created based on request\n\n"
+                    f"The file has been created with template content."
+                )
+
                 self.logger.info(f"{filename} created successfully")
                 return AgentResponse(
                     success=True,
@@ -540,7 +541,7 @@ Created: {datetime.now(timezone.utc).isoformat()}
                     task_type=request.task_type,
                     timestamp=datetime.now(timezone.utc).isoformat(),
                 )
-                
+
         except Exception as e:
             self.logger.error(f"File creation failed: {e}")
             return AgentResponse(
@@ -564,17 +565,17 @@ def main():
     """Main entry point for PyChess application"""
     print("🏁 Welcome to PyChess!")
     print("=" * 50)
-    
+
     while True:
         print("\\nSelect an option:")
         print("1. Start New Game")
         print("2. Load Game")
         print("3. View Rules")
         print("4. Exit")
-        
+
         try:
             choice = input("\\nEnter your choice (1-4): ").strip()
-            
+
             if choice == "1":
                 start_new_game()
             elif choice == "2":
@@ -586,7 +587,7 @@ def main():
                 break
             else:
                 print("❌ Invalid choice. Please enter 1, 2, 3, or 4.")
-                
+
         except KeyboardInterrupt:
             print("\\n\\nGoodbye! 👋")
             break
@@ -671,7 +672,7 @@ This document outlines the architectural design and structure of the project.
 [To be documented]
 """
         else:
-            return f"""# {filename.replace('.md', '').replace('_', ' ').title()}
+            return f"""# {filename.replace(".md", "").replace("_", " ").title()}
 
 ## Content
 This document was created by an agent based on the request:
@@ -706,12 +707,10 @@ Created: {datetime.now(timezone.utc).isoformat()}
         """Handle directory listing requests"""
         try:
             # Execute workspace list operation
-            list_result = await self.tool_executor.execute_tool("workspace", {
-                "action": "list",
-                "path": ".",
-                "include_hidden": False
-            })
-            
+            list_result = await self.tool_executor.execute_tool(
+                "workspace", {"action": "list", "path": ".", "include_hidden": False}
+            )
+
             if list_result.get("success"):
                 return AgentResponse(
                     success=True,
@@ -791,11 +790,11 @@ Created: {datetime.now(timezone.utc).isoformat()}
 
         # Look for common file patterns in the message
         patterns = [
-            r'(?:create|write|generate)\s+(?:file\s+)?([a-zA-Z0-9_]+\.[a-zA-Z0-9]+)',
-            r'(?:file|filename):\s*([a-zA-Z0-9_]+\.[a-zA-Z0-9]+)',
-            r'([a-zA-Z0-9_]+\.py)',  # Python files
-            r'([a-zA-Z0-9_]+\.js)',  # JavaScript files
-            r'([a-zA-Z0-9_]+\.md)',  # Markdown files
+            r"(?:create|write|generate)\s+(?:file\s+)?([a-zA-Z0-9_]+\.[a-zA-Z0-9]+)",
+            r"(?:file|filename):\s*([a-zA-Z0-9_]+\.[a-zA-Z0-9]+)",
+            r"([a-zA-Z0-9_]+\.py)",  # Python files
+            r"([a-zA-Z0-9_]+\.js)",  # JavaScript files
+            r"([a-zA-Z0-9_]+\.md)",  # Markdown files
         ]
 
         for pattern in patterns:
@@ -807,9 +806,9 @@ Created: {datetime.now(timezone.utc).isoformat()}
 
     def _generate_fallback_code(self, filename: str, request: str) -> str:
         """Generate fallback code when LLM is not available"""
-        file_ext = filename.split('.')[-1].lower() if '.' in filename else 'txt'
+        file_ext = filename.split(".")[-1].lower() if "." in filename else "txt"
 
-        if file_ext == 'py':
+        if file_ext == "py":
             return f'''"""
 {filename}
 Generated by agent based on request: {request}
@@ -826,8 +825,8 @@ def main():
 if __name__ == "__main__":
     main()
 '''
-        elif file_ext == 'js':
-            return f'''/**
+        elif file_ext == "js":
+            return f"""/**
  * {filename}
  * Generated by agent based on request: {request}
  *
@@ -840,9 +839,9 @@ function main() {{
 }}
 
 main();
-'''
-        elif file_ext == 'md':
-            return f'''# {filename.replace('.md', '').replace('_', ' ').title()}
+"""
+        elif file_ext == "md":
+            return f"""# {filename.replace(".md", "").replace("_", " ").title()}
 
 Generated by agent based on request: {request}
 
@@ -853,9 +852,9 @@ This document was automatically generated. Please update with actual content.
 
 ## TODO
 Implement functionality based on: {request}
-'''
+"""
         else:
-            return f'''/*
+            return f"""/*
 {filename}
 Generated by agent based on request: {request}
 
@@ -863,7 +862,7 @@ Created: {datetime.now(timezone.utc).isoformat()}
 */
 
 // TODO: Implement functionality based on: {request}
-'''
+"""
 
     @staticmethod
     def _generate_agent_id() -> str:

@@ -164,7 +164,7 @@ class ConfigManager:
                 temp_dir=workspace / ".mcp-tmp",
                 is_container=True,
             )
-        
+
         # Detect if we're in a container
         is_container = Path("/.dockerenv").exists() or os.environ.get("CONTAINER") == "true"
 

@@ -122,7 +122,7 @@ def docker_build(ctx):
 def docker_run(ctx, port=8000, repo=None):
     """Run the MCP server in Docker with workspace mount"""
     import os
-    
+
     if repo is None:
         repo = str(PROJECT_ROOT)
         print(f"Using current directory as repo: {repo}")
@@ -132,7 +132,7 @@ def docker_run(ctx, port=8000, repo=None):
         if not os.path.exists(repo):
             print(f"❌ Repository path does not exist: {repo}")
             return
-    
+
     print(f"🚀 Starting MCP server in Docker on port {port}")
     print(f"   Workspace mount: {repo} -> /workspace")
 
@@ -144,7 +144,7 @@ def docker_run(ctx, port=8000, repo=None):
     # TEMPORARILY REMOVING --user flag to test if that's causing startup issues
     # uid = os.getuid()
     # gid = os.getgid()
-    
+
     cmd = f"""docker run --gpus all \
         -p {port}:8000 \
         -v {repo}:/workspace:rw \
@@ -160,13 +160,14 @@ def docker_run(ctx, port=8000, repo=None):
     print(f"✅ Container started: {container_id}")
     print(f"   MCP Server: http://localhost:{port}")
     print(f"   Workspace: {repo}")
-    
+
     # import time
     # time.sleep(10)
     # # Verify mount
     # print(f"\n🔍 Verifying workspace mount...")
     # verify_cmd = f"docker exec {container_id} ls -la /workspace | head -5"
     # ctx.run(verify_cmd, pty=True)
+
 
 @task
 def docker_logs(ctx, follow=False):

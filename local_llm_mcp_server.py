@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 """File: ~/Projects/local-llm-mcp/local_llm_mcp_server.py
-Main Entry Point - Agent-Based Local LLM MCP Server
+Main Entry Point - Agent-Based Local LLM MCP Server with Async Task Queue
 
 Responsibilities:
 - Orchestrate system initialization
 - Start HTTP server with MCP endpoint
-- Handle graceful shutdown
+- Handle graceful shutdown including task queue
 - Minimal coordination between components
 
 Environment: Ubuntu 22.04, NVIDIA Driver 575, CUDA 12.9, RTX 1080ti (11GB VRAM)
@@ -46,7 +46,7 @@ class ServerOrchestrator:
     - Initialize configuration
     - Create and wire components
     - Start/stop HTTP server
-    - Handle graceful shutdown
+    - Handle graceful shutdown including task queue
     """
 
     def __init__(self):
@@ -125,6 +125,7 @@ class ServerOrchestrator:
         logger.info("❤️ Health check: GET /health")
         logger.info("📊 System info: GET /")
         logger.info("🛠️  4 Core Tools: local_model, git_operations, workspace, validation")
+        logger.info("📋 Async Task Queue: Enabled for long-running operations")
 
         # Model and agent info
         model_info = self.config_manager.get_model_info()
@@ -135,9 +136,10 @@ class ServerOrchestrator:
         agent_stats = self.agent_registry.get_registry_stats()
         logger.info(f"👥 Active Agents: {agent_stats['total_agents']}")
         logger.info(f"📂 Managed Files: {agent_stats['managed_files']}")
+        logger.info(f"📋 Queued Tasks: {agent_stats.get('queued_tasks', 0)}")
 
     async def shutdown(self):
-        """Graceful shutdown"""
+        """Graceful shutdown including task queue"""
         logger.info("🛑 Shutting down server...")
 
         try:
@@ -146,10 +148,10 @@ class ServerOrchestrator:
                 self.server.should_exit = True
                 await asyncio.sleep(0.1)  # Give server time to stop
 
-            # Save agent states
+            # Stop task queue worker and save agent states
             if self.agent_registry:
-                logger.info("💾 Saving agent states...")
-                self.agent_registry.save_registry()
+                logger.info("⏹️ Stopping task queue worker...")
+                await self.agent_registry.shutdown()
 
             # Unload model to free GPU memory
             if self.llm_manager:
@@ -201,19 +203,20 @@ class ServerOrchestrator:
 
     def _initialize_tool_executor(self) -> bool:
         """Initialize consolidated tool executor and update agent registry"""
-        logger.info("Initializing consolidated tool executor (4 core tools)...")
+        logger.info("Initializing consolidated tool executor (4 core tools + async operations)...")
         self.tool_executor = ConsolidatedToolExecutor(self.agent_registry, self.llm_manager)
 
         # Update agent registry with consolidated toolchain
         self.agent_registry.update_toolchain(self.llm_manager, self.tool_executor)
 
         logger.info("✅ Tool executor ready with: local_model, git_operations, workspace, validation")
+        logger.info("✅ Agent operations enhanced with async task queue")
         logger.info("✅ Agent registry updated with consolidated toolchain")
         return True
 
     def _initialize_agent_registry(self):
-        """Initialize agent registry"""
-        logger.info("Initializing agent registry...")
+        """Initialize agent registry with task queue"""
+        logger.info("Initializing agent registry with async task queue...")
         self.agent_registry = AgentRegistry(self.config_manager)
         return True
 
@@ -227,7 +230,7 @@ async def main():
         orchestrator.setup_signal_handlers()
 
         # Initialize system
-        logger.info("🔧 Initializing Consolidated 4-Tool MCP Server...")
+        logger.info("🔧 Initializing Consolidated 4-Tool MCP Server with Async Task Queue...")
         success = await orchestrator.initialize()
 
         if not success:

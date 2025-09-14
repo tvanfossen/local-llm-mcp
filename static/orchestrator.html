@@ -5,12 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCP Debug Interface</title>
     <link rel="stylesheet" href="/static/css/orchestrator.css">
+    <style>
+        .task-queue-panel {
+            background: rgba(26, 31, 58, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .task-item {
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid #2d3561;
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 8px;
+        }
+        .task-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .status-queued { background: #6272a4; color: #f8f8f2; }
+        .status-running { background: #ffb86c; color: #282a36; }
+        .status-completed { background: #50fa7b; color: #282a36; }
+        .status-failed { background: #ff5555; color: #f8f8f2; }
+    </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>🤖 MCP Debug Interface</h1>
-            <p>Direct MCP Protocol Testing</p>
+            <p>Direct MCP Protocol Testing with Async Task Queue</p>
         </div>
 
         <div class="auth-section">
@@ -22,6 +49,17 @@
             </div>
             <textarea class="key-input" id="privateKey" placeholder="Paste your RSA private key here..." rows="4"></textarea>
             <button class="btn auth-btn" id="authBtn" onclick="authenticate()">Authenticate</button>
+        </div>
+
+        <!-- Task Queue Panel -->
+        <div class="task-queue-panel auth-protected">
+            <div class="panel-header">
+                <h3>📋 Task Queue</h3>
+                <button class="btn" onclick="refreshTaskQueue()">Refresh</button>
+            </div>
+            <div id="taskQueueList">
+                <p style="opacity: 0.7;">No active tasks</p>
+            </div>
         </div>
 
         <div class="main-grid">
@@ -64,5 +102,145 @@
     <!-- Load scripts in correct order -->
     <script src="/static/js/mcp-client.js"></script>
     <script src="/static/js/main.js"></script>
-</body>
-</html>
+    <script>
+        // Task Queue functionality
+        window.activeTasks = [];
+
+        async function refreshTaskQueue() {
+            if (!window.mcpClient) return;
+
+            try {
+                addTerminalLine('🔄 Refreshing task queue...', 'info');
+                const result = await window.mcpClient.callTool('agent_operations', {operation: 'list_tasks'});
+
+                const container = document.getElementById('taskQueueList');
+
+                // Parse response
+                let responseText = '';
+                if (result && result.content && result.content[0]) {
+                    responseText = result.content[0].text || '';
+                }
+
+                if (!responseText || responseText.includes('No active tasks')) {
+                    container.innerHTML = '<p style="opacity: 0.7;">No active tasks</p>';
+                    return;
+                }
+
+                // Parse tasks from response text
+                const tasks = parseTasksFromResponse(responseText);
+
+                if (tasks.length > 0) {
+                    container.innerHTML = '';
+                    tasks.forEach(task => {
+                        const taskEl = createTaskElement(task);
+                        container.appendChild(taskEl);
+                    });
+
+                    // Auto-refresh if there are running tasks
+                    if (tasks.some(t => t.status === 'running' || t.status === 'queued')) {
+                        setTimeout(refreshTaskQueue, 3000); // Refresh every 3 seconds
+                    }
+                }
+
+            } catch (error) {
+                addTerminalLine(`❌ Failed to refresh task queue: ${error.message}`, 'error');
+            }
+        }
+
+        function parseTasksFromResponse(text) {
+            const tasks = [];
+            const lines = text.split('\n');
+            let currentTask = null;
+
+            for (const line of lines) {
+                if (line.includes('🎫')) {
+                    if (currentTask) tasks.push(currentTask);
+
+                    const match = line.match(/🎫\s+(\S+)\s+-\s+(\S+)/);
+                    if (match) {
+                        currentTask = {
+                            id: match[1],
+                            status: match[2]
+                        };
+                    }
+                } else if (currentTask && line.includes('Agent:')) {
+                    const agentMatch = line.match(/Agent:\s+(\S+)/);
+                    if (agentMatch) currentTask.agent = agentMatch[1];
+                } else if (currentTask && line.includes('Created:')) {
+                    const createdMatch = line.match(/Created:\s+(.+)/);
+                    if (createdMatch) currentTask.created = createdMatch[1];
+                }
+            }
+
+            if (currentTask) tasks.push(currentTask);
+            return tasks;
+        }
+
+        function createTaskElement(task) {
+            const div = document.createElement('div');
+            div.className = 'task-item';
+
+            const statusClass = `status-${task.status}`;
+
+            div.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span class="task-status ${statusClass}">${task.status.toUpperCase()}</span>
+                        <span style="margin-left: 10px; font-family: monospace;">${task.id}</span>
+                    </div>
+                    <button class="btn" style="padding: 4px 8px; font-size: 0.85em;"
+                            onclick="checkTaskStatus('${task.id}')">Check</button>
+                </div>
+                ${task.agent ? `<div style="font-size: 0.85em; opacity: 0.7; margin-top: 4px;">Agent: ${task.agent}</div>` : ''}
+            `;
+
+            return div;
+        }
+
+        async function checkTaskStatus(taskId) {
+            if (!window.mcpClient) return;
+
+            try {
+                // First check status
+                const statusResult = await window.mcpClient.callTool('agent_operations', {
+                    operation: 'task_status',
+                    task_id: taskId
+                });
+
+                let statusText = statusResult.content?.[0]?.text || 'Unknown status';
+                addTerminalLine(`Task ${taskId}: ${statusText}`, 'info');
+
+                // If completed, get result
+                if (statusText.includes('completed')) {
+                    const resultResult = await window.mcpClient.callTool('agent_operations', {
+                        operation: 'task_result',
+                        task_id: taskId
+                    });
+
+                    let resultText = resultResult.content?.[0]?.text || 'No result';
+                    addTerminalLine(`Result: ${resultText.substring(0, 200)}...`, 'success');
+                }
+
+                // Refresh the task queue
+                await refreshTaskQueue();
+
+            } catch (error) {
+                addTerminalLine(`❌ Failed to check task: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-refresh task queue when authenticated
+        const originalAuthenticate = window.authenticate;
+        window.authenticate = async function() {
+            await originalAuthenticate();
+            if (window.authenticated) {
+                await refreshTaskQueue();
+            }
+        };
+
+        // Periodic refresh
+        setInterval(() => {
+            if (window.authenticated) {
+                refreshTaskQueue();
+            }
+        }, 10000); // Every 10 seconds

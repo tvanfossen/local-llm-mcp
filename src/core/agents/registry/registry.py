@@ -1,23 +1,26 @@
-"""Agent Registry - Centralized Agent Management
+"""Agent Registry - Centralized Agent Management with Async Task Queue
 
 Responsibilities:
 - Track and manage all active agents
 - Load agents from disk on startup
 - Provide agent lookup and statistics
 - Handle agent creation and removal
+- Manage async task queue for long operations
 """
 
+import asyncio
 import logging
 from typing import Optional
 
 from src.core.agents.agent.agent import Agent, AgentCreateParams
+from src.core.agents.registry.task_queue import TaskQueue
 from src.core.config.manager.manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
 
 class AgentRegistry:
-    """Centralized registry for managing all agents"""
+    """Centralized registry for managing all agents with async task support"""
 
     def __init__(self, config_manager: ConfigManager, llm_manager=None, tool_executor=None):
         self.config_manager = config_manager
@@ -25,9 +28,13 @@ class AgentRegistry:
         self.tool_executor = tool_executor
         self.agents: dict[str, Agent] = {}
         self.system_config = config_manager.system
+        self.task_queue = TaskQueue()
 
         # Load existing agents from disk
         self._load_agents_from_disk()
+
+        # Start task queue worker
+        asyncio.create_task(self.task_queue.start_worker(self))
 
     def _load_agents_from_disk(self):
         """Load all agents from the agents directory"""
@@ -100,7 +107,7 @@ class AgentRegistry:
         return False
 
     def get_registry_stats(self) -> dict:
-        """Get statistics about the agent registry"""
+        """Get statistics about the agent registry including task queue"""
         if not self.agents:
             return {
                 "total_agents": 0,
@@ -108,6 +115,8 @@ class AgentRegistry:
                 "total_interactions": 0,
                 "average_success_rate": 0.0,
                 "most_active_agent": None,
+                "queued_tasks": len(self.task_queue.tasks),
+                "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
             }
 
         total_interactions = sum(agent.state.interaction_count for agent in self.agents.values())
@@ -128,6 +137,8 @@ class AgentRegistry:
             "total_interactions": total_interactions,
             "average_success_rate": round(avg_success_rate, 3),
             "most_active_agent": most_active.state.name if most_active else None,
+            "queued_tasks": len(self.task_queue.tasks),
+            "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
         }
 
     def get_agents_for_file(self, file_path: str) -> list[Agent]:
@@ -183,3 +194,8 @@ class AgentRegistry:
             logger.info(f"Saved registry with {len(self.agents)} agents")
         except Exception as e:
             logger.error(f"Failed to save registry: {e}")
+
+    async def shutdown(self):
+        """Shutdown registry and task queue"""
+        await self.task_queue.stop_worker()
+        self.save_registry()
