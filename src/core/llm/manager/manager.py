@@ -74,8 +74,8 @@ class LLMManager:
 
             self.llm = Llama(
                 model_path=self.model_path,
-                n_gpu_layers=getattr(self.model_config, "n_gpu_layers", 0),
-                n_ctx=getattr(self.model_config, "n_ctx", 2048),
+                n_gpu_layers=getattr(self.model_config, "n_gpu_layers", -1),
+                n_ctx=getattr(self.model_config, "n_ctx", 8291),
                 n_batch=getattr(self.model_config, "n_batch", 512),
                 n_threads=getattr(self.model_config, "n_threads", 4),
                 use_mmap=getattr(self.model_config, "use_mmap", True),
@@ -169,9 +169,9 @@ class LLMManager:
             return {"capabilities": "unknown", "config": None}
 
         return {
-            "context_size": getattr(self.model_config, "n_ctx", 2048),
+            "context_size": getattr(self.model_config, "n_ctx", 8192),
             "batch_size": getattr(self.model_config, "n_batch", 512),
-            "gpu_layers": getattr(self.model_config, "n_gpu_layers", 0),
+            "gpu_layers": getattr(self.model_config, "n_gpu_layers", -1),
             "threads": getattr(self.model_config, "n_threads", 4),
             "use_mmap": getattr(self.model_config, "use_mmap", True),
             "use_mlock": getattr(self.model_config, "use_mlock", False),

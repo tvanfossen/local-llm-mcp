@@ -249,18 +249,105 @@ class Agent:
             )
 
         try:
-            # For code generation, we still need to analyze the request
-            # but then use tool executor to create/modify files
             self.logger.info(f"Processing code generation request: {request.message}")
-            
-            # Simple code generation example - could be expanded based on request analysis
-            return AgentResponse(
-                success=True,
-                content="Code generation with tool integration not yet fully implemented",
-                agent_id=self.state.agent_id,
-                task_type=request.task_type,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-            )
+
+            # Use the first managed file as the target file, or determine from request
+            if self.state.managed_files and len(self.state.managed_files) > 0:
+                filename = self.state.managed_files[0]
+            else:
+                # Extract filename from request or use default
+                filename = self._extract_filename_from_request(request.message) or "generated_code.py"
+
+            self.logger.info(f"Generating code for file: {filename}")
+
+            # Build context for LLM code generation
+            context = self.get_context_for_llm()
+
+            # Create specialized prompt for code generation
+            code_gen_prompt = f"""Context: {context}
+
+Task: Code Generation
+Request: {request.message}
+Target File: {filename}
+
+You are an expert programmer. Generate clean, well-documented code based on the request.
+Focus on creating functional, maintainable code that follows best practices.
+Generate ONLY the Python code - no explanations, no markdown, no backticks.
+
+Write the complete Python code for the file:"""
+
+            # Generate code using LLM if available
+            self.logger.info(f"Starting code generation for {filename}")
+            self.logger.info(f"LLM available: {self.llm_manager is not None and self.llm_manager.is_ready()}")
+            self.logger.info(f"Code generation prompt: {code_gen_prompt}")
+
+            if self.llm_manager and self.llm_manager.is_ready():
+                self.logger.info("Using LLM for code generation")
+                response = self.llm_manager.generate_response(
+                    code_gen_prompt,
+                    max_tokens=2048,
+                    temperature=0.3,
+                    stop_tokens=[]
+                )
+
+                self.logger.info(f"LLM response success: {response['success']}")
+                if response["success"]:
+                    generated_code = response["response"].strip()
+                    self.logger.info(f"Generated code length: {len(generated_code)} characters")
+                    self.logger.info(f"Generated code FULL OUTPUT: {generated_code}")
+                else:
+                    self.logger.error(f"LLM generation failed: {response.get('error', 'Unknown error')}")
+                    # Fallback to template if LLM fails
+                    generated_code = self._generate_fallback_code(filename, request.message)
+                    self.logger.info(f"Using fallback code, length: {len(generated_code)} characters")
+            else:
+                self.logger.info("LLM not available, using fallback code generation")
+                # Fallback to template if LLM not available
+                generated_code = self._generate_fallback_code(filename, request.message)
+                self.logger.info(f"Fallback code length: {len(generated_code)} characters")
+
+            # Execute workspace write operation
+            write_result = await self.tool_executor.execute_tool("workspace", {
+                "action": "write",
+                "path": filename,
+                "content": generated_code,
+                "create_dirs": True,
+                "overwrite": True
+            })
+
+            self.logger.info(f"Workspace write result: {write_result}")
+
+            # Handle different response formats from workspace tool
+            success = write_result.get("success", False) or (not write_result.get("isError", True))
+            self.logger.info(f"Determined success status: {success}")
+
+            if success:
+                success_message = f"✅ Successfully generated {filename}\n\n" \
+                                f"📁 **File**: {filename}\n" \
+                                f"📏 **Size**: {len(generated_code)} characters\n" \
+                                f"🎯 **Purpose**: Code generated based on request\n\n" \
+                                f"The file has been created with AI-generated content."
+
+                self.logger.info(f"Code generation completed for {filename}")
+                return AgentResponse(
+                    success=True,
+                    content=success_message,
+                    agent_id=self.state.agent_id,
+                    task_type=request.task_type,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    files_modified=[filename]
+                )
+            else:
+                error_msg = write_result.get("error", "Unknown error during file write")
+                self.logger.error(f"Failed to write generated code to {filename}: {error_msg}")
+                self.logger.error(f"Full write_result: {write_result}")
+                return AgentResponse(
+                    success=False,
+                    content=f"❌ Failed to create {filename}: {error_msg}",
+                    agent_id=self.state.agent_id,
+                    task_type=request.task_type,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
 
         except Exception as e:
             self.logger.error(f"Code generation handling failed: {e}")
@@ -697,6 +784,86 @@ Created: {datetime.now(timezone.utc).isoformat()}
     def to_dict(self) -> dict[str, Any]:
         """Convert agent to dictionary for serialization"""
         return self.state.to_dict()
+
+    def _extract_filename_from_request(self, message: str) -> str:
+        """Extract filename from request message"""
+        import re
+
+        # Look for common file patterns in the message
+        patterns = [
+            r'(?:create|write|generate)\s+(?:file\s+)?([a-zA-Z0-9_]+\.[a-zA-Z0-9]+)',
+            r'(?:file|filename):\s*([a-zA-Z0-9_]+\.[a-zA-Z0-9]+)',
+            r'([a-zA-Z0-9_]+\.py)',  # Python files
+            r'([a-zA-Z0-9_]+\.js)',  # JavaScript files
+            r'([a-zA-Z0-9_]+\.md)',  # Markdown files
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                return match.group(1)
+
+        return None
+
+    def _generate_fallback_code(self, filename: str, request: str) -> str:
+        """Generate fallback code when LLM is not available"""
+        file_ext = filename.split('.')[-1].lower() if '.' in filename else 'txt'
+
+        if file_ext == 'py':
+            return f'''"""
+{filename}
+Generated by agent based on request: {request}
+
+Created: {datetime.now(timezone.utc).isoformat()}
+"""
+
+def main():
+    """Main function - implement based on requirements"""
+    print("Hello from {filename}")
+    # TODO: Implement functionality based on: {request}
+    pass
+
+if __name__ == "__main__":
+    main()
+'''
+        elif file_ext == 'js':
+            return f'''/**
+ * {filename}
+ * Generated by agent based on request: {request}
+ *
+ * Created: {datetime.now(timezone.utc).isoformat()}
+ */
+
+function main() {{
+    console.log("Hello from {filename}");
+    // TODO: Implement functionality based on: {request}
+}}
+
+main();
+'''
+        elif file_ext == 'md':
+            return f'''# {filename.replace('.md', '').replace('_', ' ').title()}
+
+Generated by agent based on request: {request}
+
+Created: {datetime.now(timezone.utc).isoformat()}
+
+## Overview
+This document was automatically generated. Please update with actual content.
+
+## TODO
+Implement functionality based on: {request}
+'''
+        else:
+            return f'''/*
+{filename}
+Generated by agent based on request: {request}
+
+Created: {datetime.now(timezone.utc).isoformat()}
+*/
+
+// TODO: Implement functionality based on: {request}
+'''
 
     @staticmethod
     def _generate_agent_id() -> str:

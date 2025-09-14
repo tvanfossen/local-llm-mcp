@@ -216,7 +216,7 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
             if result["success"]:
                 return create_mcp_response(True, result["response_text"])
             else:
-                return create_mcp_response(False, result["error"])
+                return create_mcp_response(False, result.get("error", "Operation failed"))
         
         elif operation == "info":
             agent_id = args.get("agent_id", "")
@@ -233,12 +233,14 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
                 info_text += f"Files: {agent['files_count']}\n"
                 info_text += f"Interactions: {agent['interactions']}\n"
                 info_text += f"Success Rate: {agent['success_rate']:.1%}\n"
-                info_text += f"Status: {agent['status']}\n"
+                if 'status' in agent:
+                    info_text += f"Status: {agent['status']}\n"
                 if agent['managed_files']:
                     info_text += f"Managed Files: {', '.join(agent['managed_files'])}"
                 return create_mcp_response(True, info_text)
             else:
-                return create_mcp_response(False, result["error"])
+                error_msg = result.get("error", "Failed to get agent info")
+                return create_mcp_response(False, error_msg)
         
         elif operation == "stats":
             result = _agent_operations_tool.get_registry_stats()
@@ -251,7 +253,7 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
                 stats_text += f"Registry Integrity: {'✅ Good' if stats.get('integrity', False) else '❌ Issues'}"
                 return create_mcp_response(True, stats_text)
             else:
-                return create_mcp_response(False, result["error"])
+                return create_mcp_response(False, result.get("error", "Operation failed"))
         
         elif operation == "create":
             name = args.get("name", "")
@@ -291,7 +293,7 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
             if result["success"]:
                 return create_mcp_response(True, result["response_text"])
             else:
-                return create_mcp_response(False, result["error"])
+                return create_mcp_response(False, result.get("error", "Operation failed"))
         
         elif operation == "chat":
             agent_id = args.get("agent_id", "")
@@ -314,7 +316,8 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
                     response_text += f"**Files Modified:** {', '.join(result['files_modified'])}"
                 return create_mcp_response(True, response_text)
             else:
-                return create_mcp_response(False, result["error"])
+                error_msg = result.get("error", result.get("content", "Unknown error occurred"))
+                return create_mcp_response(False, error_msg)
         
         else:
             return create_mcp_response(False, f"Unknown operation '{operation}'. Available operations: list, info, stats, chat, create")

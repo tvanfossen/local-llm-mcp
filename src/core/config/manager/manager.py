@@ -44,7 +44,7 @@ class ModelConfig:
     top_p: float = 0.9
     top_k: int = 40
     repeat_penalty: float = 1.1
-    max_tokens: int = 2048
+    max_tokens: int = 8192
 
     def __post_init__(self):
         """Validate configuration after initialization"""
