@@ -121,21 +121,37 @@ def docker_build(ctx):
 @task
 def docker_run(ctx, port=8000, repo=None):
     """Run the MCP server in Docker with workspace mount"""
+    import os
+    
     if repo is None:
         repo = str(PROJECT_ROOT)
         print(f"Using current directory as repo: {repo}")
-
+    else:
+        # Ensure repo path is absolute
+        repo = os.path.abspath(os.path.expanduser(repo))
+        if not os.path.exists(repo):
+            print(f"❌ Repository path does not exist: {repo}")
+            return
+    
     print(f"🚀 Starting MCP server in Docker on port {port}")
-    print(f"   Workspace: {repo}")
+    print(f"   Workspace mount: {repo} -> /workspace")
 
     # Stop any existing containers
     ctx.run("docker stop $(docker ps -q --filter ancestor=local-llm-mcp) 2>/dev/null || true")
 
     # Run container with GPU and workspace mount
+    # CRITICAL: Ensure repo is mounted at /workspace with read-write permissions
+    # TEMPORARILY REMOVING --user flag to test if that's causing startup issues
+    # uid = os.getuid()
+    # gid = os.getgid()
+    
     cmd = f"""docker run --gpus all \
         -p {port}:8000 \
-        -v {repo}:/workspace \
-        -v ~/models:/app/models \
+        -v {repo}:/workspace:rw \
+        -v ~/models:/app/models:ro \
+        -e WORKSPACE_PATH=/workspace \
+        --name local-llm-mcp-server \
+        --rm \
         -d local-llm-mcp"""
 
     result = ctx.run(cmd, hide=True)
@@ -143,7 +159,14 @@ def docker_run(ctx, port=8000, repo=None):
 
     print(f"✅ Container started: {container_id}")
     print(f"   MCP Server: http://localhost:{port}")
-
+    print(f"   Workspace: {repo}")
+    
+    # import time
+    # time.sleep(10)
+    # # Verify mount
+    # print(f"\n🔍 Verifying workspace mount...")
+    # verify_cmd = f"docker exec {container_id} ls -la /workspace | head -5"
+    # ctx.run(verify_cmd, pty=True)
 
 @task
 def docker_logs(ctx, follow=False):

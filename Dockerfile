@@ -69,8 +69,13 @@ COPY templates/.pre-commit-config.yaml /app/precommit-template.yaml
 
 # Setup workspace on container start
 RUN echo '#!/bin/bash\n\
-# Get the user ID of the mounted workspace owner\n\
+# CRITICAL: Ensure /workspace is used for all file operations\n\
+echo "🔍 Checking workspace mount..."\n\
 if [ -d "/workspace" ]; then\n\
+    echo "✅ /workspace is mounted"\n\
+    ls -la /workspace | head -5\n\
+    \n\
+    # Get the user ID of the mounted workspace owner\n\
     WORKSPACE_UID=$(stat -c "%u" /workspace)\n\
     WORKSPACE_GID=$(stat -c "%g" /workspace)\n\
     \n\
@@ -90,18 +95,24 @@ if [ -d "/workspace" ]; then\n\
             su workspace -c "pre-commit install 2>/dev/null || true"\n\
         fi\n\
         \n\
+        # CRITICAL: Export WORKSPACE_PATH for Python to use\n\
+        export WORKSPACE_PATH=/workspace\n\
         cd /app\n\
-        exec su workspace -c "python3 local_llm_mcp_server.py"\n\
+        exec su workspace -c "WORKSPACE_PATH=/workspace python3 local_llm_mcp_server.py"\n\
     else\n\
         cd /workspace\n\
         if [ -d ".git" ] && [ ! -f ".pre-commit-config.yaml" ]; then\n\
             cp /app/precommit-template.yaml .pre-commit-config.yaml\n\
             pre-commit install 2>/dev/null || true\n\
         fi\n\
+        \n\
+        # CRITICAL: Export WORKSPACE_PATH for Python to use\n\
+        export WORKSPACE_PATH=/workspace\n\
         cd /app\n\
-        exec python3 local_llm_mcp_server.py\n\
+        exec WORKSPACE_PATH=/workspace python3 local_llm_mcp_server.py\n\
     fi\n\
 else\n\
+    echo "⚠️  WARNING: /workspace not mounted - using /app"\n\
     cd /app\n\
     exec python3 local_llm_mcp_server.py\n\
 fi' > /app/startup.sh && chmod +x /app/startup.sh

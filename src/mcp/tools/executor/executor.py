@@ -179,7 +179,7 @@ class ConsolidatedToolExecutor:
             # Core Tool 5: Agent Operations
             "agent_operations": {
                 "name": "agent_operations",
-                "description": "Agent management operations (list, info, stats, chat)",
+                "description": "Agent management operations (list, info, stats, chat, create)",
                 "function": agent_operations_tool,
                 "inputSchema": {
                     "type": "object",
@@ -187,7 +187,7 @@ class ConsolidatedToolExecutor:
                         "operation": {
                             "type": "string",
                             "description": "Agent operation to perform",
-                            "enum": ["list", "info", "stats", "chat"],
+                            "enum": ["list", "info", "stats", "chat", "create"],
                         },
                         "agent_id": {"type": "string", "description": "Agent ID (for info and chat operations)"},
                         "message": {"type": "string", "description": "Message to send to agent (for chat operation)"},
@@ -195,6 +195,14 @@ class ConsolidatedToolExecutor:
                             "type": "string",
                             "description": "Type of task (conversation, file_edit, code_generation, system_query)",
                             "default": "conversation",
+                        },
+                        "name": {"type": "string", "description": "Agent name (for create operation)"},
+                        "description": {"type": "string", "description": "Agent description (for create operation)"},
+                        "specialized_files": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Files the agent will manage (for create operation)",
+                            "default": [],
                         },
                     },
                     "required": ["operation"],

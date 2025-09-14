@@ -111,6 +111,29 @@ class AgentOperations:
             logger.error(f"Failed to get registry stats: {e}")
             return {"success": False, "error": str(e)}
     
+    def create_agent(self, name: str, description: str, specialized_files: list[str] = None) -> dict[str, Any]:
+        """Create a new agent"""
+        if not self.agent_registry:
+            return {"success": False, "error": "Agent registry not available"}
+        
+        try:
+            agent = self.agent_registry.create_agent(name, description, specialized_files)
+            
+            response_text = f"**Agent Created Successfully**\n\n"
+            response_text += f"🤖 **Name:** {agent.state.name}\n"
+            response_text += f"🆔 **ID:** {agent.state.agent_id}\n"
+            response_text += f"📝 **Description:** {agent.state.description}\n"
+            if agent.state.managed_files:
+                response_text += f"📁 **Managed Files:** {', '.join(agent.state.managed_files)}\n"
+            response_text += f"📅 **Created:** {agent.state.created_at}\n\n"
+            response_text += f"Agent is ready to receive tasks via the chat operation."
+            
+            return {"success": True, "agent": agent.to_dict(), "response_text": response_text}
+            
+        except Exception as e:
+            logger.error(f"Failed to create agent: {e}")
+            return {"success": False, "error": str(e)}
+    
     async def chat_with_agent(self, agent_id: str, message: str, task_type: str = "conversation") -> dict[str, Any]:
         """Send a message to a specific agent"""
         if not self.agent_registry:
@@ -173,12 +196,13 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
     - info: Get detailed information about a specific agent
     - stats: Get agent registry statistics
     - chat: Send a message to a specific agent
+    - create: Create a new agent with specified name, description, and managed files
     """
     operation = args.get("operation")
     
     if not operation:
         return create_mcp_response(
-            False, "Operation parameter required. Available: list, info, stats, chat"
+            False, "Operation parameter required. Available: list, info, stats, chat, create"
         )
     
     if not _agent_operations_tool:
@@ -229,6 +253,46 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
             else:
                 return create_mcp_response(False, result["error"])
         
+        elif operation == "create":
+            name = args.get("name", "")
+            description = args.get("description", "")
+            specialized_files = args.get("specialized_files", [])
+            
+            # Debug: Log what we received
+            logger.info(f"CREATE AGENT DEBUG - specialized_files: {specialized_files} (type: {type(specialized_files)})")
+            
+            # Fix: Ensure specialized_files is a proper list
+            if isinstance(specialized_files, str):
+                # If it's a JSON string, try to parse it
+                if specialized_files.startswith('[') and specialized_files.endswith(']'):
+                    try:
+                        import json
+                        specialized_files = json.loads(specialized_files)
+                    except json.JSONDecodeError:
+                        # If parsing fails, treat as single file
+                        specialized_files = [specialized_files]
+                else:
+                    # If it's a regular string, treat as single file
+                    specialized_files = [specialized_files]
+            elif not isinstance(specialized_files, list):
+                # If it's neither string nor list, make it an empty list
+                specialized_files = []
+            
+            logger.info(f"CREATE AGENT DEBUG - specialized_files after fix: {specialized_files}")
+            
+            if not name:
+                return create_mcp_response(False, "name parameter required for create operation")
+            
+            if not description:
+                return create_mcp_response(False, "description parameter required for create operation")
+            
+            result = _agent_operations_tool.create_agent(name, description, specialized_files)
+            
+            if result["success"]:
+                return create_mcp_response(True, result["response_text"])
+            else:
+                return create_mcp_response(False, result["error"])
+        
         elif operation == "chat":
             agent_id = args.get("agent_id", "")
             message = args.get("message", "")
@@ -253,7 +317,7 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
                 return create_mcp_response(False, result["error"])
         
         else:
-            return create_mcp_response(False, f"Unknown operation '{operation}'")
+            return create_mcp_response(False, f"Unknown operation '{operation}'. Available operations: list, info, stats, chat, create")
     
     except Exception as e:
         return handle_exception(e, "Agent Operations Tool")

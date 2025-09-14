@@ -149,12 +149,29 @@ class ConfigManager:
 
     def _create_system_config(self) -> SystemConfig:
         """Create system configuration with workspace detection"""
+        logger = logging.getLogger(__name__)
+
+        # CRITICAL: Check for WORKSPACE_PATH environment variable first
+        workspace_env = os.environ.get("WORKSPACE_PATH")
+        if workspace_env and Path(workspace_env).exists():
+            workspace = Path(workspace_env)
+            logger.info(f"Using WORKSPACE_PATH from environment: {workspace}")
+            return SystemConfig(
+                workspace_root=workspace,
+                state_dir=workspace / ".mcp-state",
+                agents_dir=workspace / ".mcp-agents",
+                logs_dir=workspace / ".mcp-logs",
+                temp_dir=workspace / ".mcp-tmp",
+                is_container=True,
+            )
+        
         # Detect if we're in a container
         is_container = Path("/.dockerenv").exists() or os.environ.get("CONTAINER") == "true"
 
         if is_container or Path("/workspace").exists():
-            # Container environment
+            # Container environment - use /workspace if it exists
             workspace = Path("/workspace")
+            logger.info(f"Using container workspace: {workspace}")
             return SystemConfig(
                 workspace_root=workspace,
                 state_dir=workspace / ".mcp-state",
@@ -166,6 +183,7 @@ class ConfigManager:
         else:
             # Host environment - use shared utility
             workspace = get_workspace_root()
+            logger.info(f"Using host workspace: {workspace}")
             return SystemConfig(
                 workspace_root=workspace,
                 state_dir=workspace / ".mcp-state",

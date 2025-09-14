@@ -1,11 +1,143 @@
 # MCP Toolchain Consolidation Agent Workflow
 
-## Overview
-Consolidate the MCP toolchain to 4 core tools (Local Model, Git, Workspace, Validation) while ensuring strict adherence to requirements: files under 300 lines, cognitive complexity ≤7, function returns ≤3, DRY principles, no mocks, no testing scripts.
+## CRITICAL ISSUE: Workspace Mount Verification (2024-09-13)
 
-## Phase 1: MCP Tools Consolidation
+### Problem Statement
+The Docker container is NOT using the mounted `/workspace` directory. When `inv docker-run --repo ~/Projects/PyChess` is executed, the container should mount PyChess at `/workspace`, but MCP tools are operating in `/app` instead.
 
-### Phase 1A: Remove Redundant Testing/Validation Tools
+### Verification Steps for Claude Code
+
+#### Step 1: Verify Docker Mount
+```bash
+# From host machine, check what's actually mounted
+docker inspect $(docker ps -q --filter ancestor=local-llm-mcp) | grep -A 10 Mounts
+
+# Expected output should show:
+# "Source": "/home/user/Projects/PyChess",
+# "Destination": "/workspace"
+```
+
+#### Step 2: Test Workspace Tool Directory Detection
+Use the workspace tool to list the root directory and verify it's using `/workspace`:
+
+```
+# Via MCP workspace tool
+{
+  "action": "list",
+  "path": ".",
+  "recursive": false
+}
+
+# Should show PyChess files, NOT local-llm-mcp files
+# If showing local-llm-mcp files, the tool is using /app instead of /workspace
+```
+
+#### Step 3: Debug Workspace Path Resolution
+Check what path the workspace tool is actually using:
+
+```
+# Via MCP workspace tool - try to read a known file
+{
+  "action": "read",
+  "path": "local_llm_mcp_server.py"
+}
+
+# If this succeeds, it's using /app (WRONG)
+# Should fail with "File not found" if correctly using /workspace
+```
+
+#### Step 4: Verify Container Environment
+```bash
+# Shell into container to check
+docker exec -it $(docker ps -q --filter ancestor=local-llm-mcp) /bin/bash
+
+# Inside container:
+ls -la /workspace  # Should show PyChess files
+ls -la /app        # Should show local-llm-mcp files
+pwd                # Should be /app
+```
+
+### Root Cause Analysis
+
+The issue is in the workspace path detection logic. The system needs to:
+
+1. **Check if `/workspace` exists and is mounted** (container environment)
+2. **Use `/workspace` as the root for ALL file operations** when in container
+3. **NOT fall back to `/app` or current working directory**
+
+### Files That Need Inspection
+
+1. **`tasks.py`** - The `docker-run` task:
+   - Verify the mount command: `-v {repo}:/workspace`
+   - Ensure repo path is absolute
+
+2. **`Dockerfile`** - The startup script:
+   - Check if WORKDIR is being changed
+   - Verify startup.sh doesn't override workspace detection
+
+3. **`src/core/config/manager/manager.py`** - System configuration:
+   - Check `_create_system_config()` method
+   - Verify container detection logic
+   - Ensure workspace_root is set to `/workspace` when detected
+
+4. **`src/mcp/tools/workspace/workspace.py`** - Workspace operations:
+   - Check `__init__` method of WorkspaceOperations class
+   - Verify it prioritizes `/workspace` over other paths
+
+### Temporary Workaround
+
+Until fixed, Claude Code can explicitly specify the workspace path in each operation:
+
+```python
+# When calling workspace tool, use absolute paths
+{
+  "action": "write",
+  "path": "/workspace/ARCHITECTURE.md",  # Use absolute path
+  "content": "...",
+  "overwrite": true
+}
+```
+
+### Expected Behavior After Fix
+
+1. When `inv docker-run --repo ~/Projects/PyChess` is executed:
+   - PyChess directory is mounted at `/workspace` in container
+   - ALL file operations happen in `/workspace`
+   - Agents can create/modify files in PyChess project
+
+2. When workspace tool lists root directory:
+   - Shows PyChess files (main.py, src/, etc.)
+   - NOT local-llm-mcp files
+
+3. When agent creates a file:
+   - File appears in `~/Projects/PyChess/` on host
+   - File is visible in `/workspace/` in container
+
+### Testing the Fix
+
+After implementing fixes, test with:
+
+```bash
+# 1. Start container with PyChess
+inv docker-run --repo ~/Projects/PyChess
+
+# 2. Create test file via MCP
+# Use agent_operations tool to have agent create ARCHITECTURE.md
+
+# 3. Verify file exists on host
+ls ~/Projects/PyChess/ARCHITECTURE.md  # Should exist
+
+# 4. Verify file in container
+docker exec -it $(docker ps -q) ls /workspace/ARCHITECTURE.md  # Should exist
+```
+
+---
+
+## Original Consolidation Workflow
+
+### Phase 1: MCP Tools Consolidation
+
+#### Phase 1A: Remove Redundant Testing/Validation Tools
 **Objective**: Consolidate testing and validation tools, removing redundancy between `src/mcp/tools/testing/` and `src/mcp/tools/validation/`
 
 **File**: `src/mcp/tools/validation/validation.py`
@@ -173,5 +305,3 @@ Consolidate the MCP toolchain to 4 core tools (Local Model, Git, Workspace, Vali
 - Under 300 lines, complexity ≤7, ≤3 returns per function
 
 **Prompt**: "Update local_llm_mcp_server.py to properly initialize the consolidated 4-tool MCP system. Ensure all components integrate correctly and remove any unused complexity. Use shared utilities and maintain limits."
-
----
