@@ -35,11 +35,11 @@ class AgentTask:
     status: TaskStatus
     created_at: str
     completed_at: Optional[str] = None
-    request: Dict[str, Any] = field(default_factory=dict)
-    result: Optional[Dict[str, Any]] = None
+    request: dict[str, Any] = field(default_factory=dict)
+    result: Optional[dict[str, Any]] = None
     error: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             "task_id": self.task_id,
@@ -57,7 +57,7 @@ class TaskQueue:
     """Manages async task queue for agent operations"""
 
     def __init__(self):
-        self.tasks: Dict[str, AgentTask] = {}
+        self.tasks: dict[str, AgentTask] = {}
         self.queue: asyncio.Queue = asyncio.Queue()
         self.max_tasks = 100  # Prevent memory issues
         self._worker_task = None
@@ -137,7 +137,7 @@ class TaskQueue:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             logger.error(f"Task {task.task_id} failed: {e}")
 
-    def queue_task(self, agent_id: str, request: Dict[str, Any]) -> str:
+    def queue_task(self, agent_id: str, request: dict[str, Any]) -> str:
         """Queue a new task for async execution"""
         # Clean up old tasks if needed
         if len(self.tasks) >= self.max_tasks:
@@ -160,7 +160,7 @@ class TaskQueue:
         logger.info(f"Queued task {task_id} for agent {agent_id}")
         return task_id
 
-    def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get_task_status(self, task_id: str) -> Optional[dict[str, Any]]:
         """Get task status"""
         task = self.tasks.get(task_id)
         if not task:
@@ -176,7 +176,7 @@ class TaskQueue:
             "error": task.error,
         }
 
-    def get_task_result(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get_task_result(self, task_id: str) -> Optional[dict[str, Any]]:
         """Get task result if completed"""
         task = self.tasks.get(task_id)
         if not task:

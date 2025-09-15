@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ValidationOperations:
     """Consolidated validation and testing operations"""
 
-    async def execute(self, operation: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
         """Execute validation operation"""
         try:
             if operation == "tests":
@@ -65,7 +65,7 @@ class ConsolidatedToolExecutor:
 
         self.available_tools = self._build_tool_registry()
 
-    def _build_tool_registry(self) -> Dict[str, Any]:
+    def _build_tool_registry(self) -> dict[str, Any]:
         """Build registry of 4 core consolidated tools"""
         return {
             # Core Tool 1: Local Model Operations
@@ -210,7 +210,7 @@ class ConsolidatedToolExecutor:
             },
         }
 
-    async def _validation_handler(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _validation_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle validation operations"""
         operation = args.get("operation")
         if not operation:
@@ -218,7 +218,7 @@ class ConsolidatedToolExecutor:
 
         return await self.validation.execute(operation, args)
 
-    async def get_available_tools(self) -> list[Dict[str, Any]]:
+    async def get_available_tools(self) -> list[dict[str, Any]]:
         """Get list of available tools with schemas"""
         return [
             {
@@ -229,7 +229,7 @@ class ConsolidatedToolExecutor:
             for tool_info in self.available_tools.values()
         ]
 
-    async def execute_tool(self, tool_name: str, args: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def execute_tool(self, tool_name: str, args: dict[str, Any] = None) -> dict[str, Any]:
         """Execute a tool by name"""
         if tool_name not in self.available_tools:
             return create_mcp_response(False, f"Unknown tool: {tool_name}")
@@ -244,7 +244,7 @@ class ConsolidatedToolExecutor:
         except Exception as e:
             return handle_exception(e, f"Tool {tool_name}")
 
-    async def list_tools(self) -> Dict[str, Any]:
+    async def list_tools(self) -> dict[str, Any]:
         """List all available tools"""
         try:
             available_tools = sorted(self.available_tools.keys())
