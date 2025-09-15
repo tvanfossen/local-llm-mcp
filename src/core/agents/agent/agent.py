@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.core.config.manager.manager import SystemConfig
+from src.core.files.json_file_manager import JsonFileManager
 from src.schemas.agents.agents import (
     AgentRequest,
     AgentResponse,
@@ -58,6 +59,11 @@ class Agent:
 
         # Setup logging
         self.logger = self._setup_logging()
+
+        # Initialize JSON file manager for structured code generation
+        workspace_path = getattr(system_config, 'workspace_root', '/workspace')
+        templates_path = 'templates'
+        self.json_file_manager = JsonFileManager(workspace_path, templates_path)
 
         # Load existing data
         self._load_conversation_history()
@@ -263,18 +269,70 @@ class Agent:
             # Build context for LLM code generation
             context = self.get_context_for_llm()
 
-            # Create specialized prompt for code generation
+            # Get current file structure for context
+            file_structure = await self.json_file_manager.get_file_structure(filename)
+            structure_context = ""
+            if file_structure:
+                structure_context = f"""
+Current file structure:
+- Functions: {[f['name'] for f in file_structure['functions']]}
+- Classes: {[c['name'] for c in file_structure['classes']]}
+- Dataclasses: {[dc['name'] for dc in file_structure['dataclasses']]}
+"""
+
+            # Create specialized prompt for structured code generation
             code_gen_prompt = f"""Context: {context}
-
-Task: Code Generation
+{structure_context}
+Task: Structured Code Generation for {filename}
 Request: {request.message}
-Target File: {filename}
 
-You are an expert programmer. Generate clean, well-documented code based on the request.
-Focus on creating functional, maintainable code that follows best practices.
-Generate ONLY the Python code - no explanations, no markdown, no backticks.
+You must respond with ONLY a valid JSON object representing a Python code element.
 
-Write the complete Python code for the file:"""
+For a FUNCTION, use this format:
+{{
+    "element_type": "function",
+    "element_data": {{
+        "name": "function_name",
+        "docstring": "Function description",
+        "parameters": [
+            {{"name": "param1", "type": "str", "default": null}},
+            {{"name": "param2", "type": "int", "default": "0"}}
+        ],
+        "return_type": "bool",
+        "body": "return True",
+        "decorators": []
+    }}
+}}
+
+For a CLASS, use this format:
+{{
+    "element_type": "class",
+    "element_data": {{
+        "name": "ClassName",
+        "docstring": "Class description",
+        "base_classes": ["BaseClass"],
+        "methods": [
+            {{
+                "name": "method_name",
+                "docstring": "Method description",
+                "parameters": [{{"name": "self", "type": null, "default": null}}],
+                "return_type": "None",
+                "body": "pass",
+                "decorators": []
+            }}
+        ],
+        "class_variables": []
+    }}
+}}
+
+CRITICAL REQUIREMENTS:
+1. Use proper Python types (str, int, bool, list[str], etc.)
+2. Keep function/method bodies concise but functional
+3. Include meaningful docstrings
+4. Use null for None values, "0" for default string values
+5. Respond with ONLY the JSON object
+
+Generate the JSON response:"""
 
             # Generate code using LLM if available
             self.logger.info(f"Starting code generation for {filename}")
@@ -289,61 +347,70 @@ Write the complete Python code for the file:"""
 
                 self.logger.info(f"LLM response success: {response['success']}")
                 if response["success"]:
-                    generated_code = response["response"].strip()
-                    self.logger.info(f"Generated code length: {len(generated_code)} characters")
-                    self.logger.info(f"Generated code FULL OUTPUT: {generated_code}")
+                    raw_response = response["response"].strip()
+                    self.logger.info(f"Raw LLM response length: {len(raw_response)} characters")
+
+                    try:
+                        # Parse structured JSON response
+                        json_response = json.loads(raw_response)
+                        element_type = json_response.get("element_type")
+                        element_data = json_response.get("element_data")
+
+                        if not element_type or not element_data:
+                            raise ValueError("Response missing 'element_type' or 'element_data'")
+
+                        self.logger.info(f"Parsed structured response: {element_type}")
+                        self.logger.info(f"Element data: {element_data}")
+
+                        # Use JsonFileManager to update the file
+                        success = await self.json_file_manager.update_element(filename, element_type, element_data)
+
+                        if success:
+                            element_name = element_data.get('name', 'unknown')
+                            self.logger.info(f"Successfully updated {element_type} '{element_name}' in {filename}")
+
+                            return AgentResponse(
+                                success=True,
+                                content=f"✅ Successfully updated {element_type} '{element_name}' in {filename}\n\n"
+                                       f"📁 **File**: {filename}\n"
+                                       f"🔧 **Element Type**: {element_type}\n"
+                                       f"📝 **Element Name**: {element_name}\n\n"
+                                       f"The file has been updated using structured JSON management.",
+                                agent_id=self.state.agent_id,
+                                task_type=request.task_type,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                files_modified=[filename],
+                            )
+                        else:
+                            return AgentResponse(
+                                success=False,
+                                content=f"❌ Failed to update {element_type} in {filename}",
+                                agent_id=self.state.agent_id,
+                                task_type=request.task_type,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                            )
+
+                    except (json.JSONDecodeError, ValueError) as e:
+                        self.logger.error(f"JSON parsing failed: {e}")
+                        self.logger.error(f"Raw response: {raw_response[:500]}...")
+                        self.logger.error("Agent did not follow JSON format instructions properly")
+
+                        # Return error instead of attempting to clean malformed response
+                        return AgentResponse(
+                            success=False,
+                            content=f"❌ Agent failed to generate valid JSON response: {str(e)}",
+                            agent_id=self.state.agent_id,
+                            task_type=request.task_type,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        )
                 else:
                     self.logger.error(f"LLM generation failed: {response.get('error', 'Unknown error')}")
+                    # Use structured fallback
+                    return await self._generate_structured_fallback(filename, request.message)
             else:
-                self.logger.info("LLM not available")
-
-            # Execute workspace write operation
-            write_result = await self.tool_executor.execute_tool(
-                "workspace",
-                {
-                    "action": "write",
-                    "path": filename,
-                    "content": generated_code,
-                    "create_dirs": True,
-                    "overwrite": True,
-                },
-            )
-
-            self.logger.info(f"Workspace write result: {write_result}")
-
-            # Handle different response formats from workspace tool
-            success = write_result.get("success", False) or (not write_result.get("isError", True))
-            self.logger.info(f"Determined success status: {success}")
-
-            if success:
-                success_message = (
-                    f"✅ Successfully generated {filename}\n\n"
-                    f"📁 **File**: {filename}\n"
-                    f"📏 **Size**: {len(generated_code)} characters\n"
-                    f"🎯 **Purpose**: Code generated based on request\n\n"
-                    f"The file has been created with AI-generated content."
-                )
-
-                self.logger.info(f"Code generation completed for {filename}")
-                return AgentResponse(
-                    success=True,
-                    content=success_message,
-                    agent_id=self.state.agent_id,
-                    task_type=request.task_type,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    files_modified=[filename],
-                )
-            else:
-                error_msg = write_result.get("error", "Unknown error during file write")
-                self.logger.error(f"Failed to write generated code to {filename}: {error_msg}")
-                self.logger.error(f"Full write_result: {write_result}")
-                return AgentResponse(
-                    success=False,
-                    content=f"❌ Failed to create {filename}: {error_msg}",
-                    agent_id=self.state.agent_id,
-                    task_type=request.task_type,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                )
+                self.logger.info("LLM not available, using structured fallback")
+                # Use structured fallback
+                return await self._generate_structured_fallback(filename, request.message)
 
         except Exception as e:
             self.logger.error(f"Code generation handling failed: {e}")
@@ -352,6 +419,49 @@ Write the complete Python code for the file:"""
                 content=f"Error handling code generation: {str(e)}",
                 agent_id=self.state.agent_id,
                 task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+
+    async def _generate_structured_fallback(self, filename: str, request: str) -> AgentResponse:
+        """Generate structured fallback when LLM is not available"""
+        try:
+            # Create a simple function fallback
+            fallback_element = {
+                "name": "generated_function",
+                "docstring": f"Generated function based on request: {request}",
+                "parameters": [],
+                "return_type": "str",
+                "body": 'return "Function generated as fallback"',
+                "decorators": []
+            }
+
+            success = await self.json_file_manager.update_element(filename, "function", fallback_element)
+
+            if success:
+                return AgentResponse(
+                    success=True,
+                    content=f"✅ Generated fallback function in {filename}",
+                    agent_id=self.state.agent_id,
+                    task_type=TaskType.CODE_GENERATION,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    files_modified=[filename],
+                )
+            else:
+                return AgentResponse(
+                    success=False,
+                    content=f"❌ Failed to generate fallback in {filename}",
+                    agent_id=self.state.agent_id,
+                    task_type=TaskType.CODE_GENERATION,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+
+        except Exception as e:
+            self.logger.error(f"Fallback generation failed: {e}")
+            return AgentResponse(
+                success=False,
+                content=f"Error generating fallback: {str(e)}",
+                agent_id=self.state.agent_id,
+                task_type=TaskType.CODE_GENERATION,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
 
