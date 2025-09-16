@@ -1,224 +1,113 @@
-"""Tool Call Formatter for Local Model Communication
+"""Tool Prompt Formatter for Local Model"""
 
-Provides strict JSON schema validation and tool-specific formatting
-for Qwen2.5-7B model interactions.
-"""
-
-import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Any
 
 logger = logging.getLogger(__name__)
 
+class ToolPromptFormatter:
+    """Formats MCP tools for inclusion in model prompts"""
 
-class ToolCallFormatter:
-    """Formatter for tool calls and responses"""
+    def __init__(self, tools: List[Dict[str, Any]]):
+        self.tools = tools
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    # Tool schemas for validation
-    TOOL_SCHEMAS = {
-        "workspace": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["read", "write", "create_dir", "list"]},
-                "path": {"type": "string"},
-                "json_artifact": {"type": "object"},
-                "content": {"type": "string"},
-                "recursive": {"type": "boolean"}
-            },
-            "required": ["action"]
-        },
-        "validation": {
-            "type": "object",
-            "properties": {
-                "operation": {"type": "string", "enum": ["tests", "pre-commit", "file-length", "all"]},
-                "file_paths": {"type": "array", "items": {"type": "string"}},
-                "test_path": {"type": "string"},
-                "max_lines": {"type": "integer"}
-            },
-            "required": ["operation"]
-        },
-        "git_operations": {
-            "type": "object",
-            "properties": {
-                "operation": {"type": "string", "enum": ["status", "diff", "commit", "log", "branch"]},
-                "message": {"type": "string"},
-                "files": {"type": "array", "items": {"type": "string"}},
-                "add_all": {"type": "boolean"}
-            },
-            "required": ["operation"]
-        }
-    }
+    def get_tools_prompt(self) -> str:
+        """Generate tool definitions prompt for model"""
+        self.logger.debug(f"ENTRY get_tools_prompt: {len(self.tools)} tools")
 
-    def __init__(self):
-        self.result_truncation_limit = 1000  # Character limit for tool results
+        if not self.tools:
+            return ""
 
-    def format_tool_definition(self, tool_name: str, description: str) -> Dict[str, Any]:
-        """Format tool definition for model consumption"""
-        schema = self.TOOL_SCHEMAS.get(tool_name, {})
+        tool_definitions = []
+        for tool in self.tools:
+            definition = self._format_single_tool(tool)
+            if definition:
+                tool_definitions.append(definition)
 
-        return {
-            "type": "function",
-            "function": {
-                "name": tool_name,
-                "description": description,
-                "parameters": schema
-            }
-        }
+        prompt = f"""You have access to the following tools:
 
-    def format_all_tools_for_qwen(self) -> str:
-        """Format all available tools for Qwen2.5-7B prompt"""
-        tool_descriptions = {
-            "workspace": "Manage workspace files with JSON artifacts for code generation",
-            "validation": "Validate code files using tests, linting, and pre-commit hooks",
-            "git_operations": "Perform git operations like status, diff, commit"
-        }
+{chr(10).join(tool_definitions)}
 
-        prompt = "You have access to the following tools:\n\n"
-
-        for tool_name, description in tool_descriptions.items():
-            schema = self.TOOL_SCHEMAS[tool_name]
-            prompt += f"**{tool_name}**: {description}\n"
-            prompt += f"Parameters: {json.dumps(schema, indent=2)}\n\n"
-
-        prompt += """To use a tool, respond with JSON in this format:
+To use a tool, respond with a JSON object in this format:
 ```json
-{
-    "tool_name": "workspace",
-    "arguments": {
-        "action": "write",
-        "path": "example.py",
-        "json_artifact": {...}
-    }
-}
+{{
+    "tool_name": "tool_name",
+    "arguments": {{
+        "param1": "value1",
+        "param2": "value2"
+    }}
+}}
 ```
 
-Always use this exact JSON format for tool calls."""
+You can make multiple tool calls by providing multiple JSON objects.
+Always use the exact tool names and parameter names shown above."""
 
+        self.logger.debug(f"EXIT get_tools_prompt: {len(prompt)} characters")
         return prompt
 
-    def validate_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
-        """Validate tool call arguments against schema"""
-        if tool_name not in self.TOOL_SCHEMAS:
-            logger.warning(f"Unknown tool: {tool_name}")
-            return False
+    def _format_single_tool(self, tool: Dict[str, Any]) -> str:
+        """Format a single tool for the prompt"""
+        try:
+            name = tool.get('name', 'unknown_tool')
+            description = tool.get('description', 'No description available')
 
-        schema = self.TOOL_SCHEMAS[tool_name]
-        return self._validate_against_schema(arguments, schema)
+            # Extract input schema parameters
+            input_schema = tool.get('inputSchema', {})
+            properties = input_schema.get('properties', {})
+            required = input_schema.get('required', [])
 
-    def _validate_against_schema(self, data: Dict[str, Any], schema: Dict[str, Any]) -> bool:
-        """Simple schema validation"""
-        if "required" in schema:
-            for required_field in schema["required"]:
-                if required_field not in data:
-                    logger.warning(f"Missing required field: {required_field}")
-                    return False
+            # Format parameters
+            params_list = []
+            for param_name, param_info in properties.items():
+                param_type = param_info.get('type', 'string')
+                param_desc = param_info.get('description', 'No description')
+                is_required = param_name in required
+                required_marker = " (required)" if is_required else " (optional)"
 
-        if "properties" in schema:
-            for field, field_schema in schema["properties"].items():
-                if field in data:
-                    if not self._validate_field(data[field], field_schema):
-                        return False
+                params_list.append(f"  - {param_name} ({param_type}){required_marker}: {param_desc}")
 
-        return True
+            params_text = chr(10).join(params_list) if params_list else "  No parameters"
 
-    def _validate_field(self, value: Any, field_schema: Dict[str, Any]) -> bool:
-        """Validate individual field against schema"""
-        expected_type = field_schema.get("type")
+            return f"""**{name}**: {description}
+Parameters:
+{params_text}"""
 
-        if expected_type == "string" and not isinstance(value, str):
-            return False
-        elif expected_type == "integer" and not isinstance(value, int):
-            return False
-        elif expected_type == "boolean" and not isinstance(value, bool):
-            return False
-        elif expected_type == "array" and not isinstance(value, list):
-            return False
-        elif expected_type == "object" and not isinstance(value, dict):
-            return False
+        except Exception as e:
+            self.logger.error(f"Error formatting tool {tool}: {e}")
+            return None
 
-        if "enum" in field_schema and value not in field_schema["enum"]:
-            return False
+    def validate_tool_call(self, tool_call: Dict[str, Any]) -> tuple[bool, str]:
+        """Validate a tool call against available tools"""
+        self.logger.debug(f"ENTRY validate_tool_call: {tool_call}")
 
-        return True
+        tool_name = tool_call.get('tool_name') or tool_call.get('name')
+        if not tool_name:
+            return False, "No tool_name specified"
 
-    def format_tool_result(self, tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
-        """Format tool execution result for model consumption"""
-        # Truncate large results to prevent context overflow
-        formatted_result = {
-            "tool_name": tool_name,
-            "success": result.get("success", False),
-            "timestamp": result.get("timestamp"),
-        }
+        # Find matching tool
+        matching_tool = None
+        for tool in self.tools:
+            if tool.get('name') == tool_name:
+                matching_tool = tool
+                break
 
-        # Handle content based on success
-        if result.get("success"):
-            content = result.get("content", "")
-            if isinstance(content, str) and len(content) > self.result_truncation_limit:
-                formatted_result["content"] = content[:self.result_truncation_limit] + "... [truncated]"
-            else:
-                formatted_result["content"] = content
-        else:
-            formatted_result["error"] = result.get("error", "Unknown error")
+        if not matching_tool:
+            available_tools = [tool.get('name', 'unknown') for tool in self.tools]
+            return False, f"Tool '{tool_name}' not available. Available tools: {available_tools}"
 
-        return formatted_result
+        # Validate arguments
+        arguments = tool_call.get('arguments', {})
+        if not isinstance(arguments, dict):
+            return False, f"Arguments must be a dictionary, got {type(arguments)}"
 
-    def create_tool_response_message(self, results: List[Dict[str, Any]]) -> str:
-        """Create a formatted message with tool execution results"""
-        if not results:
-            return "No tool results to display."
+        # Check required parameters
+        input_schema = matching_tool.get('inputSchema', {})
+        required_params = input_schema.get('required', [])
 
-        message_parts = ["Tool execution results:\n"]
+        for param in required_params:
+            if param not in arguments:
+                return False, f"Required parameter '{param}' missing"
 
-        for result in results:
-            tool_name = result.get("tool_name", "unknown")
-            success = result.get("success", False)
-
-            if success:
-                message_parts.append(f"✅ {tool_name}: Success")
-                if "content" in result:
-                    content = str(result["content"])[:200]  # Compact representation
-                    message_parts.append(f"   Output: {content}")
-            else:
-                error = result.get("error", "Unknown error")
-                message_parts.append(f"❌ {tool_name}: {error}")
-
-            message_parts.append("")  # Empty line
-
-        return "\n".join(message_parts)
-
-    def extract_json_artifact_schema(self) -> Dict[str, Any]:
-        """Get the JSON artifact schema for Python code elements"""
-        return {
-            "type": "object",
-            "properties": {
-                "element_type": {
-                    "type": "string",
-                    "enum": ["function", "class", "module", "import"]
-                },
-                "element_data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "docstring": {"type": "string"},
-                        "parameters": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "type": {"type": "string"},
-                                    "default": {"type": ["string", "null"]}
-                                }
-                            }
-                        },
-                        "return_type": {"type": "string"},
-                        "body": {"type": "string"},
-                        "decorators": {
-                            "type": "array",
-                            "items": {"type": "string"}
-                        }
-                    }
-                }
-            },
-            "required": ["element_type", "element_data"]
-        }
+        self.logger.debug(f"EXIT validate_tool_call: valid")
+        return True, "Valid tool call"

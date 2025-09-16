@@ -244,209 +244,150 @@ class Agent:
             )
 
     async def _handle_code_generation(self, request: AgentRequest) -> AgentResponse:
-        """Handle code generation requests using tool executor for file operations"""
-        if not self.tool_executor:
+        """Handle code generation by creating JSON metadata first, then using LLM with tool calls"""
+        self.logger.debug(f"ENTRY _handle_code_generation: request={request.message}")
+
+        if not self.llm_manager:
+            error = "LLM manager not available"
+            self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
             return AgentResponse(
                 success=False,
-                content="Agent not properly initialized with tool executor",
+                content=error,
                 agent_id=self.state.agent_id,
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
 
         try:
-            self.logger.info(f"Processing code generation request: {request.message}")
-
-            # Use the first managed file as the target file, or determine from request
+            # Use the first managed file as the target file
             if self.state.managed_files and len(self.state.managed_files) > 0:
                 filename = self.state.managed_files[0]
             else:
-                # Extract filename from request or use default
-                filename = self._extract_filename_from_request(request.message) or "generated_code.py"
-
-            self.logger.info(f"Generating code for file: {filename}")
-
-            # Build context for LLM code generation
-            context = self.get_context_for_llm()
-
-            # Get current file structure for context
-            file_structure = await self.json_file_manager.get_file_structure(filename)
-            structure_context = ""
-            if file_structure:
-                structure_context = f"""
-Current file structure:
-- Functions: {[f['name'] for f in file_structure['functions']]}
-- Classes: {[c['name'] for c in file_structure['classes']]}
-- Dataclasses: {[dc['name'] for dc in file_structure['dataclasses']]}
-"""
-
-            # Create tool-calling prompt for MCP architecture
-            code_gen_prompt = f"""Context: {context}
-{structure_context}
-Task: Structured Code Generation for {filename}
-Request: {request.message}
-
-You are an agent that must use MCP tools to complete tasks. You have access to these tools:
-- workspace: Create, write, read files and directories
-- validation: Run tests and validation on code
-- git_operations: Commit and manage git operations
-
-CRITICAL: You must use explicit tool calls to complete this task. DO NOT generate code directly.
-
-Your workflow should be:
-1. Use workspace tool to write the Python file with the requested functionality
-2. Use validation tool to test the code works correctly
-3. Use git_operations tool to commit the working code
-
-For the file content, generate clean Python code with:
-- Proper function/class definitions
-- Meaningful docstrings
-- Type hints where appropriate
-- Functional implementation (not just stubs)
-
-Example tool call format:
-```json
-{{
-    "tool_name": "workspace",
-    "action": "write",
-    "path": "{filename}",
-    "content": "def example():\\n    \\\"\\\"\\\"Example function\\\"\\\"\\\"\\n    return True"
-}}
-```
-
-Begin by making your first tool call to create the file:"""
-
-            # Generate code using LLM if available
-            self.logger.info(f"Starting code generation for {filename}")
-            self.logger.info(f"LLM available: {self.llm_manager is not None and self.llm_manager.is_ready()}")
-            self.logger.info(f"Code generation prompt: {code_gen_prompt}")
-
-            if self.llm_manager and self.llm_manager.is_ready():
-                self.logger.info("Using LLM with tool calling for code generation")
-
-                # Use new tool calling method
-                response = await self.llm_manager.generate_with_tools(
-                    code_gen_prompt, max_tokens=8192, temperature=0.3, tools_enabled=True
+                error = "No managed files configured for agent"
+                self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
+                return AgentResponse(
+                    success=False,
+                    content=error,
+                    agent_id=self.state.agent_id,
+                    task_type=request.task_type,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
                 )
 
-                self.logger.info(f"LLM response success: {response['success']}")
-                self.logger.info(f"LLM response type: {response.get('type', 'unknown')}")
+            self.logger.info(f"Creating metadata for {filename} based on request: {request.message}")
 
-                if response["success"]:
-                    if response["type"] == "tool_calls":
-                        # Tool calls were executed - check results
-                        results = response.get("results", [])
+            # Build context for LLM
+            context = self.get_context_for_llm()
+
+            # Create prompt for LLM to generate tool calls
+            tool_calling_prompt = f"""Context: {context}
+Task: Create file {filename} using MCP tools
+Request: {request.message}
+
+You must use tool calls to complete this task. Follow this workflow:
+1. Use workspace tool to write the Python file with requested functionality
+2. Use validation tool to test the code works correctly
+3. Use git_operations tool to commit the working code if validation passes
+
+Generate the Python code for {filename} that implements: {request.message}
+
+Make your first tool call now:"""
+
+            # Generate response using LLM with tool calling
+            self.logger.info(f"Calling LLM with tool calling enabled for {filename}")
+
+            if self.llm_manager and self.llm_manager.model_loaded:
+                response = await self.llm_manager.generate_with_tools(
+                    tool_calling_prompt, max_tokens=2048, temperature=0.3, tools_enabled=True
+                )
+
+                self.logger.info(f"LLM response: {response.get('type', 'unknown')} (success: {response.get('success', False)})")
+
+                if response.get("success"):
+                    if response.get("type") == "tool_calls":
+                        # Tool calls were made and executed
                         tool_calls = response.get("tool_calls", [])
+                        results = response.get("results", [])
 
-                        self.logger.info(f"Tool calls executed: {len(tool_calls)}")
-                        self.logger.info(f"Tool results: {len(results)}")
+                        self.logger.info(f"✅ Tool calls executed: {len(tool_calls)} calls, {len(results)} results")
 
-                        # Find workspace tool results
-                        workspace_results = [r for r in results if r.get("tool_name") == "workspace"]
+                        # Check if workspace tool was called successfully
+                        workspace_success = any(
+                            r.get("success") and r.get("tool_name") == "workspace"
+                            for r in results
+                        )
 
-                        if workspace_results and any(r.get("success") for r in workspace_results):
+                        if workspace_success:
+                            self.logger.debug(f"EXIT _handle_code_generation: SUCCESS - workspace tool executed")
                             return AgentResponse(
                                 success=True,
-                                content=f"✅ Code generation completed via MCP tools\n\n"
-                                       f"📁 **File**: {filename}\n"
-                                       f"🔧 **Tool Results**: {len(results)} tools executed\n"
-                                       f"📝 **Status**: File updated successfully\n\n"
-                                       f"The code was generated and written using structured MCP tool calls.",
+                                content=f"✅ Code generation completed for {filename} using MCP tool calls",
                                 agent_id=self.state.agent_id,
                                 task_type=request.task_type,
                                 timestamp=datetime.now(timezone.utc).isoformat(),
                                 files_modified=[filename],
                             )
                         else:
-                            # Tool calls failed, extract error information
-                            failed_results = [r for r in results if not r.get("success")]
-                            error_msgs = [r.get("error", "Unknown error") for r in failed_results]
-
+                            error = "Workspace tool calls failed"
+                            self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
                             return AgentResponse(
                                 success=False,
-                                content=f"❌ Tool execution failed: {'; '.join(error_msgs)}",
+                                content=f"❌ {error}: {[r.get('error') for r in results if not r.get('success')]}",
                                 agent_id=self.state.agent_id,
                                 task_type=request.task_type,
                                 timestamp=datetime.now(timezone.utc).isoformat(),
                             )
-
-                    elif response["type"] == "text":
-                        # Model generated text but no tool calls - this should not happen with proper prompting
-                        raw_response = response["content"].strip()
-                        self.logger.warning(f"Model generated text response instead of tool calls: {len(raw_response)} characters")
-                        self.logger.warning(f"Response content preview: {raw_response[:200]}...")
-
+                    elif response.get("type") == "text":
+                        # Model generated text instead of tool calls - fail explicitly
+                        error = "Model generated text instead of required tool calls"
+                        self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
                         return AgentResponse(
                             success=False,
-                            content=f"❌ Model failed to make required tool calls\n\n"
-                                   f"Expected: workspace, validation, and git_operations tool calls\n"
-                                   f"Received: Plain text response\n\n"
-                                   f"This indicates the model is not following MCP tool calling instructions. "
-                                   f"The agent requires explicit tool calls to maintain structured workflows.",
+                            content=f"❌ {error}. Expected workspace tool calls but got text response.",
+                            agent_id=self.state.agent_id,
+                            task_type=request.task_type,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        )
+                    else:
+                        error = f"Unknown response type: {response.get('type')}"
+                        self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
+                        return AgentResponse(
+                            success=False,
+                            content=f"❌ {error}",
                             agent_id=self.state.agent_id,
                             task_type=request.task_type,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                         )
                 else:
-                    self.logger.error(f"LLM generation failed: {response.get('error', 'Unknown error')}")
-                    return await self._generate_structured_fallback(filename, request.message)
+                    error = f"LLM generation failed: {response.get('error', 'Unknown error')}"
+                    self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
+                    return AgentResponse(
+                        success=False,
+                        content=f"❌ {error}",
+                        agent_id=self.state.agent_id,
+                        task_type=request.task_type,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    )
             else:
-                self.logger.info("LLM not available, using structured fallback")
-                # Use structured fallback
-                return await self._generate_structured_fallback(filename, request.message)
+                error = "LLM not available or not loaded"
+                self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
+                return AgentResponse(
+                    success=False,
+                    content=f"❌ {error}",
+                    agent_id=self.state.agent_id,
+                    task_type=request.task_type,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
 
         except Exception as e:
-            self.logger.error(f"Code generation handling failed: {e}")
+            self.logger.exception(f"EXIT _handle_code_generation: EXCEPTION - {e}")
             return AgentResponse(
                 success=False,
-                content=f"Error handling code generation: {str(e)}",
+                content=f"❌ Error in code generation: {str(e)}",
                 agent_id=self.state.agent_id,
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
 
-    async def _generate_structured_fallback(self, filename: str, request: str) -> AgentResponse:
-        """Generate structured fallback when LLM is not available"""
-        try:
-            # Create a simple function fallback
-            fallback_element = {
-                "name": "generated_function",
-                "docstring": f"Generated function based on request: {request}",
-                "parameters": [],
-                "return_type": "str",
-                "body": 'return "Function generated as fallback"',
-                "decorators": []
-            }
-
-            success = await self.json_file_manager.update_element(filename, "function", fallback_element)
-
-            if success:
-                return AgentResponse(
-                    success=True,
-                    content=f"✅ Generated fallback function in {filename}",
-                    agent_id=self.state.agent_id,
-                    task_type=TaskType.CODE_GENERATION,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    files_modified=[filename],
-                )
-            else:
-                return AgentResponse(
-                    success=False,
-                    content=f"❌ Failed to generate fallback in {filename}",
-                    agent_id=self.state.agent_id,
-                    task_type=TaskType.CODE_GENERATION,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                )
-
-        except Exception as e:
-            self.logger.error(f"Fallback generation failed: {e}")
-            return AgentResponse(
-                success=False,
-                content=f"Error generating fallback: {str(e)}",
-                agent_id=self.state.agent_id,
-                task_type=TaskType.CODE_GENERATION,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-            )
 
     async def _handle_conversation(self, request: AgentRequest) -> AgentResponse:
         """Handle general conversation requests using LLM"""
@@ -578,25 +519,98 @@ Use your knowledge of the workspace and managed files to provide relevant respon
 
     async def _handle_file_creation(self, request: AgentRequest) -> AgentResponse:
         """Handle generic file creation requests"""
-        # Implementation for other file creation tasks
-        return AgentResponse(
-            success=True,
-            content="Generic file creation not yet implemented",
-            agent_id=self.state.agent_id,
-            task_type=request.task_type,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
+        self.logger.debug(f"ENTRY _handle_file_creation: request={request.message}")
+
+        # Route all file creation through code generation workflow
+        # This ensures metadata-first approach and proper tool calling
+        result = await self._handle_code_generation(request)
+
+        self.logger.debug(f"EXIT _handle_file_creation: success={result.success}")
+        return result
 
     async def _handle_file_read(self, request: AgentRequest) -> AgentResponse:
-        """Handle file reading requests"""
-        # Implementation for file reading
-        return AgentResponse(
-            success=True,
-            content="File reading not yet implemented",
-            agent_id=self.state.agent_id,
-            task_type=request.task_type,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
+        """Handle file reading requests via workspace tool"""
+        self.logger.debug(f"ENTRY _handle_file_read: request={request.message}")
+
+        if not self.tool_executor:
+            error = "Tool executor not available for file reading"
+            self.logger.error(f"EXIT _handle_file_read: FAILED - {error}")
+
+            from src.core.exceptions import ToolNotAvailable
+            raise ToolNotAvailable("workspace", ["workspace tool required for file operations"])
+
+        try:
+            # Extract file path from request (simple heuristic)
+            # In production, this would be more sophisticated
+            message_words = request.message.split()
+            file_path = None
+
+            # Look for file-like patterns
+            for word in message_words:
+                if '.' in word and '/' in word:  # Likely a file path
+                    file_path = word
+                    break
+
+            if not file_path:
+                # Default to agent's managed files
+                if self.state.managed_files:
+                    file_path = list(self.state.managed_files)[0]
+                else:
+                    error = "No file path specified and no managed files"
+                    self.logger.error(f"EXIT _handle_file_read: FAILED - {error}")
+                    return AgentResponse(
+                        success=False,
+                        content=f"❌ {error}. Please specify a file path.",
+                        agent_id=self.state.agent_id,
+                        task_type=request.task_type,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    )
+
+            self.logger.info(f"📖 Reading file: {file_path}")
+
+            # Execute workspace read operation
+            read_result = await self.tool_executor.execute_tool("workspace", {
+                "action": "read",
+                "path": file_path
+            })
+
+            if read_result.get("success", False):
+                content = f"📄 **File: {file_path}**\n\n{read_result.get('content', 'No content')}"
+                self.logger.info(f"✅ File read successful: {len(content)} characters")
+
+                result = AgentResponse(
+                    success=True,
+                    content=content,
+                    agent_id=self.state.agent_id,
+                    task_type=request.task_type,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    files_modified=[file_path]
+                )
+            else:
+                error = read_result.get("error", "File read failed")
+                self.logger.error(f"❌ File read failed: {error}")
+
+                result = AgentResponse(
+                    success=False,
+                    content=f"❌ Failed to read {file_path}: {error}",
+                    agent_id=self.state.agent_id,
+                    task_type=request.task_type,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+
+            self.logger.debug(f"EXIT _handle_file_read: success={result.success}")
+            return result
+
+        except Exception as e:
+            error = f"File read operation failed: {str(e)}"
+            self.logger.error(f"EXIT _handle_file_read: EXCEPTION - {e}")
+            return AgentResponse(
+                success=False,
+                content=f"❌ {error}",
+                agent_id=self.state.agent_id,
+                task_type=request.task_type,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
     async def _handle_directory_list(self, request: AgentRequest) -> AgentResponse:
         """Handle directory listing requests"""
@@ -633,12 +647,18 @@ Use your knowledge of the workspace and managed files to provide relevant respon
 
     async def _analyze_and_execute_file_operation(self, request: AgentRequest) -> AgentResponse:
         """Analyze request and execute appropriate file operations"""
+        self.logger.debug(f"ENTRY _analyze_and_execute_file_operation: request={request.message}")
+
+        error = "Generic file operation analysis not implemented"
+        self.logger.error(f"EXIT _analyze_and_execute_file_operation: FAILED - {error}")
+
         return AgentResponse(
-            success=True,
-            content="Generic file operation analysis not yet implemented",
+            success=False,
+            content=f"❌ {error}",
             agent_id=self.state.agent_id,
             task_type=request.task_type,
             timestamp=datetime.now(timezone.utc).isoformat(),
+            metadata={"error_type": "not_implemented", "operation": "analyze_file_operation"}
         )
 
     def get_context_for_llm(self) -> str:

@@ -1,255 +1,593 @@
-# Local LLM MCP Tool Calling Integration Workplan
+# Agent Operations Debug and Fix Plan
 
-## Overview
-Enable the local Qwen2.5-7B model to reliably make MCP tool calls with strict JSON formatting, routing all tool operations through an async task queue for consistent structured responses.
+## Executive Summary
+The local model is not properly integrated with MCP tools due to missing bridge infrastructure, excessive fallback mechanisms, and improper task sequencing. The agent is directly creating output files instead of following the intended metadata → tool call → validation → commit workflow.
 
----
+## Critical Issues Identified
 
-## Phase 1: Extract and Reorganize Task Queue Infrastructure
-**Goal**: Separate task queue into generic module for broader use beyond agents
+### 1. Missing MCP Bridge for Local Model
+**Problem**: Local model has no mechanism to parse and execute MCP tool calls
+**Impact**: Model cannot use available MCP tools
+**Location**: Missing `src/core/mcp/bridge/` module
 
-### Files to Create:
+### 2. Direct File Creation Instead of Metadata
+**Problem**: Agent directly writes output files instead of JSON metadata
+**Impact**: Bypasses intended workflow and context control
+**Location**: `src/core/agents/agent/agent.py:_handle_code_generation()`
 
-#### `src/core/tasks/queue/queue.py`
-- Extract `TaskQueue` class from `src/core/agents/registry/task_queue.py`
-- Make generic to handle any async operation type
-- Add support for tool call tasks alongside agent tasks
-- Maintain backward compatibility with existing agent registry
+### 3. Excessive Fallbacks and Mocks
+**Problem**: Too many placeholder responses hiding real failures
+**Impact**: No traceability, silent failures
+**Locations**: Multiple files with "not yet implemented" returns
 
-#### `src/core/tasks/queue/task.py`
-- Define generic `Task` base class
-- Keep `AgentTask` as subclass for compatibility
-- Add `ToolCallTask` for MCP tool operations
-- Include task lifecycle management (queued, running, completed, failed)
-
-#### `src/core/tasks/queue/__init__.py`
-- Export main classes and enums
-- Maintain same interface as current implementation
-
-### Key Changes:
-- Rename task types to be more generic
-- Add priority queue support for critical tool calls
-- Keep existing agent functionality intact
+### 4. Task Queue Not Properly Integrated
+**Problem**: MCP tools not routed through async queue
+**Impact**: Synchronous execution, no nesting control
+**Location**: `src/mcp/tools/executor/executor.py`
 
 ---
 
-## Phase 2: Create MCP Bridge for Local Model
-**Goal**: Build dedicated bridge between local LLM and MCP tools with JSON validation
+## Phase 1: Create MCP Bridge Infrastructure
+**Priority**: CRITICAL
+**Files to Create**: New module for local model tool calling
 
-### Files to Create:
-
-#### `src/core/mcp/bridge/tool_parser.py`
-Adapt from society_scribe's `ToolCallParser`:
+### 1.1 Create `src/core/mcp/bridge/bridge.py`
 ```python
-- Multiple parsing strategies (JSON fence, XML tags, bare JSON)
-- Smart quote and trailing comma sanitization
-- Balanced brace detection for partial JSON
-- Tool call signature tracking to prevent duplicates
+"""MCP Bridge for Local Model Tool Calling"""
+
+class MCPBridge:
+    def __init__(self, task_queue, tool_executor):
+        self.task_queue = task_queue
+        self.tool_executor = tool_executor
+        
+    async def parse_and_execute(self, model_output: str):
+        """Parse model output for tool calls and queue them"""
+        # Extract tool calls from model output
+        # Queue tool calls through task system
+        # Return formatted results
 ```
 
-#### `src/core/mcp/bridge/formatter.py`
-- Strict JSON schema validation
-- Tool-specific formatting templates
-- Qwen2.5-specific output patterns
-- Compact payload formatting for responses
+### 1.2 Create `src/core/mcp/bridge/parser.py`
+```python
+"""Tool Call Parser for Local Model Output"""
 
-#### `src/core/mcp/bridge/bridge.py`
-Main bridge implementation:
-- Tool call extraction from LLM output
-- Validation and retry logic
-- Queue integration for all tool calls
-- Result formatting for model consumption
+class ToolCallParser:
+    def extract_tool_calls(self, text: str):
+        """Extract JSON tool calls from model output"""
+        # Handle various formats (JSON blocks, etc)
+        # Validate tool call structure
+        # Return list of tool calls
+```
 
-### Critical Features to Port:
-1. **From society_scribe `ToolCallParser`**:
-   - `TOOL_FENCE_RE` regex for code blocks
-   - `TOOL_TAG_RE` for XML-style tags  
-   - Smart quotes replacement
-   - Trailing comma removal
-
-2. **From society_scribe `MessageProcessor`**:
-   - Compact tool payload representation
-   - Result truncation for context limits
-   - Tool-specific helper messages
+### 1.3 Update `src/core/llm/manager/manager.py`
+- Add MCP bridge integration
+- Include tool definitions in prompts
+- Parse responses for tool calls
 
 ---
 
-## Phase 3: Enhance LLMManager for Tool Calling
-**Goal**: Update LLMManager to support structured tool calling
+## Phase 2: Fix Agent Metadata Workflow
+**Priority**: HIGH
+**Fix**: Agent creates JSON metadata, not direct files
 
-### File to Modify: `src/core/llm/manager/manager.py`
+### 2.1 Fix `src/core/agents/agent/agent.py`
 
-#### Add Tool Support:
+**Current Problem** (Line ~336):
 ```python
-def __init__(self, model_config=None, mcp_bridge=None):
-    self.mcp_bridge = mcp_bridge
-    self.tool_definitions = []
+async def _handle_code_generation(self, request: AgentRequest) -> AgentResponse:
+    # WRONG: Creates direct workspace tool prompt
+    code_gen_prompt = f"""...
+    CRITICAL: You must use explicit tool calls to complete this task.
+    """
+```
+
+**Fix**:
+```python
+async def _handle_code_generation(self, request: AgentRequest) -> AgentResponse:
+    """Generate JSON metadata for code structure"""
+    # 1. Create JSON representation using JsonFileManager
+    # 2. Save to .meta/{filename}.json
+    # 3. Queue workspace tool to render actual file
+    # 4. Queue validation tool
+    # 5. Queue git commit if successful
+```
+
+### 2.2 Create `src/core/agents/agent/metadata_handler.py`
+```python
+"""Handle metadata generation for agent files"""
+
+class MetadataHandler:
+    def generate_initial_metadata(self, request, filename):
+        """Generate initial JSON metadata for file"""
+        # Parse request for code requirements
+        # Create structured JSON representation
+        # Return metadata for .meta/ directory
+```
+
+---
+
+## Phase 3: Remove Fallbacks and Add Proper Error Handling
+**Priority**: HIGH
+**Fix**: Replace mocks with real implementations or explicit failures
+
+### 3.1 Remove Placeholder Returns
+
+**Files to Fix**:
+- `src/core/agents/agent/agent.py` - Remove "not yet implemented" responses
+- `src/mcp/tools/workspace/workspace.py` - Add actual file operations
+- `src/mcp/tools/validation/validation.py` - Implement real validation
+
+**Pattern to Remove**:
+```python
+return AgentResponse(
+    success=True,
+    content="Generic file operation not yet implemented",
+    ...
+)
+```
+
+**Replace With**:
+```python
+return AgentResponse(
+    success=False,
+    content=f"Failed: {specific_error_message}",
+    metadata={"error_type": "unimplemented", "required_tool": tool_name}
+)
+```
+
+### 3.2 Add Traceable Logging
+- Log all tool call attempts with full payloads
+- Log queue operations with task IDs
+- Log metadata creation/updates
+- Add entry/exit logging for every method
+
+---
+
+## Phase 4: Implement Async Task Queue for All MCP Operations
+**Priority**: CRITICAL
+**Fix**: Route ALL tool calls through queue with nesting limits
+
+### 4.1 Create `src/core/tasks/queue/queue.py`
+```python
+"""Generic task queue with nesting depth control"""
+
+class TaskQueue:
+    def __init__(self, max_depth=3):
+        self.max_depth = max_depth
+        self.task_depth = {}  # task_id -> depth
+        self.parent_map = {}  # task_id -> parent_id
+        
+    async def queue_task(self, task, parent_id=None):
+        """Queue task with depth tracking"""
+        if parent_id:
+            parent_depth = self.task_depth.get(parent_id, 0)
+            if parent_depth >= self.max_depth:
+                raise MaxDepthExceeded(f"Cannot nest beyond {self.max_depth}")
+            self.task_depth[task.id] = parent_depth + 1
+```
+
+### 4.2 Update `src/mcp/tools/executor/executor.py`
+**Remove**: Direct tool execution
+**Add**: Queue submission for every tool call
+
+```python
+async def execute_tool(self, tool_name, args):
+    """Queue tool for async execution"""
+    task = ToolCallTask(tool_name, args)
+    task_id = await self.task_queue.queue_task(task)
+    return await self.task_queue.await_result(task_id)
+```
+
+---
+
+## Phase 5: File-by-File Review and Logging Enhancement
+**Priority**: HIGH
+**Approach**: Systematic review with NO FALLBACKS
+
+### 5.1 `src/core/agents/agent/agent.py` Review
+
+**Current Issues**:
+- Line 96: `_handle_code_generation` creates workspace prompt instead of metadata
+- Line 421: `_handle_file_creation` returns "not yet implemented"
+- Line 431: `_handle_file_read` returns "not yet implemented"  
+- Line 490: `_analyze_and_execute_file_operation` returns "not yet implemented"
+
+**Required Changes**:
+```python
+# Add comprehensive logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Every method entry/exit
+async def _handle_code_generation(self, request):
+    self.logger.debug(f"ENTRY _handle_code_generation: request={request}")
     
-def register_tools(self, tools):
-    """Register MCP tools for model use"""
-    self.tool_definitions = self._format_tools_for_qwen(tools)
+    try:
+        # NO FALLBACK - fail if can't create metadata
+        if not self.json_file_manager:
+            error = "JsonFileManager not initialized"
+            self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
+            return AgentResponse(success=False, content=error, ...)
+            
+        # Create metadata
+        self.logger.info(f"Creating metadata for {filename}")
+        metadata = await self._create_file_metadata(request)
+        
+        if not metadata:
+            error = "Failed to create metadata structure"
+            self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
+            return AgentResponse(success=False, content=error, ...)
+            
+        # Save to .meta/
+        meta_path = self.system_config.workspace_root / ".meta" / f"{filename}.json"
+        self.logger.info(f"Saving metadata to {meta_path}")
+        
+        # Queue workspace tool
+        self.logger.info(f"Queueing workspace tool for {filename}")
+        task_id = await self._queue_workspace_write(metadata)
+        
+        self.logger.debug(f"EXIT _handle_code_generation: SUCCESS - task_id={task_id}")
+        return AgentResponse(success=True, content=f"Queued task {task_id}", ...)
+        
+    except Exception as e:
+        self.logger.exception(f"EXIT _handle_code_generation: EXCEPTION - {e}")
+        return AgentResponse(success=False, content=str(e), ...)
+```
+
+### 5.2 `src/mcp/tools/workspace/workspace.py` Review
+
+**Current Issues**:
+- Missing metadata-based file generation
+- No integration with template system
+- Insufficient logging
+
+**Required Changes**:
+```python
+async def write_from_metadata(self, args):
+    """Write file from JSON metadata"""
+    logger.debug(f"ENTRY write_from_metadata: args={args}")
     
-def generate_with_tools(self, prompt, tools_enabled=True):
-    """Generate response with tool calling capability"""
+    filepath = args.get("filepath")
+    if not filepath:
+        error = "No filepath provided"
+        logger.error(f"EXIT write_from_metadata: FAILED - {error}")
+        return {"success": False, "error": error}
+    
+    # Load metadata
+    meta_path = Path(self.workspace_root) / ".meta" / f"{filepath}.json"
+    logger.info(f"Loading metadata from {meta_path}")
+    
+    if not meta_path.exists():
+        error = f"No metadata found at {meta_path}"
+        logger.error(f"EXIT write_from_metadata: FAILED - {error}")
+        return {"success": False, "error": error}
+    
+    try:
+        with open(meta_path) as f:
+            metadata = json.load(f)
+        logger.debug(f"Loaded metadata: {metadata.keys()}")
+    except Exception as e:
+        error = f"Failed to load metadata: {e}"
+        logger.exception(f"EXIT write_from_metadata: FAILED - {error}")
+        return {"success": False, "error": error}
+    
+    # NO FALLBACK - fail if template missing
+    template_name = metadata.get("template", "python_file.j2")
+    if not (Path("templates") / template_name).exists():
+        error = f"Template {template_name} not found"
+        logger.error(f"EXIT write_from_metadata: FAILED - {error}")
+        return {"success": False, "error": error}
+    
+    # Render and write
+    # ... actual implementation
+    logger.debug(f"EXIT write_from_metadata: SUCCESS")
+```
+
+### 5.3 `src/core/agents/registry/registry.py` Review
+
+**Current Issues**:
+- Task execution doesn't check for tool availability
+- No depth limiting on task creation
+
+**Required Changes**:
+```python
+async def execute_agent_task(self, task_id: str):
+    """Execute queued agent task with proper limits"""
+    logger.debug(f"ENTRY execute_agent_task: task_id={task_id}")
+    
+    task = self.task_queue.get_task(task_id)
+    if not task:
+        error = f"Task {task_id} not found"
+        logger.error(f"EXIT execute_agent_task: FAILED - {error}")
+        raise TaskNotFound(error)
+    
+    # Check nesting depth
+    depth = self._get_task_depth(task_id)
+    logger.info(f"Task {task_id} at depth {depth}")
+    
+    if depth >= self.MAX_NESTING_DEPTH:
+        error = f"Max nesting depth {self.MAX_NESTING_DEPTH} exceeded"
+        logger.error(f"EXIT execute_agent_task: FAILED - {error}")
+        task.status = "failed"
+        task.error = error
+        return
+    
+    # NO FALLBACK - fail if agent missing
+    agent = self.agents.get(task.agent_id)
+    if not agent:
+        error = f"Agent {task.agent_id} not found"
+        logger.error(f"EXIT execute_agent_task: FAILED - {error}")
+        task.status = "failed"
+        task.error = error
+        return
+```
+
+### 5.4 `src/mcp/tools/agent_operations/agent_operations.py` Review
+
+**Current Issues**:
+- Line 97: `specialized_files` type confusion
+- Missing async task queue integration
+
+**Required Changes**:
+```python
+elif operation == "create":
+    logger.debug(f"ENTRY create operation: args={args}")
+    
+    # NO TYPE GUESSING - fail if wrong type
+    specialized_files = args.get("specialized_files", [])
+    if not isinstance(specialized_files, list):
+        error = f"specialized_files must be list, got {type(specialized_files)}"
+        logger.error(f"EXIT create operation: FAILED - {error}")
+        return create_mcp_response(False, error)
+    
+    # Validate each file
+    for file in specialized_files:
+        if not isinstance(file, str):
+            error = f"Each file must be string, got {type(file)} for {file}"
+            logger.error(f"EXIT create operation: FAILED - {error}")
+            return create_mcp_response(False, error)
+    
+    # Create agent with task queue
+    logger.info(f"Creating agent {name} for files {specialized_files}")
+    try:
+        agent_id = await self._create_agent_with_queue(name, description, specialized_files)
+        
+        # Queue initial metadata task
+        task = AgentTask(
+            agent_id=agent_id,
+            operation="create_initial_metadata",
+            files=specialized_files
+        )
+        task_id = await self.task_queue.queue_task(task)
+        
+        logger.debug(f"EXIT create operation: SUCCESS - agent_id={agent_id}, task_id={task_id}")
+        return create_mcp_response(True, f"Created agent {agent_id}, queued task {task_id}")
+        
+    except Exception as e:
+        logger.exception(f"EXIT create operation: EXCEPTION - {e}")
+        return create_mcp_response(False, str(e))
+```
+
+---
+
+## Phase 6: Local Model Tool Calling Sequence
+**Priority**: CRITICAL
+**Fix**: Enable proper tool calling flow
+
+### 6.1 Update `src/core/llm/manager/manager.py`
+
+```python
+async def generate_with_tools(self, prompt: str, enable_tools=True):
+    """Generate with tool calling support"""
+    logger.debug(f"ENTRY generate_with_tools: enable_tools={enable_tools}")
+    
+    if not self.model:
+        error = "Model not loaded"
+        logger.error(f"EXIT generate_with_tools: FAILED - {error}")
+        raise ModelNotLoaded(error)
+    
     # Add tool definitions to prompt
-    # Parse response for tool calls
-    # Execute through MCP bridge
+    if enable_tools and self.mcp_bridge:
+        tool_prompt = self.mcp_bridge.get_tool_prompt()
+        full_prompt = f"{tool_prompt}\n\n{prompt}"
+        logger.debug(f"Added {len(self.mcp_bridge.tools)} tool definitions")
+    else:
+        full_prompt = prompt
+    
+    # Generate response
+    logger.info("Generating model response")
+    response = self.model(full_prompt, max_tokens=512)
+    
+    # Parse for tool calls
+    if enable_tools and self.mcp_bridge:
+        logger.info("Parsing response for tool calls")
+        tool_calls = await self.mcp_bridge.parse_and_execute(response['choices'][0]['text'])
+        
+        if tool_calls:
+            logger.info(f"Found {len(tool_calls)} tool calls")
+            # Queue each tool call
+            for call in tool_calls:
+                task_id = await self._queue_tool_call(call)
+                logger.debug(f"Queued tool call {call['name']} as task {task_id}")
+    
+    logger.debug(f"EXIT generate_with_tools: SUCCESS")
+    return response
 ```
 
-#### Tool Prompt Formatting:
-- Create Qwen-specific tool instruction format
-- Include clear JSON examples in system prompt
-- Add tool call indicators for parser
+---
+
+## Phase 7: Complete File Review List
+**Priority**: HIGH  
+**Approach**: Every file needs explicit failure handling and verbose logging
+
+### Files Requiring Complete Review and Fixes:
+
+#### Core Agent Files
+- `src/core/agents/agent/agent.py` - Remove ALL "not yet implemented" returns
+- `src/core/agents/registry/registry.py` - Add task depth checking, remove fallbacks
+- `src/core/agents/registry/task_queue.py` - Extract to generic module, add depth limits
+
+#### MCP Tool Files  
+- `src/mcp/tools/executor/executor.py` - Route ALL through queue, no direct execution
+- `src/mcp/tools/agent_operations/agent_operations.py` - Fix type handling, add queue integration
+- `src/mcp/tools/workspace/workspace.py` - Implement metadata-based writing, remove mocks
+- `src/mcp/tools/validation/validation.py` - Real validation only, fail if not implemented
+- `src/mcp/tools/local_model/local_model.py` - Add tool calling support
+
+#### LLM Manager
+- `src/core/llm/manager/manager.py` - Add MCP bridge, tool prompts, response parsing
+
+#### Configuration
+- `src/core/config/manager/manager.py` - Add MCP bridge configuration
+
+#### New Files to Create
+- `src/core/mcp/bridge/bridge.py` - Main bridge implementation  
+- `src/core/mcp/bridge/parser.py` - Tool call extraction
+- `src/core/mcp/bridge/formatter.py` - Tool prompt formatting
+- `src/core/tasks/queue/queue.py` - Generic task queue
+- `src/core/tasks/queue/task.py` - Task definitions
+- `src/core/agents/agent/metadata_handler.py` - JSON metadata generation
 
 ---
 
-## Phase 4: Tool Call Router Implementation
-**Goal**: Route all MCP tool calls through async task queue
+## Critical Code Patterns to Remove
 
-### Files to Create:
-
-#### `src/core/mcp/router/router.py`
-- Central routing for all tool calls
-- Queue submission and result tracking
-- Priority handling for validation/git operations
-- Timeout management
-
-#### `src/core/mcp/router/executor.py`
-- Async execution of queued tool calls
-- Error handling and retry logic
-- Result caching for repeated calls
-- Performance monitoring
-
-### Integration Points:
-1. **With Task Queue**: Submit tool calls as tasks
-2. **With MCP Bridge**: Parse and validate calls
-3. **With Agents**: Allow agents to monitor tool execution
-4. **With Tool Executor**: Route to actual MCP tools
-
----
-
-## Phase 5: Agent Integration Updates
-**Goal**: Update agents to use new tool calling infrastructure
-
-### File to Modify: `src/core/agents/agent/agent.py`
-
-#### Key Changes:
+### Pattern 1: Placeholder Returns
 ```python
-async def process_request(self, request):
-    # Remove text parsing logic
-    # Use LLMManager.generate_with_tools()
-    # Monitor tool call results through queue
-    # Let model self-correct via tool calls
+# REMOVE THIS PATTERN:
+return AgentResponse(
+    success=True,  # WRONG - lying about success
+    content="Not yet implemented",
+    ...
+)
+
+# REPLACE WITH:
+return AgentResponse(
+    success=False,  
+    content=f"Operation {operation_name} not implemented",
+    metadata={"error_type": "not_implemented", "operation": operation_name}
+)
 ```
 
-#### Remove:
-- Manual JSON extraction from markdown
-- Complex text parsing utilities
-- Error-prone string manipulation
+### Pattern 2: Silent Fallbacks
+```python
+# REMOVE THIS PATTERN:
+try:
+    result = some_operation()
+except:
+    result = default_value  # WRONG - hiding failure
 
-#### Add:
-- Tool call monitoring
-- Structured result handling
-- Self-correction loops via tools
+# REPLACE WITH:
+try:
+    result = some_operation()
+except Exception as e:
+    logger.exception(f"Operation failed: {e}")
+    raise OperationFailed(f"Failed to {operation_name}: {e}")
+```
+
+### Pattern 3: Type Guessing
+```python
+# REMOVE THIS PATTERN:
+if isinstance(value, str):
+    value = [value]  # WRONG - guessing intent
+elif not isinstance(value, list):
+    value = []  # WRONG - making up data
+
+# REPLACE WITH:
+if not isinstance(value, list):
+    raise TypeError(f"Expected list, got {type(value)}: {value}")
+```
 
 ---
 
-## Phase 6: Tool Enhancement for Code Generation
-**Goal**: Update workspace tool to accept JSON artifacts
+## Logging Standards
 
-### File to Modify: `src/mcp/tools/workspace/workspace.py`
-
-#### Add JSON Artifact Support:
+### Entry/Exit Pattern for Every Method
 ```python
-def write_with_artifact(self, path, json_artifact):
-    """Write file using JSON artifact and Jinja2 template"""
-    # Determine template based on artifact type
-    # Render using existing template system
-    # Maintain .meta/ tracking
+async def any_method(self, param1, param2):
+    logger.debug(f"ENTRY {self.__class__.__name__}.any_method: param1={param1}, param2={param2}")
+    
+    try:
+        # Method logic
+        result = await do_something()
+        logger.debug(f"EXIT {self.__class__.__name__}.any_method: SUCCESS - result={result}")
+        return result
+        
+    except Exception as e:
+        logger.exception(f"EXIT {self.__class__.__name__}.any_method: EXCEPTION - {e}")
+        raise
 ```
 
-#### Artifact Schema:
-```json
+### State Change Logging
+```python
+# Log before and after state changes
+logger.info(f"State change: {field} {old_value} -> {new_value}")
+```
+
+### Tool Call Logging
+```python
+logger.info(f"Tool call: {tool_name} with args: {json.dumps(args, indent=2)}")
+logger.info(f"Tool response: {json.dumps(response, indent=2)}")
+```
+
+---
+
+## Error Handling Requirements
+
+### No Empty Catches
+```python
+# NEVER DO THIS:
+except:
+    pass
+
+# ALWAYS DO THIS:
+except Exception as e:
+    logger.exception(f"Unexpected error in {context}: {e}")
+    raise
+```
+
+### Specific Error Types
+```python
+class AgentNotFound(Exception):
+    """Raised when agent ID doesn't exist"""
+
+class TaskQueueFull(Exception):
+    """Raised when task queue at capacity"""
+
+class MaxDepthExceeded(Exception):
+    """Raised when task nesting too deep"""
+
+class MetadataInvalid(Exception):
+    """Raised when JSON metadata malformed"""
+
+class ToolNotAvailable(Exception):
+    """Raised when requested tool not registered"""
+```
+
+### Error Response Format
+```python
 {
-  "element_type": "function|class|module",
-  "element_data": {
-    "name": "...",
-    "docstring": "...",
-    "parameters": [...],
-    "body": "..."
-  }
+    "success": False,
+    "error": "Human readable error message",
+    "error_type": "specific_error_code",
+    "metadata": {
+        "file": __file__,
+        "function": function_name,
+        "line": line_number,
+        "context": additional_context
+    }
 }
 ```
 
 ---
 
-## Implementation Order & Dependencies
+## Summary of Key Changes
 
-### Week 1:
-1. **Phase 1**: Extract task queue (no dependencies)
-2. **Phase 2**: Create MCP bridge (depends on Phase 1)
-
-### Week 2:
-3. **Phase 3**: Enhance LLMManager (depends on Phase 2)
-4. **Phase 4**: Implement tool router (depends on Phases 1-3)
-
-### Week 3:
-5. **Phase 5**: Update agents (depends on Phases 3-4)
-6. **Phase 6**: Enhance workspace tool (can be parallel)
-
----
-
-## Critical Success Factors
-
-### Must Preserve:
-- Existing agent registry functionality
-- Current task queue for agent operations
-- All MCP tool interfaces
-- JSON file management system
-- Docker containerization
-
-### Must Achieve:
-- 100% reliable JSON parsing from local model
-- All tool calls routed through task queue
-- No regression in existing agent behavior
-- Clean separation of concerns
-- Proper error handling and recovery
-
-### Key Metrics:
-- Zero JSON parsing failures
-- < 100ms overhead for tool routing
-- Successful self-correction loops
-- No task queue bottlenecks
-
----
-
-## Risk Mitigation
-
-### Compatibility Risks:
-- **Task Queue Changes**: Keep original interface intact
-- **Agent Updates**: Gradual migration, one agent at a time
-- **Tool Calling**: Support both old and new patterns initially
-
-### Technical Risks:
-- **Qwen JSON Output**: Multiple parsing strategies
-- **Queue Performance**: Add priority levels
-- **Tool Timeouts**: Implement circuit breakers
-
-### Rollback Strategy:
-- Feature flag for new tool calling
-- Keep text parsing as fallback
-- Parallel operation during transition
-
----
-
-## Notes from Reference Implementation
-
-The society_scribe implementation provides valuable patterns:
-
-1. **Tool Call Extraction**: Multiple regex patterns catch different formats
-2. **Duplicate Prevention**: Track recent calls to avoid loops
-3. **Compact Payloads**: Truncate tool results for context efficiency
-4. **Helper Messages**: Guide model toward completion after tool use
-5. **Safety Stops**: Limit tool call hops to prevent runaway execution
-
-These patterns should be adapted for our architecture while maintaining our existing strengths in task queuing and agent management.
+1. **NO FALLBACKS** - Every operation either succeeds or returns explicit failure
+2. **METADATA FIRST** - Agents create JSON metadata, not direct files  
+3. **QUEUE EVERYTHING** - All MCP tool calls go through async queue
+4. **DEPTH LIMITS** - Maximum 3 levels of task nesting (configurable)
+5. **VERBOSE LOGGING** - Entry/exit for every method, state changes logged
+6. **EXPLICIT ERRORS** - Specific exception types, no silent failures
+7. **TOOL INTEGRATION** - Local model gets MCP bridge for proper tool calling
+8. **TRACEABLE FLOW** - Can follow entire execution path through logs

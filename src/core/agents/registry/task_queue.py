@@ -19,17 +19,23 @@ class AgentTaskExecutor(TaskExecutor):
         self.agent_registry = agent_registry
 
     async def execute(self, task):
-        """Execute an agent task"""
+        """Execute an agent task with comprehensive logging"""
+        logger.debug(f"ENTRY AgentTaskExecutor.execute: task_id={task.task_id}, agent_id={task.agent_id}")
+
         try:
             task.status = TaskStatus.RUNNING
-            logger.info(f"Executing agent task {task.task_id} for agent {task.agent_id}")
+            logger.info(f"✅ Task {task.task_id} status changed: PENDING → RUNNING")
 
-            # Get agent and execute
+            # Get agent with explicit failure handling
             agent = self.agent_registry.get_agent(task.agent_id)
             if not agent:
-                raise ValueError(f"Agent not found: {task.agent_id}")
+                error = f"Agent not found: {task.agent_id}"
+                logger.error(f"EXIT AgentTaskExecutor.execute: FAILED - {error}")
+                raise ValueError(error)
 
-            # Process the request
+            logger.info(f"🤖 Found agent: {agent.state.name} (ID: {task.agent_id})")
+
+            # Process the request with logging
             from src.schemas.agents.agents import TaskType, create_standard_request
 
             task_type_map = {
@@ -42,8 +48,12 @@ class AgentTaskExecutor(TaskExecutor):
             task_type = task_type_map.get(task.request.get("task_type", "conversation"), TaskType.CONVERSATION)
             request = create_standard_request(task.request.get("message", ""), task_type, task.agent_id)
 
+            logger.info(f"📝 Processing {task_type} request: {request.message[:100]}...")
+
             # Execute and store result
             response = await agent.process_request(request)
+
+            logger.info(f"🎯 Agent response: success={response.success}, content_len={len(response.content) if response.content else 0}")
 
             task.result = {
                 "success": response.success,

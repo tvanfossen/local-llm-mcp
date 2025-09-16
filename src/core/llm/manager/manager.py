@@ -11,19 +11,25 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from src.core.mcp.bridge.bridge import MCPBridge
+
 logger = logging.getLogger(__name__)
 
 
 class LLMManager:
     """Core language model manager"""
 
-    def __init__(self, model_config=None, mcp_bridge=None):
+    def __init__(self, model_config=None, tool_executor=None, task_queue=None):
         self.model_config = model_config
         self.model_loaded = False
         self.model_path = model_config.model_path if model_config else None
         self.performance_stats = {"total_requests": 0, "successful_requests": 0, "average_response_time": 0.0}
-        self.mcp_bridge = mcp_bridge
-        self.tool_definitions = []
+
+        # Initialize MCP Bridge with tool executor and task queue
+        self.mcp_bridge = None
+        self.tool_executor = tool_executor
+        self.task_queue = task_queue
+        self.available_tools = []
 
     def get_model_info(self) -> dict[str, Any]:
         """Get model information"""
@@ -188,8 +194,30 @@ class LLMManager:
 
     def register_tools(self, tools: list):
         """Register MCP tools for model use"""
-        self.tool_definitions = tools
-        logger.info(f"Registered {len(tools)} tools for model use")
+        logger.debug(f"ENTRY register_tools: {len(tools)} tools")
+        self.available_tools = tools
+
+        # Initialize MCP Bridge with tools, tool executor, and task queue
+        if self.tool_executor:
+            self.mcp_bridge = MCPBridge(
+                task_queue=self.task_queue,
+                tool_executor=self.tool_executor,
+                available_tools=tools
+            )
+
+            # Register ToolCallExecutor with task queue if available
+            if self.task_queue:
+                from src.core.tasks.queue.queue import ToolCallExecutor
+                tool_call_executor = ToolCallExecutor(self.tool_executor)
+                # Access the underlying generic task queue to register executor
+                self.task_queue._task_queue.register_executor("tool_call", tool_call_executor)
+                logger.info(f"✅ MCP Bridge initialized with {len(tools)} tools and task queue")
+            else:
+                logger.info(f"✅ MCP Bridge initialized with {len(tools)} tools (no queue)")
+        else:
+            logger.warning("⚠️ No tool executor available - MCP Bridge not initialized")
+
+        logger.debug(f"EXIT register_tools: bridge_ready={self.mcp_bridge.is_ready() if self.mcp_bridge else False}")
 
     def _format_tools_for_qwen(self) -> str:
         """Format tools for Qwen2.5-7B prompt"""

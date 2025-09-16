@@ -6,9 +6,11 @@ including agent operations and MCP tool calls.
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
-from .task import Task, TaskStatus
+from .task import Task, TaskStatus, ToolCallTask
+from src.core.exceptions import MaxDepthExceeded, TaskQueueFull
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,47 @@ class TaskExecutor(Protocol):
     async def execute(self, task: Task) -> None:
         """Execute a task and update its status"""
         ...
+
+
+class ToolCallExecutor(TaskExecutor):
+    """Executor for MCP tool call tasks"""
+
+    def __init__(self, tool_executor):
+        self.tool_executor = tool_executor
+
+    async def execute(self, task: ToolCallTask) -> None:
+        """Execute a tool call task with comprehensive logging"""
+        logger.debug(f"ENTRY ToolCallExecutor.execute: task_id={task.task_id}, tool={task.tool_name}")
+
+        try:
+            task.status = TaskStatus.RUNNING
+            logger.info(f"🔧 Tool call {task.task_id} status changed: QUEUED → RUNNING")
+
+            # Execute tool through the tool executor
+            logger.info(f"🛠️ Executing tool: {task.tool_name} with args: {task.tool_args}")
+
+            result = await self.tool_executor.execute_tool(task.tool_name, task.tool_args)
+
+            # Ensure result has success field
+            if not isinstance(result, dict):
+                result = {"success": True, "result": result}
+
+            logger.info(f"🎯 Tool call response: success={result.get('success', False)}")
+
+            # Store result
+            task.result = result
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(timezone.utc).isoformat()
+
+            logger.info(f"Tool call {task.task_id} completed successfully")
+
+        except Exception as e:
+            task.status = TaskStatus.FAILED
+            task.error = str(e)
+            task.completed_at = datetime.now(timezone.utc).isoformat()
+            logger.error(f"Tool call {task.task_id} failed: {e}")
+
+        logger.debug(f"EXIT ToolCallExecutor.execute: status={task.status.value}")
 
 
 class TaskQueue:
@@ -96,7 +139,7 @@ class TaskQueue:
         if parent_task_id:
             parent_depth = self.task_depth_tracking.get(parent_task_id, 0)
             if parent_depth >= self.max_nesting_depth:
-                raise ValueError(f"Maximum nesting depth {self.max_nesting_depth} exceeded")
+                raise MaxDepthExceeded(parent_depth + 1, self.max_nesting_depth)
             self.task_depth_tracking[task.task_id] = parent_depth + 1
         else:
             self.task_depth_tracking[task.task_id] = 0

@@ -33,8 +33,12 @@ async def handle_root_request(request: Request, llm_manager: LLMManager, agent_r
     Returns:
         JSON response with server status and configuration
     """
+    logger.debug(f"ENTRY handle_root_request")
+
     model_info = llm_manager.get_model_info()
     registry_stats = agent_registry.get_registry_stats()
+
+    logger.info(f"📊 Root request: model_loaded={model_info['model_loaded']}, agents={registry_stats['total_agents']}")
 
     return JSONResponse(
         {
@@ -62,6 +66,8 @@ async def handle_root_request(request: Request, llm_manager: LLMManager, agent_r
         }
     )
 
+    logger.debug(f"EXIT handle_root_request: success")
+
 
 async def handle_health_check(request: Request, llm_manager: LLMManager, agent_registry: AgentRegistry) -> JSONResponse:
     """Health check endpoint with comprehensive system status.
@@ -74,8 +80,13 @@ async def handle_health_check(request: Request, llm_manager: LLMManager, agent_r
     Returns:
         JSON response with health status
     """
+    logger.debug(f"ENTRY handle_health_check")
+
     health_check = llm_manager.health_check()
     registry_stats = agent_registry.get_registry_stats()
+
+    health_status = "healthy" if health_check.get("status") == "healthy" else "degraded"
+    logger.info(f"🏥 Health check: {health_status}, model={health_check.get('status')}, agents={registry_stats['total_agents']}")
 
     return JSONResponse(
         {
@@ -104,6 +115,8 @@ async def handle_health_check(request: Request, llm_manager: LLMManager, agent_r
         }
     )
 
+    logger.debug(f"EXIT handle_health_check: {health_status}")
+
 
 async def handle_mcp_streamable_http(request: Request, mcp_handler: MCPHandler) -> Response:
     """MCP Streamable HTTP transport endpoint with authentication bridge.
@@ -115,26 +128,38 @@ async def handle_mcp_streamable_http(request: Request, mcp_handler: MCPHandler) 
     Returns:
         HTTP response (JSON or appropriate error response)
     """
+    logger.debug(f"ENTRY handle_mcp_streamable_http: method={request.method}")
+
     try:
         # Extract both MCP session ID and orchestrator auth token
         session_id = request.headers.get("mcp-session-id")
         auth_token = request.headers.get("authorization")
 
+        logger.info(f"🔗 MCP Streamable HTTP request: {request.method} (session: {session_id[:8] if session_id else 'None'})")
+
         # Route to appropriate method handler
         if request.method == "POST":
-            return await _handle_mcp_post_request(request, mcp_handler, session_id, auth_token)
+            result = await _handle_mcp_post_request(request, mcp_handler, session_id, auth_token)
+            logger.debug(f"EXIT handle_mcp_streamable_http: POST processed successfully")
+            return result
 
-        # GET method (not yet implemented)
+        # GET method - explicitly not supported for streaming
+        from src.core.exceptions import OperationNotImplemented
+        error = OperationNotImplemented("GET method for MCP Streamable HTTP", "HTTP Transport")
+        logger.error(f"EXIT handle_mcp_streamable_http: FAILED - {error}")
+
         return JSONResponse(
             {
-                "error": "GET method not yet implemented",
-                "message": "Streaming support via SSE will be added in future version",
+                "error": "GET method not supported",
+                "message": "MCP Streamable HTTP transport requires POST method only",
+                "error_type": error.error_type,
+                "supported_methods": ["POST"]
             },
-            status_code=501,
+            status_code=405,  # Method Not Allowed
         )
 
     except Exception as e:
-        logger.error(f"MCP endpoint error: {e}")
+        logger.error(f"EXIT handle_mcp_streamable_http: FAILED - {e}")
         return _create_mcp_error_response(None, e)
 
 
@@ -148,20 +173,26 @@ async def handle_mcp_legacy(request: Request, mcp_handler: MCPHandler) -> JSONRe
     Returns:
         JSON response with MCP result
     """
+    logger.debug(f"ENTRY handle_mcp_legacy")
+
     try:
         data = await request.json()
         # Extract both session ID and auth token for consistency with main handler
         session_id = request.headers.get("mcp-session-id")
         auth_token = request.headers.get("authorization")
 
+        logger.info(f"🔗 Legacy MCP request: {data.get('method', 'unknown')} (session: {session_id[:8] if session_id else 'None'})")
+
         # Handle different request formats with authentication
         response = await _process_legacy_request(data, mcp_handler, session_id, auth_token)
 
         # Return appropriate response format
-        return _format_legacy_response(response)
+        result = _format_legacy_response(response)
+        logger.debug(f"EXIT handle_mcp_legacy: processed successfully")
+        return result
 
     except Exception as e:
-        logger.error(f"Legacy MCP endpoint error: {e}")
+        logger.error(f"EXIT handle_mcp_legacy: FAILED - {e}")
         return JSONResponse({"error": f"Request failed: {e!s}"}, status_code=500)
 
 

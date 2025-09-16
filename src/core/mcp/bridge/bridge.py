@@ -1,188 +1,217 @@
-"""MCP Bridge for Local Model Tool Calling
+"""MCP Bridge for Local Model Tool Calling"""
 
-Main bridge implementation that handles tool call extraction,
-validation, and execution routing for local LLM interactions.
-"""
-
-import asyncio
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Any, Optional
+import asyncio
 
-from .formatter import ToolCallFormatter
-from .tool_parser import ToolCallParser
+from .parser import ToolCallParser
+from .formatter import ToolPromptFormatter
 
 logger = logging.getLogger(__name__)
 
-
 class MCPBridge:
-    """Bridge between local LLM and MCP tools"""
+    """Bridge between local model and MCP tools"""
 
-    def __init__(self, task_queue=None, tool_executor=None):
-        self.parser = ToolCallParser()
-        self.formatter = ToolCallFormatter()
+    def __init__(self, task_queue=None, tool_executor=None, available_tools: List[Dict] = None):
         self.task_queue = task_queue
         self.tool_executor = tool_executor
-        self.max_retries = 3
-        self.retry_delay = 1.0
+        self.available_tools = available_tools or []
+
+        self.parser = ToolCallParser()
+        self.formatter = ToolPromptFormatter(self.available_tools)
+
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self.logger.info(f"MCPBridge initialized with {len(self.available_tools)} tools")
 
     def get_tools_prompt(self) -> str:
-        """Get formatted tools prompt for the model"""
-        return self.formatter.format_all_tools_for_qwen()
+        """Get formatted tools prompt for model"""
+        self.logger.debug("ENTRY get_tools_prompt")
+        prompt = self.formatter.get_tools_prompt()
+        self.logger.debug(f"EXIT get_tools_prompt: {len(prompt)} characters")
+        return prompt
 
-    async def process_model_output(self, text: str) -> Dict[str, Any]:
-        """Process model output and execute any tool calls found"""
-        # Parse tool calls from output
-        tool_calls = self.parser.parse_tool_calls(text)
+    async def process_model_output(self, model_output: str, parent_task_id: Optional[str] = None) -> Dict[str, Any]:
+        """Parse model output and execute tool calls"""
+        self.logger.debug(f"ENTRY process_model_output: {len(model_output)} characters")
 
-        if not tool_calls:
-            return {
-                "type": "text",
-                "content": text,
-                "tool_calls": []
-            }
+        try:
+            # Extract tool calls from model output
+            tool_calls = self.parser.extract_tool_calls(model_output)
 
-        # Execute tool calls
-        results = []
-        for call in tool_calls:
-            result = await self._execute_tool_call(call)
-            results.append(result)
+            if not tool_calls:
+                self.logger.info("No tool calls detected in model output")
+                return {
+                    "type": "text",
+                    "content": model_output,
+                    "tool_calls": []
+                }
 
-        return {
-            "type": "tool_calls",
-            "content": text,
-            "tool_calls": tool_calls,
-            "results": results
-        }
+            self.logger.info(f"Found {len(tool_calls)} tool calls")
 
-    async def _execute_tool_call(self, call: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a single tool call with validation and retry logic"""
-        tool_name = call.get("tool_name") or call.get("function_name")
-        arguments = call.get("arguments", {})
+            # Validate and execute tool calls
+            results = []
+            for i, tool_call in enumerate(tool_calls):
+                self.logger.info(f"Processing tool call {i+1}: {tool_call}")
 
-        if not tool_name:
-            return {
-                "success": False,
-                "error": "No tool name specified in call",
-                "call": call
-            }
-
-        # Validate tool call
-        if not self.formatter.validate_tool_call(tool_name, arguments):
-            return {
-                "success": False,
-                "error": f"Invalid arguments for tool {tool_name}",
-                "call": call
-            }
-
-        # Execute with retry logic
-        for attempt in range(self.max_retries):
-            try:
-                if self.task_queue:
-                    # Route through task queue
-                    result = await self._execute_via_queue(tool_name, arguments)
-                else:
-                    # Direct execution
-                    result = await self._execute_direct(tool_name, arguments)
-
-                # Format result for model consumption
-                return self.formatter.format_tool_result(tool_name, result)
-
-            except Exception as e:
-                logger.warning(f"Tool execution attempt {attempt + 1} failed: {e}")
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay)
-                else:
-                    return {
+                # Validate tool call
+                is_valid, validation_error = self.formatter.validate_tool_call(tool_call)
+                if not is_valid:
+                    self.logger.error(f"Invalid tool call: {validation_error}")
+                    results.append({
                         "success": False,
-                        "error": f"Tool execution failed after {self.max_retries} attempts: {str(e)}",
-                        "call": call
-                    }
+                        "error": validation_error,
+                        "tool_call": tool_call
+                    })
+                    continue
 
-    async def _execute_via_queue(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute tool call via task queue"""
-        from src.core.tasks.queue import ToolCallTask
+                # Execute tool call
+                try:
+                    result = await self._execute_tool_call(tool_call, parent_task_id)
+                    results.append(result)
+                    self.logger.info(f"Tool call {i+1} executed: {result.get('success', False)}")
+                except Exception as e:
+                    self.logger.exception(f"Error executing tool call {i+1}: {e}")
+                    results.append({
+                        "success": False,
+                        "error": str(e),
+                        "tool_call": tool_call
+                    })
+
+            self.logger.debug(f"EXIT process_model_output: {len(results)} results")
+            return {
+                "type": "tool_calls",
+                "content": model_output,
+                "tool_calls": tool_calls,
+                "results": results
+            }
+
+        except Exception as e:
+            self.logger.exception(f"Error processing model output: {e}")
+            return {
+                "type": "error",
+                "content": model_output,
+                "error": str(e)
+            }
+
+    async def _execute_tool_call(self, tool_call: Dict[str, Any], parent_task_id: Optional[str] = None) -> Dict[str, Any]:
+        """Execute a single tool call - via queue if available, otherwise direct"""
+        tool_name = tool_call.get('tool_name') or tool_call.get('name')
+        arguments = tool_call.get('arguments', {})
+
+        self.logger.debug(f"ENTRY _execute_tool_call: {tool_name} with {arguments}")
+
+        if not self.tool_executor:
+            error = "No tool executor available"
+            self.logger.error(f"EXIT _execute_tool_call: FAILED - {error}")
+            return {
+                "success": False,
+                "error": error,
+                "tool_name": tool_name
+            }
+
+        try:
+            # Use task queue if available (preferred for depth limiting)
+            if self.task_queue:
+                return await self._execute_tool_call_queued(tool_name, arguments, parent_task_id)
+            else:
+                # Fall back to direct execution
+                return await self._execute_tool_call_direct(tool_name, arguments)
+
+        except Exception as e:
+            error_result = {
+                "success": False,
+                "error": str(e),
+                "tool_name": tool_name
+            }
+            self.logger.exception(f"EXIT _execute_tool_call: EXCEPTION - {e}")
+            return error_result
+
+    async def _execute_tool_call_queued(self, tool_name: str, arguments: Dict[str, Any], parent_task_id: Optional[str] = None) -> Dict[str, Any]:
+        """Execute tool call through task queue with depth limiting"""
+        from src.core.tasks.queue.task import ToolCallTask
+
+        self.logger.info(f"🔄 Queuing tool call: {tool_name} (parent: {parent_task_id})")
 
         # Create tool call task
         task = ToolCallTask.create(
             tool_name=tool_name,
             tool_args=arguments,
-            priority=1  # High priority for tool calls
+            parent_task_id=parent_task_id,
+            priority=1  # Tool calls get higher priority
         )
 
-        # Queue and wait for completion
-        task_id = self.task_queue.queue_task(task)
+        # Queue the task with parent tracking for depth limiting
+        task_id = self.task_queue.queue_task(task, parent_task_id)
 
-        # Poll for completion (in production, use proper async notification)
+        self.logger.info(f"📝 Tool call task queued: {task_id}")
+
+        # Wait for task completion (polling approach)
         max_wait = 30  # 30 second timeout
-        wait_interval = 0.1
-        elapsed = 0
+        wait_interval = 0.1  # Check every 100ms
+        waited = 0
 
-        while elapsed < max_wait:
-            task_status = self.task_queue.get_task_status(task_id)
-            if not task_status:
-                raise RuntimeError(f"Task {task_id} not found")
+        while waited < max_wait:
+            status = self.task_queue.get_task_status(task_id)
+            if not status:
+                break
 
-            if task_status["status"] == "completed":
-                result = self.task_queue.get_task_result(task_id)
-                return result or {"success": True, "content": "Task completed"}
+            if status["status"] in ["completed", "failed"]:
+                # Get result
+                if status["status"] == "completed":
+                    result = self.task_queue.get_task_result(task_id)
+                    if result and not result.get("error"):
+                        result["tool_name"] = tool_name
+                        self.logger.info(f"✅ Queued tool call completed: {task_id}")
+                        return result
 
-            elif task_status["status"] == "failed":
-                error = task_status.get("error", "Unknown error")
-                raise RuntimeError(f"Tool execution failed: {error}")
+                # Handle failure
+                error = status.get("error", "Tool call failed")
+                self.logger.error(f"❌ Queued tool call failed: {task_id} - {error}")
+                return {
+                    "success": False,
+                    "error": error,
+                    "tool_name": tool_name,
+                    "task_id": task_id
+                }
 
             await asyncio.sleep(wait_interval)
-            elapsed += wait_interval
+            waited += wait_interval
 
-        raise TimeoutError(f"Tool execution timed out after {max_wait} seconds")
+        # Timeout
+        error = f"Tool call timeout after {max_wait}s"
+        self.logger.error(f"⏰ Tool call timeout: {task_id}")
+        return {
+            "success": False,
+            "error": error,
+            "tool_name": tool_name,
+            "task_id": task_id
+        }
 
-    async def _execute_direct(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute tool call directly via tool executor"""
-        if not self.tool_executor:
-            raise RuntimeError("No tool executor available for direct execution")
+    async def _execute_tool_call_direct(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute tool call directly (fallback mode)"""
+        self.logger.warning(f"⚠️ Direct tool execution (no queue): {tool_name}")
 
-        return await self.tool_executor.execute_tool(tool_name, arguments)
+        # Execute through tool executor
+        result = await self.tool_executor.execute_tool(tool_name, arguments)
 
-    def create_completion_message(self, results: List[Dict[str, Any]]) -> str:
-        """Create a message to guide model toward task completion"""
-        if not results:
-            return "Continue with your task or let me know if you need to use any tools."
+        # Ensure result has success field
+        if not isinstance(result, dict):
+            result = {"success": True, "result": result}
 
-        successful_tools = [r for r in results if r.get("success")]
-        failed_tools = [r for r in results if not r.get("success")]
+        result["tool_name"] = tool_name
+        self.logger.debug(f"EXIT _execute_tool_call_direct: {result.get('success', False)}")
+        return result
 
-        message_parts = []
+    def register_tools(self, tools: List[Dict[str, Any]]):
+        """Register available tools"""
+        self.logger.debug(f"ENTRY register_tools: {len(tools)} tools")
+        self.available_tools = tools
+        self.formatter = ToolPromptFormatter(self.available_tools)
+        self.logger.info(f"Registered {len(tools)} tools: {[t.get('name') for t in tools]}")
 
-        if successful_tools:
-            message_parts.append("Successfully executed tools:")
-            for result in successful_tools:
-                tool_name = result.get("tool_name", "unknown")
-                message_parts.append(f"  ✅ {tool_name}")
-
-        if failed_tools:
-            message_parts.append("Failed tool executions:")
-            for result in failed_tools:
-                tool_name = result.get("tool_name", "unknown")
-                error = result.get("error", "Unknown error")
-                message_parts.append(f"  ❌ {tool_name}: {error}")
-
-        message_parts.append("\nBased on these results, please continue with your task or use additional tools if needed.")
-
-        return "\n".join(message_parts)
-
-    def should_continue_generation(self, results: List[Dict[str, Any]]) -> bool:
-        """Determine if model should continue generating after tool execution"""
-        # Continue if any tools failed (for self-correction)
-        if any(not r.get("success") for r in results):
-            return True
-
-        # Continue if validation tools found issues
-        for result in results:
-            if result.get("tool_name") == "validation" and not result.get("success"):
-                return True
-
-        # Stop after successful git commit (workflow complete)
-        if any(r.get("tool_name") == "git_operations" and r.get("success") for r in results):
-            return False
-
-        # Default: continue generation
-        return True
+    def is_ready(self) -> bool:
+        """Check if bridge is ready to process tool calls"""
+        ready = bool(self.available_tools and self.tool_executor)
+        self.logger.debug(f"Bridge ready: {ready} (tools: {len(self.available_tools)}, executor: {bool(self.tool_executor)})")
+        return ready

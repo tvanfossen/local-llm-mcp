@@ -190,7 +190,8 @@ class ServerOrchestrator:
     async def _initialize_llm(self) -> bool:
         """Initialize LLM manager and load model"""
         logger.info("Initializing LLM manager...")
-        self.llm_manager = LLMManager(self.config_manager.model)
+        # Pass tool_executor and task_queue to LLM manager (will be None initially, updated later)
+        self.llm_manager = LLMManager(self.config_manager.model, tool_executor=None, task_queue=None)
 
         # Load model
         logger.info("Loading model...")
@@ -205,6 +206,54 @@ class ServerOrchestrator:
         """Initialize consolidated tool executor and update agent registry"""
         logger.info("Initializing consolidated tool executor (4 core tools + async operations)...")
         self.tool_executor = ConsolidatedToolExecutor(self.agent_registry, self.llm_manager)
+
+        # Update LLM manager with tool executor and task queue for MCP bridge
+        self.llm_manager.tool_executor = self.tool_executor
+        self.llm_manager.task_queue = self.agent_registry.task_queue
+
+        # Register tools with LLM manager to initialize MCP bridge
+        tools = [
+            {
+                "name": "workspace",
+                "description": "Create, write, read files and directories",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "description": "Action to perform (write, read, list, etc.)"},
+                        "path": {"type": "string", "description": "File or directory path"},
+                        "content": {"type": "string", "description": "File content for write operations"}
+                    },
+                    "required": ["action"]
+                }
+            },
+            {
+                "name": "validation",
+                "description": "Run tests and validation on code",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "description": "Validation operation to perform"},
+                        "file_paths": {"type": "array", "items": {"type": "string"}, "description": "Files to validate"}
+                    },
+                    "required": ["operation"]
+                }
+            },
+            {
+                "name": "git_operations",
+                "description": "Commit and manage git operations",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "description": "Git operation (status, commit, etc.)"},
+                        "message": {"type": "string", "description": "Commit message for commit operations"}
+                    },
+                    "required": ["operation"]
+                }
+            }
+        ]
+
+        logger.info("Registering tools with LLM manager for MCP bridge...")
+        self.llm_manager.register_tools(tools)
 
         # Update agent registry with consolidated toolchain
         self.agent_registry.update_toolchain(self.llm_manager, self.tool_executor)
