@@ -85,6 +85,21 @@ class AgentResponse:
 
 
 @dataclass
+class CodeGenerationResponse:
+    """Structured response for code generation"""
+
+    filename: str
+    code: str
+    language: str
+    description: str
+    line_count: int
+
+    def to_file_content(self) -> str:
+        """Get clean file content without any formatting"""
+        return self.code
+
+
+@dataclass
 class ConversationEntry:
     """Individual conversation entry"""
 

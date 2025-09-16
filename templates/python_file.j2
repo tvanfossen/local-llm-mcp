@@ -1,0 +1,83 @@
+{% if module_docstring %}"""{{ module_docstring }}"""
+
+{% endif %}
+{%- for import in imports %}
+{{ import.to_import_statement() }}
+{%- endfor %}
+{%- if imports %}
+
+{% endif %}
+{%- for variable in variables %}
+{%- if variable.type_hint %}
+{{ variable.name }}: {{ variable.type_hint }} = {{ variable.value }}
+{%- else %}
+{{ variable.name }} = {{ variable.value }}
+{%- endif %}
+{%- if variable.docstring %}
+"""{{ variable.docstring }}"""
+{%- endif %}
+{%- endfor %}
+{%- if variables %}
+
+{% endif %}
+{%- for dataclass in dataclasses %}
+@dataclass
+class {{ dataclass.name }}{% if dataclass.base_classes %}({{ dataclass.base_classes | join(', ') }}){% endif %}:
+    {%- if dataclass.docstring %}
+    """{{ dataclass.docstring }}"""
+    {% endif %}
+    {%- for field in dataclass.fields %}
+    {{ field.name }}: {{ field.type }}{% if field.default is not none %} = {{ field.default }}{% endif %}
+    {%- endfor %}
+
+{% endfor %}
+{%- for class in classes %}
+class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join(', ') }}){% endif %}:
+    {%- if class.docstring %}
+    """{{ class.docstring }}"""
+    {% endif %}
+
+    {%- for var in class.class_variables %}
+    {{ var.name }}{% if var.type %}: {{ var.type }}{% endif %} = {{ var.value }}
+    {%- endfor %}
+    {%- if class.class_variables %}
+
+    {% endif %}
+    {%- for method in class.methods %}
+    {%- for decorator in method.decorators %}
+    {{ decorator }}
+    {%- endfor %}
+    {%- if method.is_static %}
+    @staticmethod
+    {%- endif %}
+    {%- if method.is_class_method %}
+    @classmethod
+    {%- endif %}
+    def {{ method.name }}(
+        {%- for param in method.parameters -%}
+        {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default is not none %} = {{ param.default }}{% endif %}{% if not loop.last %}, {% endif %}
+        {%- endfor -%}
+    ){% if method.return_type %} -> {{ method.return_type }}{% endif %}:
+        {%- if method.docstring %}
+        """{{ method.docstring }}"""
+        {%- endif %}
+        {{ method.body | indent(8, first=False) }}
+
+    {%- endfor %}
+
+{% endfor %}
+{%- for function in functions %}
+{%- for decorator in function.decorators %}
+{{ decorator }}
+{%- endfor %}
+def {{ function.name }}(
+    {%- for param in function.parameters -%}
+    {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default is not none %} = {{ param.default }}{% endif %}{% if not loop.last %}, {% endif %}
+    {%- endfor -%}
+){% if function.return_type %} -> {{ function.return_type }}{% endif %}:
+    {%- if function.docstring %}
+    """{{ function.docstring }}"""
+    {%- endif %}
+    {{ function.body | indent(4, first=False) }}
+
+{% endfor %}

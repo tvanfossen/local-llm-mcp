@@ -1,327 +1,378 @@
-# Agent Operations Analysis Report
+# Agent System MCP-Based Architecture Plan
 
-## Async Task Queue Implementation Status (2025-09-14)
+## Executive Summary
 
-### ✅ COMPLETED: Core Async Task Queue
+The current implementation is close to success but needs a fundamental architectural shift. Instead of parsing unstructured text responses from the local LLM, we should expose MCP tools directly to the model, allowing it to use structured tool calls for guaranteed reliable responses. This maintains our async task queue while ensuring 100% structured communication.
 
-**Implementation Summary**: The async task queue has been successfully implemented to handle long-running agent operations without MCP client timeouts.
+## Core Architectural Change
 
-### Files Created/Modified:
+### Current Flawed Approach
+- Agent → Local LLM → Unstructured text response → Manual parsing → Hope for valid JSON
+- Prone to markdown wrappers, malformed JSON, and parsing failures
+- Requires complex text processing and cleanup functions
 
-1. **NEW: `src/core/agents/registry/task_queue.py`** ✅
-   - Complete `TaskQueue` class with background worker
-   - Task status tracking (queued, running, completed, failed)
-   - Result storage and retrieval
-   - Automatic cleanup of old tasks
+### Proposed MCP-Based Approach
+- Agent → Local LLM (with MCP tools) → Structured tool calls → Guaranteed valid responses
+- LLM uses MCP tools directly for workspace operations, validation, git commands
+- Eliminates parsing issues by design
 
-2. **UPDATED: `src/core/agents/registry/registry.py`** ✅
-   - Integrated TaskQueue instance
-   - Background worker starts on initialization
-   - Shutdown method for cleanup
-   - Stats include queue metrics
+## Implementation Strategy
 
-3. **UPDATED: `src/mcp/tools/agent_operations/agent_operations.py`** ✅
-   - Added `queue_agent_task()` method
-   - Added `check_task_status()` method
-   - Added `get_task_result()` method
-   - Added `list_queued_tasks()` method
-   - Updated tool interface with new operations
+### Phase 1: Expose MCP Tools to Local LLM
 
-4. **UPDATED: `src/mcp/tools/executor/executor.py`** ✅
-   - Updated agent_operations tool schema
-   - Added new operations to enum
+**Goal**: Make LLMManager provide MCP tools to the local model instead of just prompt completion
 
-5. **UPDATED: `static/orchestrator.html`** ✅
-   - Added task queue panel visualization
-   - Auto-refresh for active tasks
-   - Task status checking UI
+**Key Changes**:
+1. **LLMManager Enhancement** (`src/core/llm/llm_manager.py`):
+   - Add MCP tool definitions to model context
+   - Enable structured tool calling in local model
+   - Route tool calls through existing MCP infrastructure
 
-6. **UPDATED: `local_llm_mcp_server.py`** ✅
-   - Enhanced shutdown to stop task queue worker
-   - Updated startup logging
+2. **Agent Task Flow Modification** (`src/core/agents/agent/agent.py`):
+   - Remove text parsing logic
+   - Let LLM call MCP tools directly
+   - Monitor tool call results for task completion
 
-### Remaining Tasks for Claude Code
+### Phase 2: MCP Tool Integration for Code Generation
 
-#### Required Testing & Validation:
+**Current Flow**:
+```
+Agent → LLM → "```python\ncode\n```" → Parse → Write file
+```
 
-1. **Test Basic Queue Operation**:
-   ```bash
-   # Start server
-   inv docker-run --repo ~/Projects/PyChess
+**New Flow**:
+```
+Agent → LLM → workspace_tool_call(json_artifact) → File created via template
+```
 
-   # Test queue operation
-   # Use agent_operations tool with operation: "queue_task"
-   ```
+**Required MCP Tool Updates**:
 
-2. **Verify Long Task Handling**:
-   - Queue a code generation task for a large file (e.g., chess engine)
-   - Verify task completes without timeout
-   - Check result retrieval works
+1. **Workspace Tool Enhancement**:
+   - Accept JSON artifacts representing Python code structure
+   - Use existing Jinja2 templates for file generation
+   - Maintain .meta/ directory for file state tracking
 
-3. **Test Orchestrator UI**:
-   - Open /orchestrator in browser
-   - Verify task queue panel shows active tasks
-   - Confirm auto-refresh works for running tasks
+2. **Validation Tool** (existing):
+   - LLM can call validation directly
+   - Returns structured error reports
+   - Enables self-correction loops
 
-#### Optional Enhancements:
+3. **Git Tool** (existing):
+   - LLM can commit changes when validation passes
+   - Automated workflow completion
 
-1. **Task Priority System** (Future):
-   - Add priority field to AgentTask
-   - Implement priority queue instead of FIFO
+## Fibonacci Agent Example Workflow
 
-2. **Task Cancellation** (Future):
-   - Add cancel_task operation
-   - Handle graceful task interruption
+```
+1. Opus 4.1 → Claude Code: "Create Fibonacci implementation"
 
-3. **Task Progress Reporting** (Future):
-   - Add progress field to AgentTask
-   - Update progress during execution
+2. Claude Code → Creates FibonacciAgent + queues initial task
 
-### Usage Guide for PyChess Orchestration
+3. FibonacciAgent → Local LLM:
+   "Create fibonacci function with proper error handling"
 
-#### Old Synchronous Approach (TIMES OUT):
+4. Local LLM → workspace_tool({
+     "action": "write",
+     "path": "fibonacci.py",
+     "json_artifact": {
+       "element_type": "function",
+       "element_data": {
+         "name": "fibonacci",
+         "docstring": "Calculate nth Fibonacci number",
+         "parameters": [{"name": "n", "type": "int", "default": null}],
+         "return_type": "int",
+         "body": "return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)"
+       }
+     }
+   })
+
+5. Workspace Tool → Renders fibonacci.py via python_file.j2 template
+
+6. Local LLM → validation_tool({"file_path": "fibonacci.py"})
+
+7. Validation Tool → Returns error: "Missing input validation"
+
+8. Local LLM → workspace_tool(update fibonacci function with validation)
+
+9. Local LLM → validation_tool({"file_path": "fibonacci.py"}) → Success
+
+10. Local LLM → git_tool({"operation": "commit", "message": "Add fibonacci implementation"})
+
+11. Agent completes task with structured success response
+```
+
+## Technical Implementation Details
+
+### MCP Tool Exposure to Local LLM
+
+**File**: `src/core/llm/llm_manager.py`
+
 ```python
-# This would timeout for long operations:
-result = mcp_tool("agent_operations", {
-    "operation": "chat",
-    "agent_id": "85cda24f",
-    "message": "Create complete chess engine with all rules",
-    "task_type": "code_generation"
-})
+class LLMManager:
+    def __init__(self, mcp_tools: dict):
+        self.mcp_tools = mcp_tools
+        self.model_config = {
+            "tools": self._format_tools_for_model(),
+            "tool_choice": "auto"
+        }
+
+    def _format_tools_for_model(self) -> list:
+        """Convert MCP tools to model-compatible format"""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "workspace",
+                    "description": "Manage workspace files with JSON artifacts",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "enum": ["read", "write", "create_dir"]},
+                            "path": {"type": "string"},
+                            "json_artifact": {"type": "object"}
+                        }
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "validation",
+                    "description": "Validate code files",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "operation": {"type": "string", "enum": ["tests", "file-length", "pre-commit"]},
+                            "file_paths": {"type": "array", "items": {"type": "string"}}
+                        }
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "git_operations",
+                    "description": "Git operations",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "operation": {"type": "string", "enum": ["status", "diff", "commit"]},
+                            "message": {"type": "string"},
+                            "files": {"type": "array", "items": {"type": "string"}}
+                        }
+                    }
+                }
+            }
+        ]
+
+    async def generate_with_tools(self, prompt: str) -> dict:
+        """Generate response with tool calling capability"""
+        response = await self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            tools=self.model_config["tools"],
+            tool_choice=self.model_config["tool_choice"]
+        )
+
+        if response.choices[0].message.tool_calls:
+            return {
+                "type": "tool_calls",
+                "tool_calls": response.choices[0].message.tool_calls
+            }
+        else:
+            return {
+                "type": "text",
+                "content": response.choices[0].message.content
+            }
 ```
 
-#### New Async Queue Approach (NO TIMEOUT):
+### Agent Integration
+
+**File**: `src/core/agents/agent/agent.py`
+
 ```python
-# Step 1: Queue the task (returns immediately)
-queue_result = mcp_tool("agent_operations", {
-    "operation": "queue_task",
-    "agent_id": "85cda24f",
-    "message": "Create complete chess engine with all rules",
-    "task_type": "code_generation"
-})
-task_id = queue_result["task_id"]  # e.g., "abc123"
+async def _handle_code_generation(self, request: AgentRequest) -> AgentResponse:
+    """Handle code generation via MCP tools"""
 
-# Step 2: Poll for completion
-import time
-while True:
-    status = mcp_tool("agent_operations", {
-        "operation": "task_status",
-        "task_id": task_id
-    })
+    # Enhanced prompt for tool-based workflow
+    prompt = f"""You are an expert Python developer working on {self.state.specialized_files[0]}.
 
-    if status["status"] == "completed":
-        break
-    elif status["status"] == "failed":
-        print(f"Task failed: {status['error']}")
-        break
+Task: {request.message}
 
-    time.sleep(5)  # Wait 5 seconds before checking again
+Use the available MCP tools to:
+1. Create/update code using workspace tool with JSON artifacts
+2. Validate your code using validation tool
+3. Fix any issues and re-validate
+4. Commit working code using git_operations tool
 
-# Step 3: Get the result
-result = mcp_tool("agent_operations", {
-    "operation": "task_result",
-    "task_id": task_id
-})
-print(result["content"])
+JSON artifact format for Python functions:
+{{
+  "element_type": "function",
+  "element_data": {{
+    "name": "function_name",
+    "docstring": "Description",
+    "parameters": [{{"name": "param", "type": "str", "default": null}}],
+    "return_type": "str",
+    "body": "return 'result'"
+  }}
+}}
+
+Start by calling the workspace tool to implement the requested functionality."""
+
+    # Generate with tool calling
+    llm_response = await self.llm_manager.generate_with_tools(prompt)
+
+    if llm_response["type"] == "tool_calls":
+        # Execute tool calls through MCP
+        for tool_call in llm_response["tool_calls"]:
+            await self._execute_mcp_tool(tool_call)
+
+        return AgentResponse(
+            success=True,
+            content=f"Code generation completed using MCP tools",
+            agent_id=self.state.agent_id,
+            task_type=request.task_type
+        )
+    else:
+        # Fallback to text response
+        return AgentResponse(
+            success=False,
+            content="LLM did not use tools as expected",
+            agent_id=self.state.agent_id,
+            task_type=request.task_type
+        )
+
+async def _execute_mcp_tool(self, tool_call) -> dict:
+    """Execute MCP tool call from LLM"""
+    tool_name = tool_call.function.name
+    tool_args = json.loads(tool_call.function.arguments)
+
+    result = await self.tool_executor.execute_tool(tool_name, tool_args)
+
+    # Log tool execution for monitoring
+    logger.info(f"Tool {tool_name} executed: {result.get('success', False)}")
+
+    return result
 ```
 
-### System Architecture with Task Queue
+### Task Nesting Control
 
-```
-┌─────────────────┐      ┌──────────────┐      ┌─────────────────┐
-│   MCP Client    │─────▶│  MCP Handler │─────▶│ Agent Registry  │
-│  (Claude Code)  │◀─────│              │◀─────│   + Task Queue  │
-└─────────────────┘      └──────────────┘      └─────────────────┘
-        │                                               │
-        │ 1. queue_task                                │
-        │   (returns immediately)                      │
-        │                                               ▼
-        │                                        ┌─────────────┐
-        │ 2. task_status                        │ Background  │
-        │   (check if done)                     │   Worker    │
-        │                                        └─────────────┘
-        │                                               │
-        │ 3. task_result                               ▼
-        │   (get output)                        ┌─────────────┐
-        │                                        │   Agent     │
-        └────────────────────────────────────────│  Execution  │
-                                                 └─────────────┘
-```
+**File**: `src/core/agents/registry/task_queue.py`
 
-### Success Metrics
-
-✅ **No More Timeouts**: Long-running operations complete successfully
-✅ **Immediate Response**: queue_task returns in <100ms
-✅ **Parallel Processing**: Multiple tasks can run simultaneously
-✅ **Result Persistence**: Results stored until retrieved
-✅ **Visual Feedback**: Orchestrator UI shows task progress
-
-### Known Limitations
-
-1. **Task Limit**: Maximum 100 tasks in queue (configurable)
-2. **No Persistence**: Tasks lost on server restart
-3. **No Priority**: Tasks processed in FIFO order
-4. **Single Worker**: One background worker thread
-
-### Critical Issue Discovered: Agent File Overwrite Problem
-
-**Problem**: Agents will completely overwrite their managed files without checking existing content or asking for confirmation.
-
-**Example**:
-- BoardArchitect agent created comprehensive board.py (172 lines, 7897 bytes)
-- Simple test request "Create a simple test file with just a hello world function"
-- Agent overwrote the entire file with 137 characters of hello world code
-- All previous chess board implementation was lost
-
-**Root Cause**: Agents don't have awareness of:
-- Existing file content
-- Previous work they've done
-- Whether the request is asking for incremental changes vs. complete rewrite
-
-**Immediate Solutions Needed**:
-1. **File Content Awareness**: Agents should read existing files before overwriting
-2. **Incremental vs. Rewrite Detection**: Parse requests to determine intent
-3. **Confirmation Prompts**: Ask for confirmation before overwriting substantial existing code
-4. **Backup Mechanism**: Create backups before major file changes
-5. **Context Preservation**: Agents should remember their previous work
-
-**Impact**: This makes agents unsuitable for iterative development without careful request phrasing.
-
-## PyChess Implementation Results (2025-09-14 22:40)
-
-### ✅ COMPLETED: Full PyChess Project Generated
-
-**Summary**: Successfully used async task queue to generate complete PyChess application with all components.
-
-**Generated Files**:
-- ✅ `src/game/engine.py` (240 lines, 7890 bytes) - Chess rules and game logic
-- ✅ `src/game/board.py` (172 lines, 5420 bytes) - Board representation
-- ✅ `src/game/pieces.py` (8549 bytes) - Chess piece classes
-- ✅ `src/gui/interface.py` (9468 bytes) - Tkinter GUI
-- ✅ `src/ai/opponent.py` (AI implementation) - Generated by AIStrategist
-- ✅ `main.py` (Application entry point) - Generated by GameController
-- ✅ `tests/test_game.py` (1664 bytes) - Test suite
-
-**Agents Created**:
-1. GameController (84fe2f63) - Main application structure
-2. ChessRulesExpert (85cda24f) - Game engine
-3. BoardArchitect (0b570b4a) - Board representation
-4. PieceDesigner (df50b725) - Chess pieces
-5. UIDesigner (1ae2aa31) - GUI interface
-6. AIStrategist (9a517374) - Chess AI
-7. TestEngineer (74d752c8) - Test suite
-
-**Async Queue Performance**:
-- ✅ No timeouts during long code generation
-- ✅ All tasks queued and completed successfully
-- ✅ Parallel processing of multiple agent tasks
-- ✅ Immediate response for task queuing
-
-### ❌ CRITICAL ISSUES DISCOVERED
-
-#### 1. **Code Output Formatting Problem**
-
-**Issue**: Generated files contain incorrect syntax wrapper:
-```
-src/game/board.py
 ```python
+class TaskQueue:
+    def __init__(self, max_nesting_depth: int = 3):
+        self.max_nesting_depth = max_nesting_depth
+        self.task_depth_tracking = {}
 
+    async def queue_task(self, task: AgentTask, parent_task_id: str = None) -> str:
+        """Queue task with nesting depth control"""
+
+        if parent_task_id:
+            parent_depth = self.task_depth_tracking.get(parent_task_id, 0)
+            if parent_depth >= self.max_nesting_depth:
+                raise ValueError(f"Maximum nesting depth {self.max_nesting_depth} exceeded")
+
+            self.task_depth_tracking[task.task_id] = parent_depth + 1
+        else:
+            self.task_depth_tracking[task.task_id] = 0
+
+        return await self._add_to_queue(task)
 ```
-```
 
-**Problem**: Files start with filename + triple backticks, making them invalid Python syntax.
+## Benefits of MCP-Based Approach
 
-**Root Cause**: Agent response parsing/formatting adds markdown wrapper around actual code.
+### 1. **Guaranteed Structure**
+- No more JSON parsing failures
+- No markdown wrapper issues
+- 100% reliable tool-based communication
 
-**Impact**: Generated files cannot be executed - syntax errors prevent import/execution.
+### 2. **Self-Correcting Workflows**
+- LLM can validate its own output
+- Automatic retry loops for failed validation
+- Built-in error handling and recovery
 
-**Solution Needed**: Implement strict JSON output format with abstract base class structure.
+### 3. **Consistent Code Quality**
+- All code generated via proven Jinja2 templates
+- Automatic type hints and docstring formatting
+- Pre-commit hooks as final validation layer
 
-#### 2. **Task Queue UI Not Functioning**
+### 4. **Scalable Architecture**
+- Easy to add new MCP tools for additional capabilities
+- Model-agnostic (works with any tool-calling LLM)
+- Clean separation of concerns
 
-**Issue**: HTML orchestrator page task queue panel not displaying active tasks properly.
+### 5. **Minimal Existing Code Changes**
+- Leverages existing MCP infrastructure
+- Keeps async task queue system
+- Maintains JSON file management system
 
-**Problem**: Task queue visualization not updating or showing current queue status.
+## Migration Path
 
-**Impact**: No visual feedback for task progress monitoring.
+### Week 1: Core Infrastructure
+- [ ] Enhance LLMManager with MCP tool definitions
+- [ ] Update workspace tool to accept JSON artifacts
+- [ ] Test basic tool calling with local LLM
 
-**Solution Needed**: Fix JavaScript/HTML integration for real-time task queue updates.
+### Week 2: Agent Integration
+- [ ] Modify agent code generation logic
+- [ ] Implement tool call execution pipeline
+- [ ] Add task nesting depth controls
 
-#### 3. **Agent Task Flow Too Coarse**
+### Week 3: Testing & Validation
+- [ ] End-to-end Fibonacci example testing
+- [ ] PyChess agent orchestration testing
+- [ ] Performance and reliability validation
 
-**Issue**: Agents rewrite entire files instead of making incremental changes.
+### Week 4: Advanced Features
+- [ ] Multi-file agent management (main + test files)
+- [ ] Advanced workflow templates
+- [ ] Monitoring and debugging tools
 
-**Problems**:
-- Overwrites existing work (as seen with BoardArchitect hello world test)
-- Inefficient for small changes
-- Risk of breaking changes
-- No function-level editing capability
+## Success Metrics
 
-**Impact**: Makes agents unsuitable for iterative development and maintenance.
+### Must Achieve:
+- [ ] 100% reliable code generation (no parsing failures)
+- [ ] LLM successfully uses MCP tools for file operations
+- [ ] Agents can self-validate and self-correct code
+- [ ] Task nesting controls prevent runaway recursion
+- [ ] Generated code passes all validation checks
 
-**Solution Needed**: Implement structured task flow:
-- Function-level editing capabilities
-- Incremental change detection
-- File content awareness before modification
-- Confirmation for major rewrites
+### Should Achieve:
+- [ ] <500ms overhead for tool-based vs direct generation
+- [ ] Agents complete complex multi-step workflows autonomously
+- [ ] Clear audit trail of all MCP tool calls
+- [ ] Easy debugging and monitoring of agent behavior
 
-### Recommendations for Opus 4.1
+## Current System Preservation
 
-#### Priority 1: Fix Code Output Format
-- Implement JSON-based agent responses
-- Remove markdown formatting from code generation
-- Use abstract base class for structured output
-- Ensure generated files have valid syntax
+**Keep Working**:
+- Async task queue (excellent foundation)
+- JSON file management with Jinja2 templates
+- MCP tool infrastructure (workspace, validation, git)
+- Agent specialization and registry
+- Docker containerization
 
-#### Priority 2: Implement Incremental Editing
-- Add function-level code modification capabilities
-- Implement file content awareness
-- Create change detection (incremental vs. full rewrite)
-- Add confirmation prompts for major changes
+**Replace**:
+- Text-based LLM responses → Tool-based responses
+- Manual JSON parsing → Structured tool calls
+- Error-prone text processing → Guaranteed tool semantics
 
-#### Priority 3: Fix Task Queue UI
-- Debug JavaScript task queue panel
-- Implement real-time updates
-- Add task progress visualization
-- Fix auto-refresh functionality
+## Risk Mitigation
 
-### Testing Checklist - UPDATED
+### Technical Risks:
+- **Local LLM tool calling support**: Test extensively with Qwen2.5-7B
+- **Performance overhead**: Benchmark tool calls vs direct generation
+- **Tool call complexity**: Start with simple tools, add complexity gradually
 
-- [x] Start server with Docker
-- [x] Create test agents (7 agents created)
-- [x] Queue simple task
-- [x] Check task status
-- [x] Retrieve task result
-- [x] Queue long-running task (>30 seconds)
-- [x] Verify no timeout occurs (✅ SUCCESS)
-- [ ] Test orchestrator UI updates (❌ BROKEN)
-- [ ] Test server shutdown (tasks cleaned up)
-- [x] Test with multiple agents (✅ SUCCESS)
-- [ ] Verify generated file syntax (❌ INVALID SYNTAX)
-- [ ] Test incremental editing (❌ NOT IMPLEMENTED)
+### Mitigation Strategies:
+- **Hybrid approach**: Support both tool calls and text fallback initially
+- **Comprehensive testing**: Tool calling capability validation before rollout
+- **Gradual migration**: One agent type at a time
+- **Rollback plan**: Keep existing text-based system as backup
 
----
+## Conclusion
 
-## Previous Issues (Resolved)
+This MCP-based architecture eliminates the root cause of JSON parsing issues while leveraging the excellent infrastructure already built. It represents a clean, scalable solution that aligns with modern LLM capabilities and provides the reliability needed for production use.
 
-### Code Generation Issue ✅ FIXED
-- Agent code generation was returning hardcoded "not implemented"
-- Fixed by implementing actual LLM integration
-
-### Workspace Path Issue ✅ FIXED
-- Docker container was using /app instead of /workspace
-- Fixed via WORKSPACE_PATH environment variable
-
-### MCP Error Handling ✅ FIXED
-- KeyError issues in agent_operations.py
-- Fixed with proper error checking
-
-### File Write Failures ✅ FIXED
-- Workspace write operations failing
-- Fixed with overwrite parameter
-
----
-
-## Current System Status: READY FOR TESTING
-
-The async task queue implementation is complete and ready for testing with PyChess orchestration. All files have been updated with proper error handling and the orchestrator UI has been enhanced to show the task queue status.
+The shift from "prompt and parse" to "prompt and execute tools" is the key insight that will unlock the full potential of the agent system while maintaining all existing strengths.

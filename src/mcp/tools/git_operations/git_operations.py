@@ -29,7 +29,7 @@ class GitOperations:
         if not (self.repo_path / ".git").exists():
             raise ValueError(f"Not a git repository: {self.repo_path}")
 
-    def _run_git_command(self, args: List[str], check: bool = True) -> dict:
+    def _run_git_command(self, args: list[str], check: bool = True) -> dict:
         """Run a git command and return result"""
         try:
             result = subprocess.run(["git"] + args, cwd=self.repo_path, capture_output=True, text=True, check=check)
@@ -123,7 +123,7 @@ class GitOperations:
         else:
             return create_response(False, error=result.get("error", "Git diff failed"))
 
-    def commit(self, message: str, add_all: bool = False, files: Optional[List[str]] = None) -> dict:
+    def commit(self, message: str, add_all: bool = False, files: Optional[list[str]] = None) -> dict:
         """Create a commit"""
         if not message:
             return create_response(False, error="Commit message required")
