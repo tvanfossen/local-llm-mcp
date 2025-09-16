@@ -1,5 +1,0 @@
-🚀 Starting MCP server in Docker on port 8000
-   Workspace mount: /home/tvanfossen/Projects/PyChess -> /workspace
-✅ Container started: 3b2df798c427
-   MCP Server: http://localhost:8000
-   Workspace: /home/tvanfossen/Projects/PyChess
