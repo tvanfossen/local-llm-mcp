@@ -130,8 +130,16 @@ class AgentOperations:
             logger.error(f"Failed to create agent: {e}")
             return {"success": False, "error": str(e)}
 
-    async def chat_with_agent(self, agent_id: str, message: str, task_type: str = "conversation") -> dict[str, Any]:
-        """Send a message to a specific agent (synchronous)"""
+    async def debug_chat_with_agent(self, agent_id: str, message: str, task_type: str = "conversation") -> dict[str, Any]:
+        """DEBUG ONLY: Direct chat with agent bypassing structured MCP architecture
+
+        ⚠️  WARNING: This bypasses the MCP tool calling architecture and should only be used for:
+        - Debugging agent issues
+        - Troubleshooting when queue_task fails
+        - Development/testing purposes
+
+        For normal operations, use queue_task instead!
+        """
         if not self.agent_registry:
             return {"success": False, "error": "Agent registry not available"}
 
@@ -246,23 +254,25 @@ def initialize_agent_operations_tool(agent_registry) -> None:
 async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
     """Agent operations MCP tool interface
 
-    Operations:
+    STRUCTURED OPERATIONS (Use these for normal operations):
     - list: List all agents with details
     - info: Get detailed information about a specific agent
     - stats: Get agent registry statistics
-    - chat: Send a message to a specific agent (synchronous)
     - create: Create a new agent with specified name, description, and managed files
-    - queue_task: Queue a task for async execution
+    - queue_task: Queue a task for async execution (PREFERRED for agent interactions)
     - task_status: Check status of queued task
     - task_result: Get result of completed task
     - list_tasks: List all queued/running tasks
+
+    DEBUG OPERATIONS (Use only for troubleshooting):
+    - debug_chat: Direct chat bypassing MCP architecture (DEBUG ONLY - avoid in normal use)
     """
     operation = args.get("operation")
 
     if not operation:
         return create_mcp_response(
             False,
-            "Operation parameter required. Available: list, info, stats, chat, create, queue_task, task_status, task_result, list_tasks",
+            "Operation parameter required. STRUCTURED: list, info, stats, create, queue_task, task_status, task_result, list_tasks. DEBUG: debug_chat",
         )
 
     if not _agent_operations_tool:
@@ -358,25 +368,26 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
             else:
                 return create_mcp_response(False, result.get("error", "Operation failed"))
 
-        elif operation == "chat":
+        elif operation == "debug_chat":
             agent_id = args.get("agent_id", "")
             message = args.get("message", "")
             task_type = args.get("task_type", "conversation")
 
             if not agent_id:
-                return create_mcp_response(False, "agent_id parameter required for chat operation")
+                return create_mcp_response(False, "agent_id parameter required for debug_chat operation")
 
             if not message:
-                return create_mcp_response(False, "message parameter required for chat operation")
+                return create_mcp_response(False, "message parameter required for debug_chat operation")
 
-            result = await _agent_operations_tool.chat_with_agent(agent_id, message, task_type)
+            result = await _agent_operations_tool.debug_chat_with_agent(agent_id, message, task_type)
 
             if result["success"]:
-                response_text = f"**Agent Response from {result['agent_id']}:**\n\n{result['content']}\n\n"
+                response_text = f"**🐛 DEBUG CHAT - Agent Response from {result['agent_id']}:**\n\n{result['content']}\n\n"
                 response_text += f"**Task Type:** {result['task_type']}\n"
                 response_text += f"**Timestamp:** {result['timestamp']}\n"
                 if result["files_modified"]:
-                    response_text += f"**Files Modified:** {', '.join(result['files_modified'])}"
+                    response_text += f"**Files Modified:** {', '.join(result['files_modified'])}\n\n"
+                response_text += "⚠️  **Note:** This was a direct debug chat bypassing the MCP architecture. Use queue_task for normal operations."
                 return create_mcp_response(True, response_text)
             else:
                 error_msg = result.get("error", result.get("content", "Unknown error occurred"))
@@ -464,7 +475,7 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
         else:
             return create_mcp_response(
                 False,
-                f"Unknown operation '{operation}'. Available: list, info, stats, chat, create, queue_task, task_status, task_result, list_tasks",
+                f"Unknown operation '{operation}'. STRUCTURED: list, info, stats, create, queue_task, task_status, task_result, list_tasks. DEBUG: debug_chat",
             )
 
     except Exception as e:

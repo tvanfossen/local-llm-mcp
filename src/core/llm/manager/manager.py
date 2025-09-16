@@ -2,14 +2,14 @@
 
 Responsibilities:
 - Load and manage language model
-- Handle model inference requests
+- Handle model inference requests with tool calling support
 - Monitor performance and health
 - Provide model information and statistics
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +17,13 @@ logger = logging.getLogger(__name__)
 class LLMManager:
     """Core language model manager"""
 
-    def __init__(self, model_config=None):
+    def __init__(self, model_config=None, mcp_bridge=None):
         self.model_config = model_config
         self.model_loaded = False
         self.model_path = model_config.model_path if model_config else None
         self.performance_stats = {"total_requests": 0, "successful_requests": 0, "average_response_time": 0.0}
+        self.mcp_bridge = mcp_bridge
+        self.tool_definitions = []
 
     def get_model_info(self) -> dict[str, Any]:
         """Get model information"""
@@ -183,3 +185,77 @@ class LLMManager:
         """Reset performance statistics"""
         self.performance_stats = {"total_requests": 0, "successful_requests": 0, "average_response_time": 0.0}
         logger.info("Performance statistics reset")
+
+    def register_tools(self, tools: list):
+        """Register MCP tools for model use"""
+        self.tool_definitions = tools
+        logger.info(f"Registered {len(tools)} tools for model use")
+
+    def _format_tools_for_qwen(self) -> str:
+        """Format tools for Qwen2.5-7B prompt"""
+        if not self.mcp_bridge:
+            return ""
+        return self.mcp_bridge.get_tools_prompt()
+
+    async def generate_with_tools(self, prompt: str, max_tokens: int = 512,
+                                 temperature: float = 0.7, tools_enabled: bool = True) -> Dict[str, Any]:
+        """Generate response with tool calling capability"""
+        if not self.model_loaded:
+            return {
+                "success": False,
+                "error": "Model not loaded",
+                "type": "error"
+            }
+
+        # Enhance prompt with tool definitions if available
+        enhanced_prompt = prompt
+        if tools_enabled and self.mcp_bridge:
+            tools_prompt = self._format_tools_for_qwen()
+            logger.info(f"🔧 TOOLS AVAILABLE: Enhanced prompt with {len(tools_prompt)} character tool definitions")
+            logger.info(f"🔧 TOOLS PROMPT: {tools_prompt[:200]}...")
+            enhanced_prompt = f"{tools_prompt}\n\nUser request: {prompt}\n\nResponse:"
+        else:
+            logger.warning("🚨 NO TOOLS AVAILABLE: mcp_bridge not configured or tools_enabled=False")
+
+        # Generate response using existing method
+        result = self.generate_response(
+            enhanced_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+
+        if not result["success"]:
+            return {
+                "success": False,
+                "error": result["error"],
+                "type": "error"
+            }
+
+        response_text = result["response"]
+
+        # Process output for tool calls if bridge is available
+        if tools_enabled and self.mcp_bridge:
+            logger.info(f"🔍 PROCESSING MODEL OUTPUT for tool calls: {len(response_text)} characters")
+            logger.info(f"🔍 MODEL OUTPUT PREVIEW: {response_text[:300]}...")
+            processed = await self.mcp_bridge.process_model_output(response_text)
+
+            if processed.get("type") == "tool_calls":
+                logger.info(f"✅ TOOL CALLS DETECTED: {len(processed.get('tool_calls', []))} calls")
+                for i, call in enumerate(processed.get('tool_calls', [])):
+                    logger.info(f"🔧 TOOL CALL {i+1}: {call.get('name', 'unknown')} with args: {call.get('arguments', {})}")
+            else:
+                logger.warning(f"⚠️ NO TOOL CALLS DETECTED: Response type is {processed.get('type')}")
+
+            processed["success"] = True
+            processed["usage"] = result.get("usage", {})
+            processed["response_time"] = result.get("response_time", 0.0)
+            return processed
+
+        # Return as text response
+        return {
+            "success": True,
+            "type": "text",
+            "content": response_text,
+            "usage": result.get("usage", {}),
+            "response_time": result.get("response_time", 0.0)
+        }

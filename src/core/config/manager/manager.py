@@ -135,6 +135,8 @@ class ConfigManager:
         """Create model configuration with automatic path detection"""
         # Common model paths
         possible_paths = [
+            Path("/app/models/Qwen2.5-7B-Instruct-Q6_K_L.gguf"),  # Container models mount
+            Path("/workspace/models/Qwen2.5-7B-Instruct-Q6_K_L.gguf"),  # Container workspace mount
             Path.home() / "models" / "Qwen2.5-7B-Instruct-Q6_K_L.gguf",
             Path("/models/Qwen2.5-7B-Instruct-Q6_K_L.gguf"),
             Path("./models/Qwen2.5-7B-Instruct-Q6_K_L.gguf"),

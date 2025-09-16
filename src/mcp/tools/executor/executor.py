@@ -129,7 +129,7 @@ class ConsolidatedToolExecutor:
                         "action": {
                             "type": "string",
                             "description": "Workspace action to perform",
-                            "enum": ["read", "write", "delete", "list", "search", "create_dir", "tree"],
+                            "enum": ["read", "write", "delete", "list", "search", "create_dir", "tree", "write_artifact"],
                         },
                         "path": {"type": "string", "description": "File or directory path"},
                         "content": {"type": "string", "description": "File content"},
@@ -144,6 +144,7 @@ class ConsolidatedToolExecutor:
                         "case_sensitive": {"type": "boolean", "description": "Case sensitive search", "default": True},
                         "max_depth": {"type": "integer", "description": "Maximum depth", "default": 3},
                         "encoding": {"type": "string", "description": "File encoding", "default": "utf-8"},
+                        "json_artifact": {"type": "object", "description": "JSON artifact for code generation"},
                     },
                     "required": ["action"],
                 },

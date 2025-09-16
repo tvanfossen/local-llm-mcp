@@ -196,9 +196,9 @@ class Agent:
 
     async def _execute_task(self, request: AgentRequest) -> AgentResponse:
         """Execute task based on request type"""
-        if request.task_type == TaskType.FILE_EDIT:
-            return await self._handle_file_edit(request)
-        elif request.task_type == TaskType.CODE_GENERATION:
+        # Route all file operations to code generation for JSON metadata + tool calls
+        if request.task_type in [TaskType.FILE_EDIT, TaskType.CODE_GENERATION]:
+            self.logger.info(f"Routing {request.task_type} to code generation with tool calling")
             return await self._handle_code_generation(request)
         elif request.task_type == TaskType.CONVERSATION:
             return await self._handle_conversation(request)
@@ -280,59 +280,41 @@ Current file structure:
 - Dataclasses: {[dc['name'] for dc in file_structure['dataclasses']]}
 """
 
-            # Create specialized prompt for structured code generation
+            # Create tool-calling prompt for MCP architecture
             code_gen_prompt = f"""Context: {context}
 {structure_context}
 Task: Structured Code Generation for {filename}
 Request: {request.message}
 
-You must respond with ONLY a valid JSON object representing a Python code element.
+You are an agent that must use MCP tools to complete tasks. You have access to these tools:
+- workspace: Create, write, read files and directories
+- validation: Run tests and validation on code
+- git_operations: Commit and manage git operations
 
-For a FUNCTION, use this format:
+CRITICAL: You must use explicit tool calls to complete this task. DO NOT generate code directly.
+
+Your workflow should be:
+1. Use workspace tool to write the Python file with the requested functionality
+2. Use validation tool to test the code works correctly
+3. Use git_operations tool to commit the working code
+
+For the file content, generate clean Python code with:
+- Proper function/class definitions
+- Meaningful docstrings
+- Type hints where appropriate
+- Functional implementation (not just stubs)
+
+Example tool call format:
+```json
 {{
-    "element_type": "function",
-    "element_data": {{
-        "name": "function_name",
-        "docstring": "Function description",
-        "parameters": [
-            {{"name": "param1", "type": "str", "default": null}},
-            {{"name": "param2", "type": "int", "default": "0"}}
-        ],
-        "return_type": "bool",
-        "body": "return True",
-        "decorators": []
-    }}
+    "tool_name": "workspace",
+    "action": "write",
+    "path": "{filename}",
+    "content": "def example():\\n    \\\"\\\"\\\"Example function\\\"\\\"\\\"\\n    return True"
 }}
+```
 
-For a CLASS, use this format:
-{{
-    "element_type": "class",
-    "element_data": {{
-        "name": "ClassName",
-        "docstring": "Class description",
-        "base_classes": ["BaseClass"],
-        "methods": [
-            {{
-                "name": "method_name",
-                "docstring": "Method description",
-                "parameters": [{{"name": "self", "type": null, "default": null}}],
-                "return_type": "None",
-                "body": "pass",
-                "decorators": []
-            }}
-        ],
-        "class_variables": []
-    }}
-}}
-
-CRITICAL REQUIREMENTS:
-1. Use proper Python types (str, int, bool, list[str], etc.)
-2. Keep function/method bodies concise but functional
-3. Include meaningful docstrings
-4. Use null for None values, "0" for default string values
-5. Respond with ONLY the JSON object
-
-Generate the JSON response:"""
+Begin by making your first tool call to create the file:"""
 
             # Generate code using LLM if available
             self.logger.info(f"Starting code generation for {filename}")
@@ -340,72 +322,73 @@ Generate the JSON response:"""
             self.logger.info(f"Code generation prompt: {code_gen_prompt}")
 
             if self.llm_manager and self.llm_manager.is_ready():
-                self.logger.info("Using LLM for code generation")
-                response = self.llm_manager.generate_response(
-                    code_gen_prompt, max_tokens=8192, temperature=0.3, stop_tokens=[]
+                self.logger.info("Using LLM with tool calling for code generation")
+
+                # Use new tool calling method
+                response = await self.llm_manager.generate_with_tools(
+                    code_gen_prompt, max_tokens=8192, temperature=0.3, tools_enabled=True
                 )
 
                 self.logger.info(f"LLM response success: {response['success']}")
+                self.logger.info(f"LLM response type: {response.get('type', 'unknown')}")
+
                 if response["success"]:
-                    raw_response = response["response"].strip()
-                    self.logger.info(f"Raw LLM response length: {len(raw_response)} characters")
+                    if response["type"] == "tool_calls":
+                        # Tool calls were executed - check results
+                        results = response.get("results", [])
+                        tool_calls = response.get("tool_calls", [])
 
-                    try:
-                        # Parse structured JSON response
-                        json_response = json.loads(raw_response)
-                        element_type = json_response.get("element_type")
-                        element_data = json_response.get("element_data")
+                        self.logger.info(f"Tool calls executed: {len(tool_calls)}")
+                        self.logger.info(f"Tool results: {len(results)}")
 
-                        if not element_type or not element_data:
-                            raise ValueError("Response missing 'element_type' or 'element_data'")
+                        # Find workspace tool results
+                        workspace_results = [r for r in results if r.get("tool_name") == "workspace"]
 
-                        self.logger.info(f"Parsed structured response: {element_type}")
-                        self.logger.info(f"Element data: {element_data}")
-
-                        # Use JsonFileManager to update the file
-                        success = await self.json_file_manager.update_element(filename, element_type, element_data)
-
-                        if success:
-                            element_name = element_data.get('name', 'unknown')
-                            self.logger.info(f"Successfully updated {element_type} '{element_name}' in {filename}")
-
+                        if workspace_results and any(r.get("success") for r in workspace_results):
                             return AgentResponse(
                                 success=True,
-                                content=f"✅ Successfully updated {element_type} '{element_name}' in {filename}\n\n"
+                                content=f"✅ Code generation completed via MCP tools\n\n"
                                        f"📁 **File**: {filename}\n"
-                                       f"🔧 **Element Type**: {element_type}\n"
-                                       f"📝 **Element Name**: {element_name}\n\n"
-                                       f"The file has been updated using structured JSON management.",
+                                       f"🔧 **Tool Results**: {len(results)} tools executed\n"
+                                       f"📝 **Status**: File updated successfully\n\n"
+                                       f"The code was generated and written using structured MCP tool calls.",
                                 agent_id=self.state.agent_id,
                                 task_type=request.task_type,
                                 timestamp=datetime.now(timezone.utc).isoformat(),
                                 files_modified=[filename],
                             )
                         else:
+                            # Tool calls failed, extract error information
+                            failed_results = [r for r in results if not r.get("success")]
+                            error_msgs = [r.get("error", "Unknown error") for r in failed_results]
+
                             return AgentResponse(
                                 success=False,
-                                content=f"❌ Failed to update {element_type} in {filename}",
+                                content=f"❌ Tool execution failed: {'; '.join(error_msgs)}",
                                 agent_id=self.state.agent_id,
                                 task_type=request.task_type,
                                 timestamp=datetime.now(timezone.utc).isoformat(),
                             )
 
-                    except (json.JSONDecodeError, ValueError) as e:
-                        self.logger.error(f"JSON parsing failed: {e}")
-                        self.logger.error(f"Raw response: {raw_response[:500]}...")
-                        self.logger.error("Agent did not follow JSON format instructions properly")
+                    elif response["type"] == "text":
+                        # Model generated text but no tool calls - this should not happen with proper prompting
+                        raw_response = response["content"].strip()
+                        self.logger.warning(f"Model generated text response instead of tool calls: {len(raw_response)} characters")
+                        self.logger.warning(f"Response content preview: {raw_response[:200]}...")
 
-                        # Return error instead of attempting to clean malformed response
                         return AgentResponse(
                             success=False,
-                            content=f"❌ Agent failed to generate valid JSON response: {str(e)}",
+                            content=f"❌ Model failed to make required tool calls\n\n"
+                                   f"Expected: workspace, validation, and git_operations tool calls\n"
+                                   f"Received: Plain text response\n\n"
+                                   f"This indicates the model is not following MCP tool calling instructions. "
+                                   f"The agent requires explicit tool calls to maintain structured workflows.",
                             agent_id=self.state.agent_id,
                             task_type=request.task_type,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                         )
                 else:
                     self.logger.error(f"LLM generation failed: {response.get('error', 'Unknown error')}")
-                    # Use structured fallback
                     return await self._generate_structured_fallback(filename, request.message)
             else:
                 self.logger.info("LLM not available, using structured fallback")
@@ -588,202 +571,10 @@ Use your knowledge of the workspace and managed files to provide relevant respon
 
     async def _create_file_from_request(self, request: AgentRequest) -> AgentResponse:
         """Create the agent's managed file based on the request content"""
-        try:
-            # Use the first managed file as the filename, or fallback to a default
-            if self.state.managed_files and len(self.state.managed_files) > 0:
-                # Get the first managed file (agents should only manage one file)
-                filename = self.state.managed_files[0]
-            else:
-                # Fallback if no managed files specified
-                filename = "main.py"
+        # Agent should NOT generate final files - only JSON metadata
+        # Route to code generation which creates JSON metadata for workspace tool
+        return await self._handle_code_generation(request)
 
-            self.logger.info(f"Creating managed file: {filename}")
-
-            # Generate content based on file extension and request
-            if filename.endswith(".py"):
-                content = self._generate_python_content(filename, request.message)
-            elif filename.endswith(".md"):
-                content = self._generate_markdown_content(filename, request.message)
-            else:
-                content = f"""# {filename}
-
-Content created by agent based on request:
-{request.message}
-
-Created: {datetime.now(timezone.utc).isoformat()}
-"""
-
-            # Execute workspace write operation
-            write_result = await self.tool_executor.execute_tool(
-                "workspace", {"action": "write", "path": filename, "content": content, "create_dirs": True}
-            )
-
-            if write_result.get("success"):
-                success_message = (
-                    f"✅ Successfully created {filename}\n\n"
-                    f"📁 **File**: {filename}\n"
-                    f"📏 **Size**: {len(content)} characters\n"
-                    f"🎯 **Purpose**: Document created based on request\n\n"
-                    f"The file has been created with template content."
-                )
-
-                self.logger.info(f"{filename} created successfully")
-                return AgentResponse(
-                    success=True,
-                    content=success_message,
-                    agent_id=self.state.agent_id,
-                    task_type=request.task_type,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                )
-            else:
-                error_msg = write_result.get("error", "Unknown error occurred")
-                self.logger.error(f"Failed to create {filename}: {error_msg}")
-                return AgentResponse(
-                    success=False,
-                    content=f"❌ Failed to create {filename}: {error_msg}",
-                    agent_id=self.state.agent_id,
-                    task_type=request.task_type,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                )
-
-        except Exception as e:
-            self.logger.error(f"File creation failed: {e}")
-            return AgentResponse(
-                success=False,
-                content=f"❌ Error creating file: {str(e)}",
-                agent_id=self.state.agent_id,
-                task_type=request.task_type,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-            )
-
-    def _generate_python_content(self, filename: str, request: str) -> str:
-        """Generate Python file content based on filename and request"""
-        if filename == "main.py":
-            return '''#!/usr/bin/env python3
-"""
-PyChess - Main Entry Point
-A chess game implementation with GUI support.
-"""
-
-def main():
-    """Main entry point for PyChess application"""
-    print("🏁 Welcome to PyChess!")
-    print("=" * 50)
-
-    while True:
-        print("\\nSelect an option:")
-        print("1. Start New Game")
-        print("2. Load Game")
-        print("3. View Rules")
-        print("4. Exit")
-
-        try:
-            choice = input("\\nEnter your choice (1-4): ").strip()
-
-            if choice == "1":
-                start_new_game()
-            elif choice == "2":
-                load_game()
-            elif choice == "3":
-                view_rules()
-            elif choice == "4":
-                print("\\nThanks for playing PyChess! 👋")
-                break
-            else:
-                print("❌ Invalid choice. Please enter 1, 2, 3, or 4.")
-
-        except KeyboardInterrupt:
-            print("\\n\\nGoodbye! 👋")
-            break
-        except Exception as e:
-            print(f"❌ An error occurred: {e}")
-
-def start_new_game():
-    """Start a new chess game"""
-    print("\\n🎮 Starting new game...")
-    print("⚠️  Game engine not yet implemented")
-    input("Press Enter to return to menu...")
-
-def load_game():
-    """Load a saved game"""
-    print("\\n📁 Loading saved game...")
-    print("⚠️  Save/Load functionality not yet implemented")
-    input("Press Enter to return to menu...")
-
-def view_rules():
-    """Display chess rules"""
-    print("\\n📋 Chess Rules:")
-    print("- The goal is to checkmate your opponent's king")
-    print("- Each piece has specific movement rules")
-    print("- Special moves include castling, en passant, and promotion")
-    print("⚠️  Detailed rules to be implemented")
-    input("Press Enter to return to menu...")
-
-if __name__ == "__main__":
-    main()
-'''
-        else:
-            # Generic Python file template
-            return f'''"""
-{filename} - PyChess Component
-Generated based on request: {request}
-"""
-
-# TODO: Implement functionality based on requirements
-
-def main():
-    """Main function for {filename}"""
-    print(f"Running {filename}")
-    pass
-
-if __name__ == "__main__":
-    main()
-'''
-
-    def _generate_markdown_content(self, filename: str, request: str) -> str:
-        """Generate Markdown file content based on filename and request"""
-        if filename.lower() == "architecture.md":
-            return """# Project Architecture
-
-## Overview
-This document outlines the architectural design and structure of the project.
-
-## Components
-[To be documented]
-
-## Design Patterns
-[To be documented]
-
-## Dependencies
-[To be documented]
-
-## Future Considerations
-[To be documented]
-"""
-        elif filename.lower() == "readme.md":
-            return """# Project
-
-## Description
-[To be documented]
-
-## Installation
-[To be documented]
-
-## Usage
-[To be documented]
-
-## Contributing
-[To be documented]
-"""
-        else:
-            return f"""# {filename.replace(".md", "").replace("_", " ").title()}
-
-## Content
-This document was created by an agent based on the request:
-{request}
-
-Created: {datetime.now(timezone.utc).isoformat()}
-"""
 
     async def _handle_file_creation(self, request: AgentRequest) -> AgentResponse:
         """Handle generic file creation requests"""

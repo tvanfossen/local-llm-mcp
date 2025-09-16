@@ -115,8 +115,8 @@ class AgentRegistry:
                 "total_interactions": 0,
                 "average_success_rate": 0.0,
                 "most_active_agent": None,
-                "queued_tasks": len(self.task_queue.tasks),
-                "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
+                "queued_tasks": len(self.task_queue._task_queue.tasks),
+                "active_tasks": sum(1 for t in self.task_queue._task_queue.tasks.values() if t.status.value == "running"),
             }
 
         total_interactions = sum(agent.state.interaction_count for agent in self.agents.values())
@@ -137,8 +137,8 @@ class AgentRegistry:
             "total_interactions": total_interactions,
             "average_success_rate": round(avg_success_rate, 3),
             "most_active_agent": most_active.state.name if most_active else None,
-            "queued_tasks": len(self.task_queue.tasks),
-            "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
+            "queued_tasks": len(self.task_queue._task_queue.tasks),
+            "active_tasks": sum(1 for t in self.task_queue._task_queue.tasks.values() if t.status.value == "running"),
         }
 
     def get_agents_for_file(self, file_path: str) -> list[Agent]:

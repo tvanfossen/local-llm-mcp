@@ -145,13 +145,16 @@ def docker_run(ctx, port=8000, repo=None):
     # uid = os.getuid()
     # gid = os.getgid()
 
+    # Stop and remove any existing containers with the same name
+    ctx.run("docker stop local-llm-mcp-server 2>/dev/null || true")
+    ctx.run("docker rm local-llm-mcp-server 2>/dev/null || true")
+
     cmd = f"""docker run --gpus all \
         -p {port}:8000 \
         -v {repo}:/workspace:rw \
         -v ~/models:/app/models:ro \
         -e WORKSPACE_PATH=/workspace \
         --name local-llm-mcp-server \
-        --rm \
         -d local-llm-mcp"""
 
     result = ctx.run(cmd, hide=True)
@@ -160,6 +163,17 @@ def docker_run(ctx, port=8000, repo=None):
     print(f"✅ Container started: {container_id}")
     print(f"   MCP Server: http://localhost:{port}")
     print(f"   Workspace: {repo}")
+
+    # Wait a moment and check if container is still running
+    import time
+    time.sleep(2)
+
+    # Check container status
+    status_result = ctx.run(f"docker ps -q --filter name=local-llm-mcp-server", hide=True)
+    if not status_result.stdout.strip():
+        print("⚠️  Container appears to have stopped. Use 'inv docker-logs' to check logs.")
+    else:
+        print("✅ Container is running successfully")
 
     # import time
     # time.sleep(10)
@@ -170,17 +184,52 @@ def docker_run(ctx, port=8000, repo=None):
 
 
 @task
-def docker_logs(ctx, follow=False):
-    """View MCP server container logs"""
+def docker_logs(ctx, follow=False, tail=None, all_logs=True):
+    """View MCP server container logs - defaults to ALL logs unless tail specified"""
     follow_flag = "-f" if follow else ""
-    ctx.run(f"docker logs {follow_flag} $(docker ps -q --filter ancestor=local-llm-mcp)")
+
+    # Only use tail if explicitly specified and not requesting all logs
+    if tail and not all_logs:
+        tail_flag = f"--tail {tail}"
+    else:
+        tail_flag = ""  # Get ALL logs by default
+        print("📜 Retrieving ALL container logs...")
+
+    # Try to get logs from named container first
+    try:
+        ctx.run(f"docker logs {follow_flag} {tail_flag} local-llm-mcp-server")
+    except Exception:
+        # Fallback to finding by image
+        print("Named container not found, trying to find by image...")
+        try:
+            result = ctx.run("docker ps -aq --filter ancestor=local-llm-mcp | head -1", hide=True)
+            if result.stdout.strip():
+                container_id = result.stdout.strip()
+                print(f"Found container: {container_id}")
+                ctx.run(f"docker logs {follow_flag} {tail_flag} {container_id}")
+            else:
+                # Check stopped containers
+                result = ctx.run("docker ps -aq --filter ancestor=local-llm-mcp --filter status=exited | head -1", hide=True)
+                if result.stdout.strip():
+                    container_id = result.stdout.strip()
+                    print(f"Found stopped container: {container_id}")
+                    ctx.run(f"docker logs {follow_flag} {tail_flag} {container_id}")
+                else:
+                    print("❌ No local-llm-mcp containers found")
+        except Exception as e:
+            print(f"❌ Error retrieving logs: {e}")
 
 
 @task
 def docker_stop(ctx):
     """Stop MCP server containers"""
     print("🛑 Stopping MCP server containers...")
+    # Stop by name first
+    ctx.run("docker stop local-llm-mcp-server 2>/dev/null || true")
+    # Fallback to stop by image
     ctx.run("docker stop $(docker ps -q --filter ancestor=local-llm-mcp) 2>/dev/null || true")
+    # Clean up stopped containers
+    ctx.run("docker rm local-llm-mcp-server 2>/dev/null || true")
 
 
 @task
