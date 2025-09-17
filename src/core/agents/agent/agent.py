@@ -244,9 +244,9 @@ class Agent:
             )
 
     async def _handle_code_generation(self, request: AgentRequest) -> AgentResponse:
-        """Handle code generation by creating JSON metadata first, then using LLM with tool calls"""
+        """Handle code generation using MCP tool calls via LLM Bridge"""
         self.logger.debug(f"ENTRY _handle_code_generation: request={request.message}")
-
+        
         if not self.llm_manager:
             error = "LLM manager not available"
             self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
@@ -257,108 +257,122 @@ class Agent:
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-
+        
         try:
-            # Use the first managed file as the target file
+            # Determine target file
             if self.state.managed_files and len(self.state.managed_files) > 0:
                 filename = self.state.managed_files[0]
             else:
-                error = "No managed files configured for agent"
-                self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
-                return AgentResponse(
-                    success=False,
-                    content=error,
-                    agent_id=self.state.agent_id,
-                    task_type=request.task_type,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                )
+                # Extract filename from request if no managed files
+                filename = self._extract_filename_from_request(request.message)
+                if not filename:
+                    filename = "generated_code.py"
+            
+            self.logger.info(f"🎯 Target file: {filename}")
+            
+            # CRITICAL: Create metadata FIRST in .meta/ directory
+            metadata = {
+                "filename": filename,
+                "request": request.message,
+                "agent_id": self.state.agent_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "content": None  # Will be filled by tool call
+            }
+            
+            # Save metadata to .meta/ directory
+            meta_dir = self.system_config.workspace_root / ".meta"
+            meta_dir.mkdir(exist_ok=True)
+            meta_file = meta_dir / f"{filename}.json"
+            
+            self.logger.info(f"📝 Creating metadata at {meta_file}")
+            with open(meta_file, 'w') as f:
+                import json
+                json.dump(metadata, f, indent=2)
+            
+            # Build tool-calling prompt
+            tool_prompt = f"""You are a code generation agent. You MUST use MCP tools to complete this task.
 
-            self.logger.info(f"Creating metadata for {filename} based on request: {request.message}")
-
-            # Build context for LLM
-            context = self.get_context_for_llm()
-
-            # Create prompt for LLM to generate tool calls
-            tool_calling_prompt = f"""Context: {context}
-Task: Create file {filename} using MCP tools
+Context: {self.get_context_for_llm()}
+Target File: {filename}
 Request: {request.message}
 
-You must use tool calls to complete this task. Follow this workflow:
-1. Use workspace tool to write the Python file with requested functionality
-2. Use validation tool to test the code works correctly
-3. Use git_operations tool to commit the working code if validation passes
+You MUST follow this exact sequence:
+1. First, use the 'workspace' tool with action='write' to create {filename}
+2. Then, use the 'validation' tool with operation='file-length' to validate the file
+3. Finally, use the 'git_operations' tool with operation='status' to check git status
 
-Generate the Python code for {filename} that implements: {request.message}
-
-Make your first tool call now:"""
-
-            # Generate response using LLM with tool calling
-            self.logger.info(f"Calling LLM with tool calling enabled for {filename}")
-
-            if self.llm_manager and self.llm_manager.model_loaded:
-                response = await self.llm_manager.generate_with_tools(
-                    tool_calling_prompt, max_tokens=2048, temperature=0.3, tools_enabled=True
-                )
-
-                self.logger.info(f"LLM response: {response.get('type', 'unknown')} (success: {response.get('success', False)})")
-
-                if response.get("success"):
-                    if response.get("type") == "tool_calls":
-                        # Tool calls were made and executed
-                        tool_calls = response.get("tool_calls", [])
-                        results = response.get("results", [])
-
-                        self.logger.info(f"✅ Tool calls executed: {len(tool_calls)} calls, {len(results)} results")
-
-                        # Check if workspace tool was called successfully
-                        workspace_success = any(
-                            r.get("success") and r.get("tool_name") == "workspace"
-                            for r in results
-                        )
-
-                        if workspace_success:
-                            self.logger.debug(f"EXIT _handle_code_generation: SUCCESS - workspace tool executed")
-                            return AgentResponse(
-                                success=True,
-                                content=f"✅ Code generation completed for {filename} using MCP tool calls",
-                                agent_id=self.state.agent_id,
-                                task_type=request.task_type,
-                                timestamp=datetime.now(timezone.utc).isoformat(),
-                                files_modified=[filename],
-                            )
-                        else:
-                            error = "Workspace tool calls failed"
-                            self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
-                            return AgentResponse(
-                                success=False,
-                                content=f"❌ {error}: {[r.get('error') for r in results if not r.get('success')]}",
-                                agent_id=self.state.agent_id,
-                                task_type=request.task_type,
-                                timestamp=datetime.now(timezone.utc).isoformat(),
-                            )
-                    elif response.get("type") == "text":
-                        # Model generated text instead of tool calls - fail explicitly
-                        error = "Model generated text instead of required tool calls"
-                        self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
+Start by calling the workspace tool to write the file:
+"""
+            
+            self.logger.info(f"🔧 Calling LLM with tool-calling enabled for {filename}")
+            
+            # CRITICAL: Use generate_with_tools() NOT generate_response()
+            result = await self.llm_manager.generate_with_tools(
+                tool_prompt,
+                max_tokens=8192,
+                temperature=0.3,
+                tools_enabled=True  # CRITICAL: Enable tool calling
+            )
+            
+            self.logger.info(f"🔍 LLM Result Type: {result.get('type', 'unknown')}")
+            
+            if result.get("success"):
+                if result.get("type") == "tool_calls":
+                    # SUCCESS: Tool calls were made
+                    tool_calls = result.get("tool_calls", [])
+                    results = result.get("results", [])
+                    
+                    self.logger.info(f"✅ TOOL CALLS EXECUTED: {len(tool_calls)} calls")
+                    for i, (call, res) in enumerate(zip(tool_calls, results)):
+                        self.logger.info(f"  Tool {i+1}: {call.get('tool_name', 'unknown')} -> success={res.get('success', False)}")
+                    
+                    # Check if workspace tool was called successfully
+                    workspace_success = any(
+                        r.get("success") and r.get("tool_name") == "workspace"
+                        for r in results
+                    )
+                    
+                    if workspace_success:
+                        # Update metadata with success
+                        metadata["status"] = "completed"
+                        metadata["tool_calls"] = len(tool_calls)
+                        with open(meta_file, 'w') as f:
+                            json.dump(metadata, f, indent=2)
+                        
+                        self.logger.debug(f"EXIT _handle_code_generation: SUCCESS")
                         return AgentResponse(
-                            success=False,
-                            content=f"❌ {error}. Expected workspace tool calls but got text response.",
+                            success=True,
+                            content=f"✅ Successfully created {filename} using {len(tool_calls)} MCP tool calls",
                             agent_id=self.state.agent_id,
                             task_type=request.task_type,
                             timestamp=datetime.now(timezone.utc).isoformat(),
+                            files_modified=[filename],
                         )
                     else:
-                        error = f"Unknown response type: {response.get('type')}"
+                        error = "Workspace tool call failed"
                         self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
                         return AgentResponse(
                             success=False,
-                            content=f"❌ {error}",
+                            content=f"❌ {error}: Check logs for details",
                             agent_id=self.state.agent_id,
                             task_type=request.task_type,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                         )
+                        
+                elif result.get("type") == "text":
+                    # FAILURE: Model generated text instead of tool calls
+                    self.logger.error("❌ Model generated text instead of tool calls")
+                    self.logger.error(f"Text response: {result.get('content', '')[:500]}...")
+                    
+                    return AgentResponse(
+                        success=False,
+                        content=f"❌ Model failed to make tool calls. Ensure model supports tool calling.",
+                        agent_id=self.state.agent_id,
+                        task_type=request.task_type,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    )
                 else:
-                    error = f"LLM generation failed: {response.get('error', 'Unknown error')}"
+                    error = f"Unknown response type: {result.get('type')}"
                     self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
                     return AgentResponse(
                         success=False,
@@ -368,25 +382,25 @@ Make your first tool call now:"""
                         timestamp=datetime.now(timezone.utc).isoformat(),
                     )
             else:
-                error = "LLM not available or not loaded"
+                error = result.get("error", "Unknown error")
                 self.logger.error(f"EXIT _handle_code_generation: FAILED - {error}")
                 return AgentResponse(
                     success=False,
-                    content=f"❌ {error}",
+                    content=f"❌ LLM generation failed: {error}",
                     agent_id=self.state.agent_id,
                     task_type=request.task_type,
                     timestamp=datetime.now(timezone.utc).isoformat(),
                 )
-
+                
         except Exception as e:
             self.logger.exception(f"EXIT _handle_code_generation: EXCEPTION - {e}")
             return AgentResponse(
                 success=False,
-                content=f"❌ Error in code generation: {str(e)}",
+                content=f"❌ Exception in code generation: {str(e)}",
                 agent_id=self.state.agent_id,
                 task_type=request.task_type,
                 timestamp=datetime.now(timezone.utc).isoformat(),
-            )
+        )
 
 
     async def _handle_conversation(self, request: AgentRequest) -> AgentResponse:

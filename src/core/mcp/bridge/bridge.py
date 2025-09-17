@@ -147,8 +147,8 @@ class MCPBridge:
         self.logger.info(f"📝 Tool call task queued: {task_id}")
 
         # Wait for task completion (polling approach)
-        max_wait = 30  # 30 second timeout
-        wait_interval = 0.1  # Check every 100ms
+        max_wait = 30 # 180 second timeout
+        wait_interval = 1  # Check every 100ms
         waited = 0
 
         while waited < max_wait:

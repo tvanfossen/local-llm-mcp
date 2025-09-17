@@ -1,4 +1,4 @@
-"""Tool Call Parser for Local Model Output"""
+"""Tool Call Parser for Local Model Output - ENHANCED DETECTION"""
 
 import json
 import logging
@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any
 logger = logging.getLogger(__name__)
 
 class ToolCallParser:
-    """Parser for extracting tool calls from LLM text output"""
+    """Parser for extracting tool calls from LLM text output - enhanced for Qwen2.5"""
 
     # Patterns for different tool call formats
     TOOL_FENCE_RE = re.compile(
@@ -30,37 +30,62 @@ class ToolCallParser:
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     def extract_tool_calls(self, text: str) -> List[Dict[str, Any]]:
-        """Extract tool calls from model output text"""
+        """Extract tool calls from model output text - enhanced detection"""
         self.logger.debug(f"ENTRY extract_tool_calls: text_len={len(text)}")
-
+        
         if not text:
             self.logger.debug("EXIT extract_tool_calls: empty text")
             return []
-
+        
         tool_calls = []
-
-        # Strategy 1: Try fence blocks first (```json or ```tool)
+        
+        # Strategy 1: Try fence blocks first
         fence_calls = self._extract_from_fences(text)
+        self.logger.debug
         tool_calls.extend(fence_calls)
-
-        # Strategy 2: Try XML-style tags if no fence blocks
+        
+        # Strategy 2: Try XML-style tags
         if not tool_calls:
             tag_calls = self._extract_from_tags(text)
             tool_calls.extend(tag_calls)
-
-        # Strategy 3: Try bare JSON blocks as last resort
+        
+        # Strategy 3: Try bare JSON blocks
         if not tool_calls:
             json_calls = self._extract_from_json_blocks(text)
             tool_calls.extend(json_calls)
-
-        # Validate and filter tool calls
+        
+        # Strategy 4: AGGRESSIVE - Look for tool-like patterns
+        if not tool_calls:
+            # Look for patterns like "workspace tool" or "call workspace"
+            if 'workspace' in text.lower() or 'tool' in text.lower():
+                self.logger.warning("⚠️ Model mentioned tools but didn't format properly")
+                # Try to extract any JSON-like structure
+                json_pattern = re.compile(r'\{[^}]*"(?:tool_name|action|operation)"[^}]*\}', re.DOTALL)
+                for match in json_pattern.finditer(text):
+                    try:
+                        parsed = json.loads(match.group())
+                        if parsed:
+                            tool_calls.append(parsed)
+                            self.logger.info(f"🔧 Extracted tool call via aggressive pattern: {parsed}")
+                    except:
+                        pass
+        
+        # Validate and filter
         validated_calls = []
         for call in tool_calls:
             if self._validate_tool_call(call):
                 validated_calls.append(call)
             else:
-                self.logger.warning(f"Invalid tool call: {call}")
-
+                self.logger.warning(f"Invalid tool call structure: {call}")
+        
+        if validated_calls:
+            self.logger.info(f"✅ TOOL CALLS DETECTED: {len(validated_calls)} valid calls")
+            for i, call in enumerate(validated_calls):
+                self.logger.info(f"  Call {i+1}: {call.get('tool_name') or call.get('name', 'unknown')}")
+        else:
+            self.logger.warning(f"⚠️ NO VALID TOOL CALLS FOUND in {len(text)} characters of output")
+            self.logger.debug(f"Full text for debugging: {text[:1000]}...")
+        
         self.logger.debug(f"EXIT extract_tool_calls: found {len(validated_calls)} valid calls")
         return validated_calls
 
@@ -72,6 +97,7 @@ class ToolCallParser:
             parsed = self._parse_json_safely(json_text)
             if parsed:
                 calls.append(parsed)
+                self.logger.debug(f"Found tool call in fence block: {parsed.get('tool_name', 'unknown')}")
         return calls
 
     def _extract_from_tags(self, text: str) -> List[Dict[str, Any]]:
@@ -82,6 +108,7 @@ class ToolCallParser:
             parsed = self._parse_json_safely(json_text)
             if parsed:
                 calls.append(parsed)
+                self.logger.debug(f"Found tool call in XML tag: {parsed.get('tool_name', 'unknown')}")
         return calls
 
     def _extract_from_json_blocks(self, text: str) -> List[Dict[str, Any]]:
@@ -92,6 +119,7 @@ class ToolCallParser:
             parsed = self._parse_json_safely(json_text)
             if parsed and self._looks_like_tool_call(parsed):
                 calls.append(parsed)
+                self.logger.debug(f"Found tool call in JSON block: {parsed.get('tool_name', 'unknown')}")
         return calls
 
     def _parse_json_safely(self, json_text: str) -> Optional[Dict[str, Any]]:
@@ -114,7 +142,10 @@ class ToolCallParser:
         text = text.replace(''', "'").replace(''', "'")
 
         # Remove trailing commas before closing braces/brackets
-        text = re.sub(r',(\\s*[}\\]])', r'\\1', text)
+        text = re.sub(r',(\s*[}\]])', r'\1', text)
+        
+        # Remove trailing dots/ellipsis after the JSON object
+        text = re.sub(r'}[\s.]*$', '}', text)
 
         return text.strip()
 
@@ -144,5 +175,11 @@ class ToolCallParser:
         if 'arguments' not in call and 'args' not in call and 'parameters' not in call:
             # Add empty arguments if missing
             call['arguments'] = {}
+
+        # Normalize to standard format
+        if 'args' in call and 'arguments' not in call:
+            call['arguments'] = call.pop('args')
+        if 'parameters' in call and 'arguments' not in call:
+            call['arguments'] = call.pop('parameters')
 
         return True

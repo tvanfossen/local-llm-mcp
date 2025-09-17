@@ -264,13 +264,13 @@ class LLMManager:
         # Process output for tool calls if bridge is available
         if tools_enabled and self.mcp_bridge:
             logger.info(f"🔍 PROCESSING MODEL OUTPUT for tool calls: {len(response_text)} characters")
-            logger.info(f"🔍 MODEL OUTPUT PREVIEW: {response_text[:300]}...")
+            logger.info(f"🔍 MODEL OUTPUT PREVIEW: {response_text}...")
             processed = await self.mcp_bridge.process_model_output(response_text)
 
             if processed.get("type") == "tool_calls":
                 logger.info(f"✅ TOOL CALLS DETECTED: {len(processed.get('tool_calls', []))} calls")
                 for i, call in enumerate(processed.get('tool_calls', [])):
-                    logger.info(f"🔧 TOOL CALL {i+1}: {call.get('name', 'unknown')} with args: {call.get('arguments', {})}")
+                    logger.info(f"🔧 TOOL CALL {i+1}: {call.get('tool_name', 'unknown')} with args: {call.get('arguments', {})}")
             else:
                 logger.warning(f"⚠️ NO TOOL CALLS DETECTED: Response type is {processed.get('type')}")
 

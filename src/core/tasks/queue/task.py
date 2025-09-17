@@ -88,13 +88,32 @@ class ToolCallTask(Task):
     tool_name: str = ""
     tool_args: dict[str, Any] = field(default_factory=dict)
     parent_task_id: Optional[str] = None
+    agent_id: Optional[str] = None  # Add agent_id field
+
+    def __init__(self, **kwargs):
+        tool_args = kwargs.pop('tool_args', {})
+        tool_name = kwargs.pop('tool_name', '')
+        parent_task_id = kwargs.pop('parent_task_id', None)
+        agent_id = kwargs.pop('agent_id', None)
+        
+        # Ensure task_type is always tool_call
+        kwargs['task_type'] = "tool_call"
+        
+        super().__init__(**kwargs)
+        
+        self.tool_name = tool_name
+        self.tool_args = tool_args
+        self.parent_task_id = parent_task_id
+        self.agent_id = agent_id
 
     @classmethod
     def create(cls, tool_name: str, tool_args: dict[str, Any],
                parent_task_id: Optional[str] = None, priority: int = 1):
         """Create a new tool call task"""
-        return super().create(
-            task_type="tool_call",
+        return cls(
+            task_id=str(uuid.uuid4())[:8],
+            status=TaskStatus.QUEUED,
+            created_at=datetime.now(timezone.utc).isoformat(),
             tool_name=tool_name,
             tool_args=tool_args,
             parent_task_id=parent_task_id,
@@ -110,3 +129,11 @@ class ToolCallTask(Task):
             "parent_task_id": self.parent_task_id,
         })
         return base_dict
+    
+    def __hash__(self):
+        return hash(self.task_id)
+        
+    def __eq__(self, other):
+        if not isinstance(other, ToolCallTask):
+            return NotImplemented
+        return self.task_id == other.task_id

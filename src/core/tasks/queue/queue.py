@@ -33,8 +33,15 @@ class ToolCallExecutor(TaskExecutor):
         logger.debug(f"ENTRY ToolCallExecutor.execute: task_id={task.task_id}, tool={task.tool_name}")
 
         try:
+            if not isinstance(task, ToolCallTask):
+                raise TypeError(f"Expected ToolCallTask, got {type(task)}")
+
             task.status = TaskStatus.RUNNING
             logger.info(f"🔧 Tool call {task.task_id} status changed: QUEUED → RUNNING")
+
+            # Validate tool executor
+            if not self.tool_executor:
+                raise ValueError("Tool executor not properly initialized")
 
             # Execute tool through the tool executor
             logger.info(f"🛠️ Executing tool: {task.tool_name} with args: {task.tool_args}")
@@ -44,6 +51,8 @@ class ToolCallExecutor(TaskExecutor):
             # Ensure result has success field
             if not isinstance(result, dict):
                 result = {"success": True, "result": result}
+            elif "success" not in result:
+                result["success"] = True
 
             logger.info(f"🎯 Tool call response: success={result.get('success', False)}")
 
@@ -66,7 +75,7 @@ class ToolCallExecutor(TaskExecutor):
 class TaskQueue:
     """Generic async task queue with priority support"""
 
-    def __init__(self, max_tasks: int = 100, max_nesting_depth: int = 3):
+    def __init__(self, max_tasks: int = 100, max_nesting_depth: int = 3, tool_executor = None):
         self.tasks: Dict[str, Task] = {}
         self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self.max_tasks = max_tasks
@@ -74,6 +83,7 @@ class TaskQueue:
         self.task_depth_tracking: Dict[str, int] = {}
         self._worker_task: Optional[asyncio.Task] = None
         self._executors: Dict[str, TaskExecutor] = {}
+        self.tool_executor = tool_executor  # Store tool executor instance
 
     def register_executor(self, task_type: str, executor: TaskExecutor):
         """Register an executor for a specific task type"""
@@ -101,10 +111,18 @@ class TaskQueue:
         """Background worker to process queued tasks"""
         while True:
             try:
-                # Priority queue returns (priority, task)
+                # Priority queue returns (priority, task_id)
                 # We use negative priority for max-heap behavior
-                _, task = await self.queue.get()
-                await self._execute_task(task)
+                await asyncio.sleep(0.1)  # Fixed: Added await
+                _, task_id = await self.queue.get()
+                
+                # Get task from storage by ID
+                task = self.tasks.get(task_id)
+                if task:
+                    await self._execute_task(task)
+                else:
+                    logger.error(f"Task {task_id} not found in task storage")
+                    
                 self.queue.task_done()
             except asyncio.CancelledError:
                 break
@@ -114,9 +132,23 @@ class TaskQueue:
     async def _execute_task(self, task: Task):
         """Execute a single task using the appropriate executor"""
         try:
+            # Validate task object
+            if not task:
+                raise ValueError("Task object is None")
+                
             task.status = TaskStatus.RUNNING
             logger.info(f"Executing task {task.task_id} of type {task.task_type}")
 
+            # Special handling for ToolCallTask
+            if isinstance(task, ToolCallTask):
+                if not self.tool_executor:
+                    raise ValueError("Tool executor not configured")
+                    
+                executor = ToolCallExecutor(self.tool_executor)
+                await executor.execute(task)
+                return
+
+            # For non-tool tasks, use registered executor
             executor = self._executors.get(task.task_type)
             if not executor:
                 raise ValueError(f"No executor registered for task type: {task.task_type}")
@@ -148,12 +180,12 @@ class TaskQueue:
         if len(self.tasks) >= self.max_tasks:
             self._cleanup_old_tasks()
 
-        # Store task
+        # Store task by ID first
         self.tasks[task.task_id] = task
 
-        # Queue with priority (negative for max-heap)
+        # Queue task ID with priority (negative for max-heap)
         priority_value = -task.priority
-        asyncio.create_task(self.queue.put((priority_value, task)))
+        asyncio.create_task(self.queue.put((priority_value, task.task_id)))
 
         logger.info(f"Queued task {task.task_id} of type {task.task_type} with priority {task.priority}")
         return task.task_id

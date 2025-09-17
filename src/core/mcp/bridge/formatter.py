@@ -1,4 +1,4 @@
-"""Tool Prompt Formatter for Local Model"""
+"""Tool Prompt Formatter for Local Model - FIXED FOR QWEN2.5"""
 
 import logging
 from typing import Dict, List, Any
@@ -6,43 +6,49 @@ from typing import Dict, List, Any
 logger = logging.getLogger(__name__)
 
 class ToolPromptFormatter:
-    """Formats MCP tools for inclusion in model prompts"""
+    """Formats MCP tools for inclusion in model prompts - optimized for Qwen2.5"""
 
     def __init__(self, tools: List[Dict[str, Any]]):
         self.tools = tools
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     def get_tools_prompt(self) -> str:
-        """Generate tool definitions prompt for model"""
+        """Generate tool definitions prompt optimized for Qwen2.5"""
         self.logger.debug(f"ENTRY get_tools_prompt: {len(self.tools)} tools")
-
+        
         if not self.tools:
             return ""
-
+        
         tool_definitions = []
         for tool in self.tools:
             definition = self._format_single_tool(tool)
             if definition:
                 tool_definitions.append(definition)
-
-        prompt = f"""You have access to the following tools:
+        
+        # CRITICAL: More explicit format for Qwen2.5-7B
+        prompt = f"""You have access to the following MCP tools that you MUST use:
 
 {chr(10).join(tool_definitions)}
 
-To use a tool, respond with a JSON object in this format:
+IMPORTANT: You MUST respond with tool calls, NOT regular text.
+
+To call a tool, output ONLY a JSON block in this exact format:
 ```json
 {{
-    "tool_name": "tool_name",
+    "tool_name": "workspace",
     "arguments": {{
-        "param1": "value1",
-        "param2": "value2"
+        "action": "write",
+        "path": "filename.py",
+        "content": "# Your code here\\nprint('hello')"
     }}
 }}
 ```
 
-You can make multiple tool calls by providing multiple JSON objects.
-Always use the exact tool names and parameter names shown above."""
-
+You can make multiple tool calls by outputting multiple JSON blocks.
+DO NOT write any text outside the JSON blocks.
+ALWAYS use the exact tool names and parameter names shown above.
+YOUR FIRST OUTPUT MUST BE A TOOL CALL JSON BLOCK."""
+        
         self.logger.debug(f"EXIT get_tools_prompt: {len(prompt)} characters")
         return prompt
 
@@ -63,7 +69,7 @@ Always use the exact tool names and parameter names shown above."""
                 param_type = param_info.get('type', 'string')
                 param_desc = param_info.get('description', 'No description')
                 is_required = param_name in required
-                required_marker = " (required)" if is_required else " (optional)"
+                required_marker = " (REQUIRED)" if is_required else " (optional)"
 
                 params_list.append(f"  - {param_name} ({param_type}){required_marker}: {param_desc}")
 

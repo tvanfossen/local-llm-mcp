@@ -680,15 +680,6 @@ Agent Task → Local Model (text mode) → Text Response → Task Completed ❌
 
 ### Required Fixes
 
-**1. Fix Container Mount**
-```bash
-# Current (wrong):
-inv docker-run --repo ~/Projects/PyChess  # But mounts local-llm-mcp
-
-# Required:
-# Mount PyChess as /workspace in container
-```
-
 **2. Fix Agent Tool Integration**
 - Agent must call LLM with `tools_enabled=True`
 - Agent must process LLM response through MCP Bridge
