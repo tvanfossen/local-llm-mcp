@@ -1,62 +1,53 @@
-"""Generic Task Queue for Async Operations
+"""Generic Task Queue with Priority Support
 
 Provides a generic task queue that can handle different types of tasks
-including agent operations and MCP tool calls.
+with priority-based execution and nesting depth control.
 """
 
 import asyncio
 import logging
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Dict, List, Optional, Any
 
-from .task import Task, TaskStatus, ToolCallTask
-from src.core.exceptions import MaxDepthExceeded, TaskQueueFull
+from src.core.tasks.queue.task import Task, TaskStatus, AgentTask, ToolCallTask
+from src.core.exceptions import MaxDepthExceeded
 
 logger = logging.getLogger(__name__)
 
 
-class TaskExecutor(Protocol):
-    """Protocol for task executors"""
-    async def execute(self, task: Task) -> None:
-        """Execute a task and update its status"""
-        ...
+class TaskExecutor(ABC):
+    """Base class for task executors"""
+
+    @abstractmethod
+    async def execute(self, task: Task):
+        """Execute a task"""
+        pass
 
 
 class ToolCallExecutor(TaskExecutor):
-    """Executor for MCP tool call tasks"""
+    """Executor for tool call tasks"""
 
     def __init__(self, tool_executor):
         self.tool_executor = tool_executor
 
-    async def execute(self, task: ToolCallTask) -> None:
-        """Execute a tool call task with comprehensive logging"""
+    async def execute(self, task: ToolCallTask):
+        """Execute a tool call task"""
         logger.debug(f"ENTRY ToolCallExecutor.execute: task_id={task.task_id}, tool={task.tool_name}")
 
         try:
-            if not isinstance(task, ToolCallTask):
-                raise TypeError(f"Expected ToolCallTask, got {type(task)}")
-
             task.status = TaskStatus.RUNNING
             logger.info(f"🔧 Tool call {task.task_id} status changed: QUEUED → RUNNING")
 
-            # Validate tool executor
             if not self.tool_executor:
-                raise ValueError("Tool executor not properly initialized")
+                raise ValueError("Tool executor not configured")
 
-            # Execute tool through the tool executor
-            logger.info(f"🛠️ Executing tool: {task.tool_name} with args: {task.tool_args}")
+            # Execute tool through ConsolidatedToolExecutor
+            result = await self.tool_executor.execute_tool(
+                task.tool_name,
+                task.tool_args
+            )
 
-            result = await self.tool_executor.execute_tool(task.tool_name, task.tool_args)
-
-            # Ensure result has success field
-            if not isinstance(result, dict):
-                result = {"success": True, "result": result}
-            elif "success" not in result:
-                result["success"] = True
-
-            logger.info(f"🎯 Tool call response: success={result.get('success', False)}")
-
-            # Store result
             task.result = result
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(timezone.utc).isoformat()
@@ -113,7 +104,7 @@ class TaskQueue:
             try:
                 # Priority queue returns (priority, task_id)
                 # We use negative priority for max-heap behavior
-                await asyncio.sleep(0.1)  # Fixed: Added await
+                await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
                 _, task_id = await self.queue.get()
                 
                 # Get task from storage by ID
@@ -167,6 +158,10 @@ class TaskQueue:
 
     def queue_task(self, task: Task, parent_task_id: Optional[str] = None) -> str:
         """Queue a task for async execution with nesting control"""
+        # Validate task_id is a string
+        if not isinstance(task.task_id, str):
+            raise TypeError(f"Task ID must be a string, got {type(task.task_id)}")
+            
         # Check nesting depth
         if parent_task_id:
             parent_depth = self.task_depth_tracking.get(parent_task_id, 0)
@@ -184,17 +179,8 @@ class TaskQueue:
         self.tasks[task.task_id] = task
 
         # Queue task ID with priority (negative for max-heap)
+        # FIX: Queue the task_id string, not the task object
         priority_value = -task.priority
-
-        # Debug logging
-        logger.debug(f"DEBUG: task.task_id type={type(task.task_id)}, value={task.task_id}")
-        logger.debug(f"DEBUG: priority_value type={type(priority_value)}, value={priority_value}")
-
-        # Ensure task_id is hashable
-        if not isinstance(task.task_id, (str, int, float, bool, tuple)):
-            logger.error(f"Task ID is not hashable: {type(task.task_id)} - {task.task_id}")
-            raise TypeError(f"Task ID must be hashable, got {type(task.task_id)}")
-
         asyncio.create_task(self.queue.put((priority_value, task.task_id)))
 
         logger.info(f"Queued task {task.task_id} of type {task.task_type} with priority {task.priority}")
