@@ -13,10 +13,55 @@ import logging
 from typing import Optional
 
 from src.core.agents.agent.agent import Agent, AgentCreateParams
-from src.core.agents.registry.task_queue import TaskQueue
+from src.core.tasks.queue import TaskQueue, TaskExecutor, AgentTask, TaskStatus
+from datetime import datetime, timezone
 from src.core.config.manager.manager import ConfigManager
 
 logger = logging.getLogger(__name__)
+
+
+class AgentTaskExecutor(TaskExecutor):
+    """Executor for agent tasks in the unified queue system"""
+
+    def __init__(self, agent_registry):
+        self.agent_registry = agent_registry
+
+    async def execute(self, task: AgentTask):
+        """Execute an agent task"""
+        try:
+            logger.info(f"🤖 Executing agent task {task.task_id}")
+            task.status = TaskStatus.RUNNING
+
+            # Get agent
+            agent = self.agent_registry.agents.get(task.agent_id)
+            if not agent:
+                raise ValueError(f"Agent not found: {task.agent_id}")
+
+            logger.info(f"🤖 Found agent: {agent.state.name} (ID: {task.agent_id})")
+
+            # Process request
+            response = await agent.process_request(task.request)
+
+            logger.info(f"🎯 Agent response: success={response.success}, content_len={len(response.content) if response.content else 0}")
+
+            # Store result
+            task.result = {
+                "success": response.success,
+                "content": response.content,
+                "task_type": response.task_type.value,
+                "timestamp": response.timestamp,
+                "files_modified": response.files_modified or [],
+            }
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(timezone.utc).isoformat()
+
+            logger.info(f"Agent task {task.task_id} completed successfully")
+
+        except Exception as e:
+            task.status = TaskStatus.FAILED
+            task.error = str(e)
+            task.completed_at = datetime.now(timezone.utc).isoformat()
+            logger.error(f"Agent task {task.task_id} failed: {e}")
 
 
 class AgentRegistry:
@@ -28,13 +73,17 @@ class AgentRegistry:
         self.tool_executor = tool_executor
         self.agents: dict[str, Agent] = {}
         self.system_config = config_manager.system
-        self.task_queue = TaskQueue()
+        self.task_queue = TaskQueue(max_tasks=100, tool_executor=tool_executor)
+
+        # Create and register agent task executor
+        agent_executor = AgentTaskExecutor(self)
+        self.task_queue.register_executor("agent_operation", agent_executor)
 
         # Load existing agents from disk
         self._load_agents_from_disk()
 
         # Start task queue worker
-        asyncio.create_task(self.task_queue.start_worker(self))
+        asyncio.create_task(self.task_queue.start_worker())
 
     def _load_agents_from_disk(self):
         """Load all agents from the agents directory"""
@@ -115,8 +164,8 @@ class AgentRegistry:
                 "total_interactions": 0,
                 "average_success_rate": 0.0,
                 "most_active_agent": None,
-                "queued_tasks": len(self.task_queue._task_queue.tasks),
-                "active_tasks": sum(1 for t in self.task_queue._task_queue.tasks.values() if t.status.value == "running"),
+                "queued_tasks": len(self.task_queue.tasks),
+                "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
             }
 
         total_interactions = sum(agent.state.interaction_count for agent in self.agents.values())
@@ -137,8 +186,8 @@ class AgentRegistry:
             "total_interactions": total_interactions,
             "average_success_rate": round(avg_success_rate, 3),
             "most_active_agent": most_active.state.name if most_active else None,
-            "queued_tasks": len(self.task_queue._task_queue.tasks),
-            "active_tasks": sum(1 for t in self.task_queue._task_queue.tasks.values() if t.status.value == "running"),
+            "queued_tasks": len(self.task_queue.tasks),
+            "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
         }
 
     def get_agents_for_file(self, file_path: str) -> list[Agent]:
@@ -194,6 +243,19 @@ class AgentRegistry:
             logger.info(f"Saved registry with {len(self.agents)} agents")
         except Exception as e:
             logger.error(f"Failed to save registry: {e}")
+
+    def queue_task(self, agent_id: str, request: dict) -> str:
+        """Queue a new agent task for async execution"""
+        task = AgentTask.create(agent_id=agent_id, request=request)
+        return self.task_queue.queue_task(task)
+
+    def get_task_status(self, task_id: str):
+        """Get task status"""
+        return self.task_queue.get_task_status(task_id)
+
+    def get_task_result(self, task_id: str):
+        """Get task result"""
+        return self.task_queue.get_task_result(task_id)
 
     async def shutdown(self):
         """Shutdown registry and task queue"""

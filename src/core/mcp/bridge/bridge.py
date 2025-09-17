@@ -141,8 +141,8 @@ class MCPBridge:
             priority=1  # Tool calls get higher priority
         )
 
-        # Queue the task with parent tracking for depth limiting
-        task_id = self.task_queue.queue_task(task, parent_task_id)
+        # Queue the task directly to generic queue
+        task_id = self.task_queue.queue_task(task)
 
         self.logger.info(f"📝 Tool call task queued: {task_id}")
 

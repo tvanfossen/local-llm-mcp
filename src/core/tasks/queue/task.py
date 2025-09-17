@@ -65,11 +65,14 @@ class AgentTask(Task):
     @classmethod
     def create(cls, agent_id: str, request: dict[str, Any], priority: int = 0):
         """Create a new agent task"""
-        return super().create(
+        return cls(
+            task_id=str(uuid.uuid4())[:8],
             task_type="agent_operation",
+            status=TaskStatus.QUEUED,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            priority=priority,
             agent_id=agent_id,
-            request=request,
-            priority=priority
+            request=request
         )
 
     def to_dict(self) -> dict[str, Any]:

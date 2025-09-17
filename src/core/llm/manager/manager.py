@@ -209,8 +209,8 @@ class LLMManager:
             if self.task_queue:
                 from src.core.tasks.queue.queue import ToolCallExecutor
                 tool_call_executor = ToolCallExecutor(self.tool_executor)
-                # Access the underlying generic task queue to register executor
-                self.task_queue._task_queue.register_executor("tool_call", tool_call_executor)
+                # Register tool call executor with unified queue
+                self.task_queue.register_executor("tool_call", tool_call_executor)
                 logger.info(f"✅ MCP Bridge initialized with {len(tools)} tools and task queue")
             else:
                 logger.info(f"✅ MCP Bridge initialized with {len(tools)} tools (no queue)")

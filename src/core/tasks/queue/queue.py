@@ -185,6 +185,16 @@ class TaskQueue:
 
         # Queue task ID with priority (negative for max-heap)
         priority_value = -task.priority
+
+        # Debug logging
+        logger.debug(f"DEBUG: task.task_id type={type(task.task_id)}, value={task.task_id}")
+        logger.debug(f"DEBUG: priority_value type={type(priority_value)}, value={priority_value}")
+
+        # Ensure task_id is hashable
+        if not isinstance(task.task_id, (str, int, float, bool, tuple)):
+            logger.error(f"Task ID is not hashable: {type(task.task_id)} - {task.task_id}")
+            raise TypeError(f"Task ID must be hashable, got {type(task.task_id)}")
+
         asyncio.create_task(self.queue.put((priority_value, task.task_id)))
 
         logger.info(f"Queued task {task.task_id} of type {task.task_type} with priority {task.priority}")
