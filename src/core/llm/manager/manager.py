@@ -245,11 +245,13 @@ class LLMManager:
         else:
             logger.warning("🚨 NO TOOLS AVAILABLE: mcp_bridge not configured or tools_enabled=False")
 
-        # Generate response using existing method
+        # Generate response using existing method with refined stop tokens
+        stop_tokens = ["```\n\nassistant", "assistant:", "Human:"]
         result = self.generate_response(
             enhanced_prompt,
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            stop_tokens=stop_tokens
         )
 
         if not result["success"]:

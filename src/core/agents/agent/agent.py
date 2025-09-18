@@ -281,9 +281,11 @@ class Agent:
             
             # Save metadata to .meta/ directory
             meta_dir = self.system_config.workspace_root / ".meta"
-            meta_dir.mkdir(exist_ok=True)
             meta_file = meta_dir / f"{filename}.json"
-            
+
+            # Ensure parent directories exist for nested file structure
+            meta_file.parent.mkdir(parents=True, exist_ok=True)
+
             self.logger.info(f"📝 Creating metadata at {meta_file}")
             with open(meta_file, 'w') as f:
                 import json
@@ -309,8 +311,8 @@ Start by calling the workspace tool to write the file:
             # CRITICAL: Use generate_with_tools() NOT generate_response()
             result = await self.llm_manager.generate_with_tools(
                 tool_prompt,
-                max_tokens=8192,
-                temperature=0.3,
+                max_tokens=1024,  # Reduced from 8192 to prevent runaway generation
+                temperature=0.7,  # Increased from 0.3 to encourage generation
                 tools_enabled=True  # CRITICAL: Enable tool calling
             )
             

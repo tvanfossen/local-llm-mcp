@@ -194,7 +194,7 @@ class AgentOperations:
                 return {"success": False, "error": f"Agent not found: {agent_id}"}
 
             # Queue the task
-            task_id = self.agent_registry.task_queue.queue_task(agent_id, {"message": message, "task_type": task_type})
+            task_id = self.agent_registry.queue_task(agent_id, {"message": message, "task_type": task_type})
 
             return {
                 "success": True,

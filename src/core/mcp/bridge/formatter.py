@@ -25,14 +25,19 @@ class ToolPromptFormatter:
             if definition:
                 tool_definitions.append(definition)
         
-        # CRITICAL: More explicit format for Qwen2.5-7B
+        # CRITICAL: More explicit format for Qwen2.5-7B with completion instructions
         prompt = f"""You have access to the following MCP tools that you MUST use:
 
 {chr(10).join(tool_definitions)}
 
-IMPORTANT: You MUST respond with tool calls, NOT regular text.
+CRITICAL INSTRUCTIONS:
+1. You MUST respond with tool calls, NOT regular text
+2. Make ONE tool call to complete the request
+3. STOP immediately after making the tool call
+4. DO NOT repeat the same tool call multiple times
+5. DO NOT generate additional text after the tool call
 
-To call a tool, output ONLY a JSON block in this exact format:
+To call a tool, output EXACTLY this format:
 ```json
 {{
     "tool_name": "workspace",
@@ -44,10 +49,12 @@ To call a tool, output ONLY a JSON block in this exact format:
 }}
 ```
 
-You can make multiple tool calls by outputting multiple JSON blocks.
-DO NOT write any text outside the JSON blocks.
-ALWAYS use the exact tool names and parameter names shown above.
-YOUR FIRST OUTPUT MUST BE A TOOL CALL JSON BLOCK."""
+IMPORTANT:
+- Make ONE tool call and STOP
+- Do NOT repeat tool calls
+- Do NOT add explanatory text
+- ALWAYS use exact tool names shown above
+- OUTPUT FORMAT: ```json + tool call + ``` + STOP"""
         
         self.logger.debug(f"EXIT get_tools_prompt: {len(prompt)} characters")
         return prompt

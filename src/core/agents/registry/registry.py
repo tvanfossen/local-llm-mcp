@@ -97,103 +97,102 @@ class AgentTaskExecutor(TaskExecutor):
 class AgentRegistry:
     """Central registry for managing all agents"""
 
-    def __init__(self, system_config: ConfigManager):
-        self.system_config = system_config
+    def __init__(self, config_manager: ConfigManager, llm_manager=None, tool_executor=None):
+        self.config_manager = config_manager
+        self.llm_manager = llm_manager
+        self.tool_executor = tool_executor
         self.agents: Dict[str, Agent] = {}
-        self.llm_manager = None  # Will be set via update_toolchain
-        self.tool_executor = None  # Will be set via update_toolchain
-        self.task_queue = TaskQueue(max_tasks=100, max_nesting_depth=3)
-        self._agent_executor = AgentTaskExecutor(self)
-        logger.info("Agent Registry initialized with unified task queue")
+        self.system_config = config_manager.system
+        self.task_queue = TaskQueue(max_tasks=100, tool_executor=tool_executor)
 
-    async def initialize(self, llm_manager=None, tool_executor=None):
-        """Initialize registry and load existing agents"""
-        # Update toolchain
-        self.update_toolchain(llm_manager, tool_executor)
-        
-        # Register agent executor
-        self.task_queue.register_executor("agent_operation", self._agent_executor)
-        
-        # Start worker
-        await self.task_queue.start_worker()
-        
+        # Create and register agent task executor
+        agent_executor = AgentTaskExecutor(self)
+        self.task_queue.register_executor("agent_operation", agent_executor)
+
         # Load existing agents from disk
-        agents_dir = self.system_config.workspace_root / ".mcp-agents"
-        if agents_dir.exists():
-            for agent_dir in agents_dir.iterdir():
-                if agent_dir.is_dir() and (agent_dir / "metadata.json").exists():
-                    try:
-                        agent = Agent.load_from_disk(
-                            agent_dir.name, 
-                            self.system_config, 
-                            self.llm_manager,
-                            self.tool_executor
-                        )
-                        self.agents[agent.state.agent_id] = agent
-                        logger.info(f"Loaded agent {agent.state.name} from {agent_dir.name}")
-                    except Exception as e:
-                        logger.warning(f"Failed to load agent from {agent_dir}: {e}")
+        self._load_agents_from_disk()
 
-        logger.info(f"Registry initialized with {len(self.agents)} agents")
+        # Start task queue worker
+        asyncio.create_task(self.task_queue.start_worker())
+
+    def _load_agents_from_disk(self):
+        """Load all agents from the agents directory"""
+        if not self.system_config.agents_dir.exists():
+            logger.info("No agents directory found, starting with empty registry")
+            return
+
+        loaded_count = 0
+        for agent_dir in self.system_config.agents_dir.iterdir():
+            if agent_dir.is_dir():
+                try:
+                    agent = Agent.load_from_disk(
+                        agent_dir.name, self.system_config, self.llm_manager, self.tool_executor
+                    )
+                    self.agents[agent.state.agent_id] = agent
+                    loaded_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to load agent from {agent_dir}: {e}")
+
+        logger.info(f"Loaded {loaded_count} agents from disk")
 
     def update_toolchain(self, llm_manager=None, tool_executor=None):
-        """Update the LLM manager and tool executor references
-        
-        Args:
-            llm_manager: LLM manager instance
-            tool_executor: Tool executor instance
-        """
-        if llm_manager:
-            self.llm_manager = llm_manager
-        if tool_executor:
-            self.tool_executor = tool_executor
-            # Update the tool executor in the task queue
-            self.task_queue.tool_executor = tool_executor
-            
-        # Update all existing agents with new toolchain
-        for agent in self.agents.values():
-            if llm_manager:
-                agent.llm_manager = llm_manager
-            if tool_executor:
-                agent.tool_executor = tool_executor
-                
-        logger.info(f"Updated toolchain for {len(self.agents)} agents")
+        """Update all agents with new LLM manager and tool executor"""
+        self.llm_manager = llm_manager or self.llm_manager
+        self.tool_executor = tool_executor or self.tool_executor
 
-    def create_agent(self, params: AgentCreateParams) -> Agent:
-        """Create and register a new agent"""
-        agent = Agent(self.system_config, params, self.llm_manager, self.tool_executor)
+        # Update task queue tool executor
+        if self.tool_executor:
+            self.task_queue.tool_executor = self.tool_executor
+            logger.info("✅ Updated TaskQueue with consolidated tool executor")
+
+        # Update existing agents
+        for agent in self.agents.values():
+            agent.llm_manager = self.llm_manager
+            agent.tool_executor = self.tool_executor
+
+        logger.info(f"Updated {len(self.agents)} agents with consolidated toolchain")
+
+    def create_agent(self, name: str, description: str, specialized_files: list[str] = None) -> Agent:
+        """Create a new agent and register it"""
+        params = AgentCreateParams(
+            name=name,
+            description=description,
+            system_config=self.system_config,
+            specialized_files=specialized_files or [],
+        )
+
+        agent = Agent.create(params, self.llm_manager, self.tool_executor)
         self.agents[agent.state.agent_id] = agent
-        agent.save_to_disk()
-        logger.info(f"Created agent {agent.state.name} with ID {agent.state.agent_id}")
+
+        logger.info(f"Created new agent: {name} (ID: {agent.state.agent_id})")
         return agent
 
     def get_agent(self, agent_id: str) -> Optional[Agent]:
         """Get agent by ID"""
         return self.agents.get(agent_id)
 
-    def list_agents(self) -> List[Dict]:
-        """List all registered agents"""
-        return [agent.to_dict() for agent in self.agents.values()]
+    def get_agent_by_name(self, name: str) -> Optional[Agent]:
+        """Get agent by name (returns first match)"""
+        for agent in self.agents.values():
+            if agent.state.name == name:
+                return agent
+        return None
+
+    def list_agents(self) -> list[Agent]:
+        """Get list of all registered agents"""
+        return list(self.agents.values())
 
     def remove_agent(self, agent_id: str) -> bool:
         """Remove agent from registry"""
         if agent_id in self.agents:
-            agent = self.agents[agent_id]
-            # Clean up agent directory if it exists
-            agent_dir = self.system_config.workspace_root / ".mcp-agents" / agent_id
-            if agent_dir.exists():
-                shutil.rmtree(agent_dir)
-            del self.agents[agent_id]
-            logger.info(f"Removed agent {agent_id}")
+            agent = self.agents.pop(agent_id)
+            logger.info(f"Removed agent: {agent.state.name} (ID: {agent_id})")
             return True
         return False
 
-    def get_agent_by_file(self, file_path: str) -> Optional[Agent]:
-        """Get agent that manages a specific file"""
-        for agent in self.agents.values():
-            if file_path in agent.state.managed_files:
-                return agent
-        return None
+    def get_agents_for_file(self, file_path: str) -> list[Agent]:
+        """Get all agents that manage a specific file"""
+        return [agent for agent in self.agents.values() if file_path in agent.managed_files]
 
     def assign_file_to_agent(self, agent_id: str, file_path: str) -> bool:
         """Assign a file to an agent"""
@@ -218,7 +217,7 @@ class AgentRegistry:
 
         for agent in self.agents.values():
             files_to_remove = []
-            for file_path in agent.state.managed_files:
+            for file_path in agent.managed_files:
                 full_path = workspace_root / file_path
                 if not full_path.exists():
                     files_to_remove.append(file_path)
@@ -236,8 +235,10 @@ class AgentRegistry:
         """Save registry state to disk"""
         try:
             # Each agent already saves its own state
+            # This method ensures all agents persist their current state
             for agent in self.agents.values():
-                agent.save_to_disk()
+                agent._save_metadata()
+                agent._save_conversation_history()
 
             logger.info(f"Saved registry with {len(self.agents)} agents")
         except Exception as e:
@@ -278,26 +279,25 @@ class AgentRegistry:
             return [t for t in all_tasks if t.get("agent_id") == agent_id]
         return all_tasks
 
-    def get_registry_stats(self) -> Dict:
-        """Get registry statistics
+    def get_registry_stats(self) -> dict:
+        """Get statistics about the agent registry including task queue"""
+        if not self.agents:
+            return {
+                "total_agents": 0,
+                "managed_files": 0,
+                "total_interactions": 0,
+                "average_success_rate": 0.0,
+                "most_active_agent": None,
+                "queued_tasks": len(self.task_queue.tasks),
+                "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
+            }
 
-        Returns:
-            Dictionary containing registry stats
-        """
-        total_tasks = len(self.task_queue.tasks)
-        completed_tasks = sum(1 for t in self.task_queue.tasks.values()
-                              if t.status == TaskStatus.COMPLETED)
-        failed_tasks = sum(1 for t in self.task_queue.tasks.values()
-                           if t.status == TaskStatus.FAILED)
-
-        # Calculate backward-compatible fields
-        total_managed_files = sum(len(agent.state.managed_files) for agent in self.agents.values())
         total_interactions = sum(agent.state.interaction_count for agent in self.agents.values())
+        total_files = sum(len(agent.managed_files) for agent in self.agents.values())
 
         # Calculate average success rate
         success_rates = [
-            agent.state.success_rate for agent in self.agents.values()
-            if agent.state.interaction_count > 0
+            agent.state.success_rate for agent in self.agents.values() if agent.state.interaction_count > 0
         ]
         avg_success_rate = sum(success_rates) / len(success_rates) if success_rates else 0.0
 
@@ -306,29 +306,15 @@ class AgentRegistry:
 
         return {
             "total_agents": len(self.agents),
-            "managed_files": total_managed_files,
+            "managed_files": total_files,
             "total_interactions": total_interactions,
-            "average_success_rate": avg_success_rate,
+            "average_success_rate": round(avg_success_rate, 3),
             "most_active_agent": most_active.state.name if most_active else None,
             "queued_tasks": len(self.task_queue.tasks),
-            "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status == TaskStatus.RUNNING),
-            "total_tasks": total_tasks,
-            "completed_tasks": completed_tasks,
-            "failed_tasks": failed_tasks,
-            "pending_tasks": total_tasks - completed_tasks - failed_tasks,
-            "agents": [
-                {
-                    "id": agent.state.agent_id,
-                    "name": agent.state.name,
-                    "files": len(agent.state.managed_files),
-                    "interactions": agent.state.interaction_count
-                }
-                for agent in self.agents.values()
-            ]
+            "active_tasks": sum(1 for t in self.task_queue.tasks.values() if t.status.value == "running"),
         }
 
     async def shutdown(self):
         """Shutdown registry and task queue"""
         await self.task_queue.stop_worker()
         self.save_registry()
-        logger.info("Agent registry shutdown complete")
