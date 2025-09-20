@@ -214,12 +214,25 @@ class ServerOrchestrator:
         # Register tools with LLM manager to initialize MCP bridge
         tools = [
             {
-                "name": "workspace",
-                "description": "Create, write, read files and directories",
+                "name": "file_metadata",
+                "description": "Create and manage XML metadata files for structured code generation",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "action": {"type": "string", "description": "Action to perform (write, read, list, etc.)"},
+                        "action": {"type": "string", "description": "Action to perform (create, read, list)"},
+                        "path": {"type": "string", "description": "File path for metadata operations"},
+                        "xml_content": {"type": "string", "description": "XML content for create action"}
+                    },
+                    "required": ["action"]
+                }
+            },
+            {
+                "name": "workspace",
+                "description": "Create, write, read files and directories. Use generate_from_metadata to create files from XML metadata",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "description": "Action to perform (write, read, list, generate_from_metadata, etc.)"},
                         "path": {"type": "string", "description": "File or directory path"},
                         "content": {"type": "string", "description": "File content for write operations"}
                     },

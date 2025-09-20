@@ -1,15 +1,18 @@
-"""Tool Prompt Formatter for Local Model - FIXED FOR QWEN2.5"""
+"""Tool Prompt Formatter for Local Model - XML/JSON HYBRID WITH PROMPT MANAGER"""
 
 import logging
 from typing import Dict, List, Any
+from src.core.prompts.manager import PromptManager
 
 logger = logging.getLogger(__name__)
 
 class ToolPromptFormatter:
-    """Formats MCP tools for inclusion in model prompts - optimized for Qwen2.5"""
+    """Formats MCP tools for inclusion in model prompts - XML/JSON hybrid with prompt manager"""
 
-    def __init__(self, tools: List[Dict[str, Any]]):
+    def __init__(self, tools: List[Dict[str, Any]], use_xml: bool = False):
         self.tools = tools
+        self.use_xml = use_xml  # Toggle between XML and JSON formats
+        self.prompt_manager = PromptManager()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     def get_tools_prompt(self) -> str:
@@ -25,36 +28,12 @@ class ToolPromptFormatter:
             if definition:
                 tool_definitions.append(definition)
         
-        # CRITICAL: More explicit format for Qwen2.5-7B with completion instructions
-        prompt = f"""You have access to the following MCP tools that you MUST use:
-
-{chr(10).join(tool_definitions)}
-
-CRITICAL INSTRUCTIONS:
-1. You MUST respond with tool calls, NOT regular text
-2. Make ONE tool call to complete the request
-3. STOP immediately after making the tool call
-4. DO NOT repeat the same tool call multiple times
-5. DO NOT generate additional text after the tool call
-
-To call a tool, output EXACTLY this format:
-```json
-{{
-    "tool_name": "workspace",
-    "arguments": {{
-        "action": "write",
-        "path": "filename.py",
-        "content": "# Your code here\\nprint('hello')"
-    }}
-}}
-```
-
-IMPORTANT:
-- Make ONE tool call and STOP
-- Do NOT repeat tool calls
-- Do NOT add explanatory text
-- ALWAYS use exact tool names shown above
-- OUTPUT FORMAT: ```json + tool call + ``` + STOP"""
+        # Use prompt manager to load appropriate format (XML or JSON)
+        prompt_format = 'tool_calling_xml' if self.use_xml else 'tool_calling_json'
+        prompt = self.prompt_manager.format_prompt(
+            'system', prompt_format,
+            tool_definitions=chr(10).join(tool_definitions)
+        )
         
         self.logger.debug(f"EXIT get_tools_prompt: {len(prompt)} characters")
         return prompt

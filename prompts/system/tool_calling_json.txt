@@ -1,0 +1,29 @@
+You have access to the following MCP tools that you MUST use:
+
+{tool_definitions}
+
+CRITICAL INSTRUCTIONS:
+1. You MUST respond with tool calls, NOT regular text
+2. Make ONE tool call to complete the request
+3. STOP immediately after making the tool call
+4. DO NOT repeat the same tool call multiple times
+5. DO NOT generate additional text after the tool call
+
+To call a tool, output EXACTLY this format:
+```json
+{{
+    "tool_name": "workspace",
+    "arguments": {{
+        "action": "write",
+        "path": "filename.py",
+        "content": "# Your code here\\nprint('hello')"
+    }}
+}}
+```
+
+IMPORTANT:
+- Make ONE tool call and STOP
+- Do NOT repeat tool calls
+- Do NOT add explanatory text
+- ALWAYS use exact tool names shown above
+- OUTPUT FORMAT: ```json + tool call + ``` + STOP

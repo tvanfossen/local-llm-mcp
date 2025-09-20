@@ -12,6 +12,7 @@ from typing import Any, Dict
 
 from src.core.utils.utils import create_mcp_response, handle_exception
 from src.mcp.tools.agent_operations.agent_operations import agent_operations_tool
+from src.mcp.tools.file_metadata.file_metadata import file_metadata_tool
 from src.mcp.tools.git_operations.git_operations import git_tool
 from src.mcp.tools.local_model.local_model import local_model_tool
 from src.mcp.tools.validation.validation import run_all_validations, run_pre_commit, run_tests, validate_file_length
@@ -118,7 +119,26 @@ class ConsolidatedToolExecutor:
                     "required": ["operation"],
                 },
             },
-            # Core Tool 3: Workspace Operations (File I/O)
+            # Core Tool 3: File Metadata Operations (XML metadata management)
+            "file_metadata": {
+                "name": "file_metadata",
+                "description": "File metadata operations (create, read, list XML metadata files)",
+                "function": file_metadata_tool,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "description": "Metadata action to perform",
+                            "enum": ["create", "read", "list"],
+                        },
+                        "path": {"type": "string", "description": "File path for metadata operations"},
+                        "xml_content": {"type": "string", "description": "XML content for create action"},
+                    },
+                    "required": ["action"],
+                },
+            },
+            # Core Tool 4: Workspace Operations (File I/O)
             "workspace": {
                 "name": "workspace",
                 "description": "Workspace operations (read, write, delete, list, search, create_dir, tree)",
@@ -129,7 +149,7 @@ class ConsolidatedToolExecutor:
                         "action": {
                             "type": "string",
                             "description": "Workspace action to perform",
-                            "enum": ["read", "write", "delete", "list", "search", "create_dir", "tree", "write_artifact"],
+                            "enum": ["read", "write", "delete", "list", "search", "create_dir", "tree", "write_artifact", "write_structured", "generate_from_metadata"],
                         },
                         "path": {"type": "string", "description": "File or directory path"},
                         "content": {"type": "string", "description": "File content"},

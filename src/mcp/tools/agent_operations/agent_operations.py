@@ -182,7 +182,7 @@ class AgentOperations:
             logger.error(f"Failed to chat with agent {agent_id}: {e}")
             return {"success": False, "error": str(e)}
 
-    def queue_agent_task(self, agent_id: str, message: str, task_type: str = "conversation") -> dict[str, Any]:
+    def queue_agent_task(self, agent_id: str, message: str, task_type: str) -> dict[str, Any]:
         """Queue an agent task for async execution"""
         if not self.agent_registry:
             return {"success": False, "error": "Agent registry not available"}
@@ -396,12 +396,19 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
         elif operation == "queue_task":
             agent_id = args.get("agent_id", "")
             message = args.get("message", "")
-            task_type = args.get("task_type", "conversation")
+            task_type = args.get("task_type")
 
             if not agent_id:
                 return create_mcp_response(False, "agent_id parameter required")
             if not message:
                 return create_mcp_response(False, "message parameter required")
+            if not task_type:
+                return create_mcp_response(False, "task_type parameter required. Must be one of: 'conversation', 'code_generation', 'file_edit'")
+
+            # Validate task_type is supported
+            valid_task_types = ["conversation", "code_generation", "file_edit"]
+            if task_type not in valid_task_types:
+                return create_mcp_response(False, f"Invalid task_type '{task_type}'. Must be one of: {', '.join(valid_task_types)}")
 
             result = _agent_operations_tool.queue_agent_task(agent_id, message, task_type)
 

@@ -44,10 +44,6 @@ models/
 *.bin
 *.safetensors
 
-# Workspaces (contain generated content)
-workspaces/
-workspace/
-
 # Logs
 logs/
 *.log

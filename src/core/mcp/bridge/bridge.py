@@ -5,24 +5,27 @@ import logging
 from typing import Dict, List, Any, Optional
 import asyncio
 
-from .parser import ToolCallParser
 from .formatter import ToolPromptFormatter
+from .unified_parser import UnifiedToolCallParser, ParsingStrategy
 
 logger = logging.getLogger(__name__)
 
 class MCPBridge:
-    """Bridge between local model and MCP tools"""
+    """Bridge between local model and MCP tools with XML/JSON hybrid support"""
 
-    def __init__(self, task_queue=None, tool_executor=None, available_tools: List[Dict] = None):
+    def __init__(self, task_queue=None, tool_executor=None, available_tools: List[Dict] = None, use_xml: bool = False):
         self.task_queue = task_queue
         self.tool_executor = tool_executor
         self.available_tools = available_tools or []
+        self.use_xml = use_xml  # Toggle between XML and JSON formats
 
-        self.parser = ToolCallParser()
-        self.formatter = ToolPromptFormatter(self.available_tools)
+        # Use unified parser with appropriate strategy
+        strategy = ParsingStrategy.XML_PRIMARY if use_xml else ParsingStrategy.JSON_PRIMARY
+        self.parser = UnifiedToolCallParser(strategy)
+        self.formatter = ToolPromptFormatter(self.available_tools, use_xml=self.use_xml)
 
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.logger.info(f"MCPBridge initialized with {len(self.available_tools)} tools")
+        self.logger.info(f"MCPBridge initialized with {len(self.available_tools)} tools (XML mode: {self.use_xml})")
 
     def get_tools_prompt(self) -> str:
         """Get formatted tools prompt for model"""
@@ -36,8 +39,15 @@ class MCPBridge:
         self.logger.debug(f"ENTRY process_model_output: {len(model_output)} characters")
 
         try:
-            # Extract tool calls from model output
-            tool_calls = self.parser.extract_tool_calls(model_output)
+            # Extract tool calls from model output using unified parser
+            parse_result = self.parser.parse(model_output)
+            tool_calls = parse_result.tool_calls
+
+            # Log parsing details
+            self.logger.info(f"Parsing strategy: {parse_result.strategy_used}")
+            if parse_result.errors:
+                for error in parse_result.errors:
+                    self.logger.warning(f"Parser warning: {error}")
 
             if not tool_calls:
                 self.logger.info("No tool calls detected in model output")

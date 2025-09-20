@@ -5,6 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Essential Commands
 
 ### Development Workflow
+
+DONT START THE SERVER YOURSELF - WAIT FOR ME AND I WILL DO IT
 ```bash
 # Build and start server
 inv build              # Build Docker container with CUDA support

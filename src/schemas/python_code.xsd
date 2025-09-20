@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://local-llm-mcp/python-code"
+           xmlns:tns="http://local-llm-mcp/python-code"
+           elementFormDefault="qualified">
+
+  <!-- Root element for Python file representation -->
+  <xs:element name="python_file" type="tns:PythonFile"/>
+
+  <!-- Main Python file structure -->
+  <xs:complexType name="PythonFile">
+    <xs:sequence>
+      <xs:element name="metadata" type="tns:FileMetadata"/>
+      <xs:element name="imports" type="tns:ImportSection" minOccurs="0"/>
+      <xs:element name="constants" type="tns:ConstantSection" minOccurs="0"/>
+      <xs:element name="classes" type="tns:ClassSection" minOccurs="0"/>
+      <xs:element name="functions" type="tns:FunctionSection" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="filepath" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <!-- File metadata -->
+  <xs:complexType name="FileMetadata">
+    <xs:sequence>
+      <xs:element name="created" type="xs:dateTime"/>
+      <xs:element name="agent_id" type="xs:string"/>
+      <xs:element name="version" type="xs:string"/>
+      <xs:element name="description" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Import section -->
+  <xs:complexType name="ImportSection">
+    <xs:sequence>
+      <xs:element name="import" type="tns:Import" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Import">
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="module" type="xs:string" use="required"/>
+    <xs:attribute name="items" type="xs:string"/>
+    <xs:attribute name="alias" type="xs:string"/>
+  </xs:complexType>
+
+  <!-- Constants section -->
+  <xs:complexType name="ConstantSection">
+    <xs:sequence>
+      <xs:element name="constant" type="tns:Constant" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Constant">
+    <xs:sequence>
+      <xs:element name="docstring" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="type" type="xs:string"/>
+    <xs:attribute name="value" type="xs:string" use="required"/>
+    <xs:attribute name="line_start" type="xs:int"/>
+    <xs:attribute name="line_end" type="xs:int"/>
+  </xs:complexType>
+
+  <!-- Classes section -->
+  <xs:complexType name="ClassSection">
+    <xs:sequence>
+      <xs:element name="class" type="tns:PythonClass" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PythonClass">
+    <xs:sequence>
+      <xs:element name="docstring" type="xs:string" minOccurs="0"/>
+      <xs:element name="base_classes" type="tns:BaseClassList" minOccurs="0"/>
+      <xs:element name="class_variables" type="tns:VariableList" minOccurs="0"/>
+      <xs:element name="init_method" type="tns:InitMethod" minOccurs="0"/>
+      <xs:element name="properties" type="tns:PropertyList" minOccurs="0"/>
+      <xs:element name="methods" type="tns:MethodList" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="line_start" type="xs:int"/>
+    <xs:attribute name="line_end" type="xs:int"/>
+  </xs:complexType>
+
+  <!-- Functions section -->
+  <xs:complexType name="FunctionSection">
+    <xs:sequence>
+      <xs:element name="function" type="tns:PythonFunction" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PythonFunction">
+    <xs:sequence>
+      <xs:element name="docstring" type="xs:string" minOccurs="0"/>
+      <xs:element name="decorators" type="tns:DecoratorList" minOccurs="0"/>
+      <xs:element name="parameters" type="tns:ParameterList" minOccurs="0"/>
+      <xs:element name="returns" type="tns:ReturnSpec" minOccurs="0" maxOccurs="3"/>
+      <xs:element name="body" type="tns:CodeBlock"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="line_start" type="xs:int"/>
+    <xs:attribute name="line_end" type="xs:int"/>
+    <xs:attribute name="is_async" type="xs:boolean" default="false"/>
+  </xs:complexType>
+
+  <!-- Supporting types -->
+  <xs:complexType name="BaseClassList">
+    <xs:sequence>
+      <xs:element name="base_class" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="name" type="xs:string" use="required"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="VariableList">
+    <xs:sequence>
+      <xs:element name="variable" type="tns:Variable" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Variable">
+    <xs:sequence>
+      <xs:element name="docstring" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="type" type="xs:string"/>
+    <xs:attribute name="value" type="xs:string"/>
+    <xs:attribute name="line_start" type="xs:int"/>
+    <xs:attribute name="line_end" type="xs:int"/>
+  </xs:complexType>
+
+  <xs:complexType name="InitMethod">
+    <xs:sequence>
+      <xs:element name="docstring" type="xs:string" minOccurs="0"/>
+      <xs:element name="parameters" type="tns:ParameterList" minOccurs="0"/>
+      <xs:element name="body" type="tns:CodeBlock"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="line_start" type="xs:int"/>
+    <xs:attribute name="line_end" type="xs:int"/>
+  </xs:complexType>
+
+  <xs:complexType name="PropertyList">
+    <xs:sequence>
+      <xs:element name="property" type="tns:Property" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Property">
+    <xs:sequence>
+      <xs:element name="docstring" type="xs:string" minOccurs="0"/>
+      <xs:element name="getter" type="tns:CodeBlock" minOccurs="0"/>
+      <xs:element name="setter" type="tns:CodeBlock" minOccurs="0"/>
+      <xs:element name="deleter" type="tns:CodeBlock" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="type" type="xs:string"/>
+    <xs:attribute name="line_start" type="xs:int"/>
+    <xs:attribute name="line_end" type="xs:int"/>
+  </xs:complexType>
+
+  <xs:complexType name="MethodList">
+    <xs:sequence>
+      <xs:element name="method" type="tns:Method" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Method">
+    <xs:sequence>
+      <xs:element name="docstring" type="xs:string" minOccurs="0"/>
+      <xs:element name="decorators" type="tns:DecoratorList" minOccurs="0"/>
+      <xs:element name="parameters" type="tns:ParameterList" minOccurs="0"/>
+      <xs:element name="returns" type="tns:ReturnSpec" minOccurs="0" maxOccurs="3"/>
+      <xs:element name="body" type="tns:CodeBlock"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="is_static" type="xs:boolean" default="false"/>
+    <xs:attribute name="is_class_method" type="xs:boolean" default="false"/>
+    <xs:attribute name="is_async" type="xs:boolean" default="false"/>
+    <xs:attribute name="is_private" type="xs:boolean" default="false"/>
+    <xs:attribute name="line_start" type="xs:int"/>
+    <xs:attribute name="line_end" type="xs:int"/>
+  </xs:complexType>
+
+  <xs:complexType name="DecoratorList">
+    <xs:sequence>
+      <xs:element name="decorator" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="name" type="xs:string" use="required"/>
+          <xs:attribute name="arguments" type="xs:string"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ParameterList">
+    <xs:sequence>
+      <xs:element name="parameter" type="tns:Parameter" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Parameter">
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="type" type="xs:string"/>
+    <xs:attribute name="default" type="xs:string"/>
+    <xs:attribute name="is_args" type="xs:boolean" default="false"/>
+    <xs:attribute name="is_kwargs" type="xs:boolean" default="false"/>
+  </xs:complexType>
+
+  <xs:complexType name="ReturnSpec">
+    <xs:attribute name="type" type="xs:string" use="required"/>
+    <xs:attribute name="description" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:complexType name="CodeBlock">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="language" type="xs:string" default="python"/>
+        <xs:attribute name="formatted" type="xs:boolean" default="true"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+</xs:schema>

@@ -202,7 +202,8 @@ class LLMManager:
             self.mcp_bridge = MCPBridge(
                 task_queue=self.task_queue,
                 tool_executor=self.tool_executor,
-                available_tools=tools
+                available_tools=tools,
+                use_xml=True  # Enable XML mode for structured generation
             )
 
             # Register ToolCallExecutor with task queue if available
@@ -228,7 +229,9 @@ class LLMManager:
     async def generate_with_tools(self, prompt: str, max_tokens: int = 512,
                                  temperature: float = 0.7, tools_enabled: bool = True) -> Dict[str, Any]:
         """Generate response with tool calling capability"""
+        print(f"DEBUG: generate_with_tools called with tools_enabled={tools_enabled}")
         if not self.model_loaded:
+            print(f"DEBUG: Model not loaded, returning error")
             return {
                 "success": False,
                 "error": "Model not loaded",
@@ -239,10 +242,13 @@ class LLMManager:
         enhanced_prompt = prompt
         if tools_enabled and self.mcp_bridge:
             tools_prompt = self._format_tools_for_qwen()
+            print(f"DEBUG: Tools available, enhanced prompt with {len(tools_prompt)} chars")
+            print(f"DEBUG: Tools prompt preview: {tools_prompt[:200]}...")
             logger.info(f"🔧 TOOLS AVAILABLE: Enhanced prompt with {len(tools_prompt)} character tool definitions")
             logger.info(f"🔧 TOOLS PROMPT: {tools_prompt[:200]}...")
             enhanced_prompt = f"{tools_prompt}\n\nUser request: {prompt}\n\nResponse:"
         else:
+            print(f"DEBUG: NO TOOLS - tools_enabled={tools_enabled}, mcp_bridge={self.mcp_bridge is not None}")
             logger.warning("🚨 NO TOOLS AVAILABLE: mcp_bridge not configured or tools_enabled=False")
 
         # Generate response using existing method with refined stop tokens
@@ -262,9 +268,12 @@ class LLMManager:
             }
 
         response_text = result["response"]
+        print(f"DEBUG: Model generated {len(response_text)} characters")
+        print(f"DEBUG: Model output: {response_text}")
 
         # Process output for tool calls if bridge is available
         if tools_enabled and self.mcp_bridge:
+            print(f"DEBUG: Processing model output for tool calls")
             logger.info(f"🔍 PROCESSING MODEL OUTPUT for tool calls: {len(response_text)} characters")
             logger.info(f"🔍 MODEL OUTPUT PREVIEW: {response_text}...")
             processed = await self.mcp_bridge.process_model_output(response_text)
