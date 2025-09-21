@@ -16,42 +16,70 @@ from src.schemas.files.python_file import (
     PythonFile, PythonClass, PythonMethod, PythonFunction,
     PythonImport, PythonVariable, create_empty_python_file
 )
-from src.core.files.json_file_manager import JSONFileManager
+from src.core.files.file_manager import FileManager
 
 logger = logging.getLogger(__name__)
 
 
 # Initialize file manager for jinja2 template rendering
-def _get_file_manager(workspace_root: Path) -> JSONFileManager:
-    """Get JSONFileManager instance for template rendering"""
+def _get_file_manager(workspace_root: Path) -> FileManager:
+    """Get FileManager instance for template rendering"""
     templates_path = Path("/app/templates")  # Fixed absolute path
-    return JSONFileManager(str(workspace_root), str(templates_path))
+    return FileManager(str(workspace_root), str(templates_path))
 
 
-def _generate_python_with_jinja2(xml_root: ET.Element) -> str:
-    """Generate Python code from XML structure using jinja2 template"""
+def _extract_imports_from_body(body: str) -> tuple[list[str], str]:
+    """Extract import statements from method body and return (imports, cleaned_body)"""
+    import re
+
+    # Find import statements in the body
+    import_patterns = [
+        r'^(\s*)import\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*$',
+        r'^(\s*)from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s+import\s+(.+)\s*$'
+    ]
+
+    extracted_imports = []
+    cleaned_lines = []
+
+    for line in body.split('\n'):
+        is_import = False
+
+        # Check for regular import
+        match = re.match(import_patterns[0], line)
+        if match:
+            module = match.group(2)
+            extracted_imports.append(f"import {module}")
+            is_import = True
+
+        # Check for from...import
+        match = re.match(import_patterns[1], line)
+        if match:
+            module = match.group(2)
+            items = match.group(3)
+            extracted_imports.append(f"from {module} import {items}")
+            is_import = True
+
+        if not is_import:
+            cleaned_lines.append(line)
+
+    cleaned_body = '\n'.join(cleaned_lines).strip()
+    return extracted_imports, cleaned_body
+
+
+def _xml_to_python_file(xml_root: ET.Element, filename: str) -> PythonFile:
+    """Convert XML structure to PythonFile schema object"""
+    python_file = create_empty_python_file(filename)
+
+    # Track imports extracted from method bodies
+    extracted_imports = set()
+
     try:
-        # Load the jinja2 template
-        template_path = Path(__file__).parent.parent.parent.parent.parent / "templates"
-        env = Environment(loader=FileSystemLoader(str(template_path)))
-        template = env.get_template("python_file.j2")
-
-        # Parse XML into data structures that match the template
-        data = {
-            'module_docstring': None,
-            'imports': [],
-            'variables': [],  # constants
-            'classes': [],
-            'functions': [],
-            'dataclasses': []  # unused but required by template
-        }
-
         # Extract module docstring from metadata
         metadata_elem = xml_root.find('metadata')
         if metadata_elem is not None:
             desc_elem = metadata_elem.find('description')
             if desc_elem is not None and desc_elem.text:
-                data['module_docstring'] = desc_elem.text.strip()
+                python_file.module_docstring = desc_elem.text.strip()
 
         # Process imports
         imports_elem = xml_root.find('imports')
@@ -60,7 +88,9 @@ def _generate_python_with_jinja2(xml_root: ET.Element) -> str:
                 module = import_elem.get('module', '')
                 items = import_elem.get('items', '')
                 if module:
-                    data['imports'].append(Import(module=module, items=items if items else None))
+                    items_list = [item.strip() for item in items.split(',')] if items else []
+                    import_obj = PythonImport(module=module, items=items_list)
+                    python_file.add_import(import_obj)
 
         # Process constants as variables
         constants_elem = xml_root.find('constants')
@@ -70,7 +100,12 @@ def _generate_python_with_jinja2(xml_root: ET.Element) -> str:
                 const_type = const_elem.get('type', '')
                 value = const_elem.get('value', '')
                 if name and value:
-                    data['variables'].append(Constant(name=name, type=const_type, value=value))
+                    variable = PythonVariable(
+                        name=name,
+                        type_hint=const_type if const_type else None,
+                        value=value
+                    )
+                    python_file.variables.append(variable)
 
         # Process functions
         functions_elem = xml_root.find('functions')
@@ -88,29 +123,36 @@ def _generate_python_with_jinja2(xml_root: ET.Element) -> str:
                         param_default = param_elem.get('default', '')
 
                         if param_name:
-                            parameters.append(Parameter(
-                                name=param_name,
-                                type=param_type if param_type else None,
-                                default=param_default if param_default else None
-                            ))
+                            param_dict = {"name": param_name}
+                            if param_type:
+                                param_dict["type"] = param_type
+                            if param_default:
+                                param_dict["default"] = param_default
+                            parameters.append(param_dict)
 
                 # Extract return type and body
                 return_type = None
                 returns_elem = func_elem.find('returns')
                 if returns_elem is not None:
-                    return_type = returns_elem.get('type', 'None')
+                    return_type = returns_elem.get('type')
 
                 body = "pass"
                 body_elem = func_elem.find('body')
                 if body_elem is not None and body_elem.text:
-                    body = body_elem.text.strip()
+                    raw_body = body_elem.text.strip()
+                    # Extract imports from function body
+                    body_imports, cleaned_body = _extract_imports_from_body(raw_body)
+                    extracted_imports.update(body_imports)
+                    body = cleaned_body if cleaned_body else "pass"
 
-                data['functions'].append(Function(
+                function = PythonFunction(
                     name=name,
+                    docstring=None,
                     parameters=parameters,
                     return_type=return_type,
                     body=body
-                ))
+                )
+                python_file.add_or_update_function(function)
 
         # Process classes
         classes_elem = xml_root.find('classes')
@@ -138,22 +180,30 @@ def _generate_python_with_jinja2(xml_root: ET.Element) -> str:
                             param_default = param_elem.get('default', '')
 
                             if param_name:
-                                init_params.append(Parameter(
-                                    name=param_name,
-                                    type=param_type if param_type else None,
-                                    default=param_default if param_default else None
-                                ))
+                                param_dict = {"name": param_name}
+                                if param_type:
+                                    param_dict["type"] = param_type
+                                if param_default:
+                                    param_dict["default"] = param_default
+                                init_params.append(param_dict)
 
                     init_body = "pass"
                     body_elem = init_elem.find('body')
                     if body_elem is not None and body_elem.text:
-                        init_body = body_elem.text.strip()
+                        raw_body = body_elem.text.strip()
+                        # Extract imports from method body
+                        body_imports, cleaned_body = _extract_imports_from_body(raw_body)
+                        extracted_imports.update(body_imports)
+                        init_body = cleaned_body if cleaned_body else "pass"
 
-                    methods.append(Method(
+                    init_method = PythonMethod(
                         name="__init__",
+                        docstring=None,
                         parameters=init_params,
+                        return_type=None,
                         body=init_body
-                    ))
+                    )
+                    methods.append(init_method)
 
                 # Process other methods
                 methods_elem = class_elem.find('methods')
@@ -171,42 +221,66 @@ def _generate_python_with_jinja2(xml_root: ET.Element) -> str:
                                 param_default = param_elem.get('default', '')
 
                                 if param_name:
-                                    method_params.append(Parameter(
-                                        name=param_name,
-                                        type=param_type if param_type else None,
-                                        default=param_default if param_default else None
-                                    ))
+                                    param_dict = {"name": param_name}
+                                    if param_type:
+                                        param_dict["type"] = param_type
+                                    if param_default:
+                                        param_dict["default"] = param_default
+                                    method_params.append(param_dict)
 
                         # Extract return type and body
                         method_return_type = None
                         returns_elem = method_elem.find('returns')
                         if returns_elem is not None:
-                            method_return_type = returns_elem.get('type', 'None')
+                            method_return_type = returns_elem.get('type')
 
                         method_body = "pass"
                         body_elem = method_elem.find('body')
                         if body_elem is not None and body_elem.text:
-                            method_body = body_elem.text.strip()
+                            raw_body = body_elem.text.strip()
+                            # Extract imports from method body
+                            body_imports, cleaned_body = _extract_imports_from_body(raw_body)
+                            extracted_imports.update(body_imports)
+                            method_body = cleaned_body if cleaned_body else "pass"
 
-                        methods.append(Method(
+                        method = PythonMethod(
                             name=method_name,
+                            docstring=None,
                             parameters=method_params,
                             return_type=method_return_type,
                             body=method_body
-                        ))
+                        )
+                        methods.append(method)
 
-                data['classes'].append(Class(
+                python_class = PythonClass(
                     name=class_name,
                     docstring=docstring,
+                    base_classes=[],
                     methods=methods
-                ))
+                )
+                python_file.add_or_update_class(python_class)
 
-        # Render the template
-        return template.render(**data)
+        # Add all extracted imports from method/function bodies to module level
+        for import_stmt in extracted_imports:
+            logger.info(f"🔄 Extracting import from method body: {import_stmt}")
+            if import_stmt.startswith('import '):
+                module = import_stmt[7:].strip()
+                import_obj = PythonImport(module=module, items=[])
+                python_file.add_import(import_obj)
+            elif import_stmt.startswith('from '):
+                # Parse "from module import items"
+                parts = import_stmt.split(' import ')
+                if len(parts) == 2:
+                    module = parts[0][5:].strip()  # Remove "from "
+                    items = [item.strip() for item in parts[1].split(',')]
+                    import_obj = PythonImport(module=module, items=items)
+                    python_file.add_import(import_obj)
+
+        return python_file
 
     except Exception as e:
-        logger.error(f"Error generating Python code with jinja2: {e}")
-        return f'# Error generating code: {e}\npass\n'
+        logger.error(f"Error converting XML to PythonFile: {e}")
+        raise
 
 
 async def workspace_tool(arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -896,8 +970,31 @@ async def _generate_from_metadata(arguments: Dict[str, Any], workspace_root: Pat
             if python_file_root.tag != 'python_file':
                 return create_mcp_response(False, f"Invalid metadata: root element must be 'python_file', got '{python_file_root.tag}'")
 
-            # Generate Python code from XML metadata using jinja2 template
-            python_code = _generate_python_with_jinja2(python_file_root)
+            logger.info(f"🔄 Converting XML to PythonFile schema for {path}")
+
+            # Convert XML to PythonFile schema object
+            python_file_obj = _xml_to_python_file(python_file_root, path)
+
+            logger.info(f"🎨 Rendering Python code using jinja2 template for {path}")
+
+            # Use existing JSONFileManager to render via jinja2
+            file_manager = _get_file_manager(workspace_root)
+
+            # Render using the existing, working jinja2 system
+            template = file_manager.jinja_env.get_template("python_file.j2")
+            # Pass the PythonFile object directly, not converted to dict
+            # This preserves methods like to_import_statement()
+            template_data = {
+                'module_docstring': python_file_obj.module_docstring,
+                'imports': python_file_obj.imports,  # Keep PythonImport objects
+                'variables': python_file_obj.variables,
+                'classes': python_file_obj.classes,
+                'functions': python_file_obj.functions,
+                'dataclasses': python_file_obj.dataclasses
+            }
+            python_code = template.render(template_data)
+
+            logger.info(f"✅ Generated {len(python_code)} characters of Python code")
 
             # Write the generated Python file
             target_file = workspace_root / path
@@ -920,7 +1017,13 @@ async def _generate_from_metadata(arguments: Dict[str, Any], workspace_root: Pat
             )
 
         except ET.ParseError as e:
+            logger.error(f"XML parsing error in metadata file {meta_file}: {e}")
             return create_mcp_response(False, f"Invalid XML in metadata file: {e}")
 
+        except Exception as e:
+            logger.error(f"Jinja2 template rendering error for {path}: {e}")
+            return create_mcp_response(False, f"Template rendering failed: {e}")
+
     except Exception as e:
+        logger.error(f"Generate from metadata error: {e}")
         return handle_exception(e, "_generate_from_metadata")

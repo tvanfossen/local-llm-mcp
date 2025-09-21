@@ -156,46 +156,13 @@ class MCPBridge:
 
         self.logger.info(f"📝 Tool call task queued: {task_id}")
 
-        # Wait for task completion (polling approach)
-        max_wait = 30 # 180 second timeout
-        wait_interval = 1  # Check every 100ms
-        waited = 0
-
-        while waited < max_wait:
-            status = self.task_queue.get_task_status(task_id)
-            if not status:
-                break
-
-            if status["status"] in ["completed", "failed"]:
-                # Get result
-                if status["status"] == "completed":
-                    result = self.task_queue.get_task_result(task_id)
-                    if result and not result.get("error"):
-                        result["tool_name"] = tool_name
-                        self.logger.info(f"✅ Queued tool call completed: {task_id}")
-                        return result
-
-                # Handle failure
-                error = status.get("error", "Tool call failed")
-                self.logger.error(f"❌ Queued tool call failed: {task_id} - {error}")
-                return {
-                    "success": False,
-                    "error": error,
-                    "tool_name": tool_name,
-                    "task_id": task_id
-                }
-
-            await asyncio.sleep(wait_interval)
-            waited += wait_interval
-
-        # Timeout
-        error = f"Tool call timeout after {max_wait}s"
-        self.logger.error(f"⏰ Tool call timeout: {task_id}")
+        # Return immediately - let async queue handle execution
         return {
-            "success": False,
-            "error": error,
+            "success": True,
+            "queued": True,
             "tool_name": tool_name,
-            "task_id": task_id
+            "task_id": task_id,
+            "message": f"Tool call '{tool_name}' queued successfully"
         }
 
     async def _execute_tool_call_direct(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:

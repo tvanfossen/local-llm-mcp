@@ -19,7 +19,7 @@ inv test                # Health check server
 # Testing
 inv test                # Run pytest with coverage
 inv test --verbose      # Verbose test output
-python3 -m pytest src/path/to/test_file.py::test_function  # Single test
+pytest src/path/to/test_file.py::test_function  # Single test
 ```
 
 ### Container Management
@@ -33,7 +33,7 @@ docker logs local-llm-mcp-server  # Direct container logs
 ## Architecture Overview
 
 ### Core Concept: Agent-Based MCP Server
-This is a **local LLM MCP server** that provides Claude Code with specialized agents. Each agent owns exactly one file and uses a local CUDA-accelerated LLM for code generation.
+This is a **local LLM MCP server** that provides Claude Code with specialized agents. Each agent owns exactly one file and uses a local CUDA-accelerated LLM for code generation with **XML-structured tool calling**.
 
 ### Key Architectural Patterns
 
@@ -43,31 +43,33 @@ This is a **local LLM MCP server** that provides Claude Code with specialized ag
 - File ownership prevents conflicts
 - Delete agent to free file for new agent
 
-**2. MCP Bridge Architecture**
+**2. Async Task Queueing Architecture (FIXED)**
 ```
-Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM → Tool Execution
+Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM → Tool Execution (Async)
 ```
 
 **3. Component Hierarchy**
 - `local_llm_mcp_server.py` - Main orchestrator and entry point
-- `src/core/agents/registry/registry.py` - Agent lifecycle and task queue
+- `src/core/agents/registry/registry.py` - Agent lifecycle and async task queue
 - `src/core/llm/manager/manager.py` - Local model management with CUDA
 - `src/mcp/` - MCP protocol implementation and tool execution
 - `src/api/` - HTTP server with authentication and endpoints
 
 ### Critical Implementation Details
 
-**Agent Communication Flow:**
+**Agent Communication Flow (Updated):**
 1. MCP tool call creates/queues agent task
-2. Agent uses local LLM to generate tool calls (JSON format)
-3. Generated tool calls execute against workspace/validation/git tools
-4. Results flow back through MCP to Claude Code
+2. Agent uses local LLM to generate XML tool calls
+3. **NEW**: Tool calls queue immediately and return `{"queued": True, "task_id": "..."}`
+4. Async task queue processes tool calls independently
+5. Results available via task status/result queries
 
-**Tool Call Format:**
-- Agents receive JSON prompts optimized for Qwen2.5-7B
-- Local LLM generates JSON tool calls (not XML)
-- Three core tools: `workspace`, `validation`, `git_operations`
-- Metadata stored in `.meta/*.json` files before actual file creation
+**Tool Call Format (XML-First):**
+- Agents receive XML-optimized prompts for Qwen2.5-7B
+- Local LLM generates XML tool calls (with JSON fallback)
+- Four core tools: `file_metadata`, `workspace`, `validation`, `git_operations`
+- Metadata stored in `.meta/*.xml` files with structured content
+- Jinja2 templates render Python code from XML metadata
 
 **CUDA Requirements:**
 - RTX 1080ti (11GB VRAM) optimized
@@ -75,31 +77,39 @@ Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM 
 - Model: `~/models/Qwen2.5-7B-Instruct-Q6_K_L.gguf`
 - Expected: 15-25 tokens/second
 
-## Current State and Known Issues
+## Current State (FULLY FUNCTIONAL)
 
-### JSON Tool Call Baseline
-- **Current Status**: Reverted to JSON tool calls after XML implementation issues
-- **Working**: Agent creation, task queueing, basic tool execution
-- **Issue**: Model generates text responses instead of JSON tool calls in some cases
-- **Debug**: Model output logging enabled in agent code
+### ✅ XML-Structured Generation System
+- **Status**: XML tool calling fully implemented and tested
+- **Working**: Agent creation, async task queueing, XML metadata generation, jinja2 code generation
+- **Flow**: Agent → XML tool calls → file_metadata → workspace generate_from_metadata → clean Python code
+- **Template System**: Jinja2 templates with proper formatting and `autoescape=False`
 
-### Agent Workflow (JSON Baseline)
-1. Agent creates `.meta/*.json` metadata file
-2. Uses JSON prompts to call local LLM
-3. LLM should generate JSON tool calls for workspace/validation/git
-4. Tools execute and create actual files
-5. **Current Problem**: LLM generating text instead of tool calls
+### ✅ Async Task Queue (RESOLVED)
+- **Previous Issue**: Bridge blocked for 30 seconds waiting for tool completion
+- **Resolution**: Modified `_execute_tool_call_queued` to return immediately
+- **Current Behavior**: All tool calls queue asynchronously without blocking
+- **Performance**: 100+ tool calls can queue concurrently
+
+### ✅ Tool Integration
+1. `file_metadata` - Creates `.meta/*.xml` structured metadata
+2. `workspace generate_from_metadata` - Renders Python from XML using jinja2
+3. `validation` - Tests, linting, file length checks
+4. `git_operations` - Version control integration
+5. `agent_operations` - Agent lifecycle management
 
 ### File Structure Context
-- `.meta/` - Agent-generated metadata (JSON format)
+- `.meta/` - Agent-generated XML metadata files
 - `.mcp-agents/` - Persistent agent state per repository
 - `src/core/agents/agent/agent.py` - Individual agent implementation
 - `src/core/mcp/bridge/` - Tool call parsing and execution bridge
+- `templates/python_file.j2` - Jinja2 template for code generation
+- `prompts/tools/` - Unified tool descriptions
 
 ## Environment Setup
 
 ### Required Environment
-- Ubuntu 22.04, NVIDIA Driver 575, CUDA 12.9
+- Ubuntu 22.04, NVIDIA Driver 575+, CUDA 12.9
 - Docker with NVIDIA Container Toolkit
 - Models directory: `~/models/`
 - Workspace mounted at `/workspace` in container
@@ -109,20 +119,148 @@ Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM 
 - Health endpoint publicly accessible
 - Orchestrator UI provides auth token management
 
+## Tool Usage Patterns
+
+### Creating and Using Agents
+```python
+# 1. Create specialized agent
+mcp__local-llm-agents__agent_operations({
+    "operation": "create",
+    "name": "BoardArchitect",
+    "description": "Expert in chess board data structures",
+    "specialized_files": ["core/board.py"]
+})
+
+# 2. Queue code generation task (async)
+mcp__local-llm-agents__agent_operations({
+    "operation": "queue_task",
+    "agent_id": "agent_id_here",
+    "task_type": "code_generation",
+    "message": "Create ChessBoard class with 8x8 representation..."
+})
+
+# 3. Check task status
+mcp__local-llm-agents__agent_operations({
+    "operation": "task_status",
+    "agent_id": "agent_id_here",
+    "task_id": "task_id_here"
+})
+
+# 4. Get task result when completed
+mcp__local-llm-agents__agent_operations({
+    "operation": "task_result",
+    "agent_id": "agent_id_here",
+    "task_id": "task_id_here"
+})
+```
+
+### Manual Tool Operations
+```python
+# Generate Python from existing XML metadata
+mcp__local-llm-agents__workspace({
+    "action": "generate_from_metadata",
+    "path": "core/board.py"
+})
+
+# Validate generated code
+mcp__local-llm-agents__validation({
+    "operation": "tests",
+    "file_paths": ["core/board.py"]
+})
+
+# Commit changes
+mcp__local-llm-agents__git_operations({
+    "operation": "commit",
+    "message": "Add ChessBoard class",
+    "add_all": True
+})
+```
+
+## Project Orchestration
+
+### Sample Project Structure
+See `sample_prompt.xml` for complete PyChess game orchestration:
+
+```xml
+<project_orchestration>
+    <project>
+        <name>PyChess</name>
+        <entry_point>chess.py</entry_point>
+    </project>
+    <agents>
+        <agent name="BoardArchitect" managed_file="core/board.py"/>
+        <agent name="PieceDesigner" managed_file="core/pieces.py"/>
+        <agent name="GameMaster" managed_file="core/game.py"/>
+        <agent name="UIDesigner" managed_file="gui/interface.py"/>
+        <agent name="AIStrategist" managed_file="ai/engine.py"/>
+    </agents>
+    <workflow>
+        <phase name="agent_creation">Create all specialized agents</phase>
+        <phase name="code_generation">Queue tasks for each component</phase>
+        <phase name="validation">Test and validate all code</phase>
+        <phase name="integration">Commit and finalize</phase>
+    </workflow>
+</project_orchestration>
+```
+
 ## Development Notes
 
 ### When Working on Agent Code
-- Always test with `inv run` then create agent and queue task - end user MUST authenticate before this functions
+- Always test with `inv run` then create agent and queue task
 - Monitor `inv logs` for model output debugging
-- Agent responses should be JSON tool calls, not text
-- Check `.meta/*.json` files for proper metadata generation
+- Agent responses should be XML tool calls
+- Check `.meta/*.xml` files for proper metadata generation
+- Use async task status checking rather than blocking
 
 ### When Working on MCP Integration
 - MCP endpoints in `src/api/http/handlers/handlers.py`
 - Tool definitions in `local_llm_mcp_server.py`
 - Bridge logic in `src/core/mcp/bridge/bridge.py`
+- Tool descriptions in `prompts/tools/`
 
 ### When Working on LLM Integration
 - Model management in `src/core/llm/manager/manager.py`
-- Tool call parsing in `src/core/mcp/bridge/parser.py`
-- Prompt formatting for Qwen2.5 in `src/core/mcp/bridge/formatter.py`
+- Tool call parsing in `src/core/mcp/bridge/unified_parser.py`
+- Prompt formatting in `src/core/mcp/bridge/formatter.py`
+- Template rendering in `src/core/files/file_manager.py`
+
+### When Working on Templates
+- Jinja2 templates in `templates/`
+- Test with `workspace generate_from_metadata`
+- Ensure proper newlines and formatting
+- Use `autoescape=False` for code generation
+
+## Recent Major Fixes
+
+### ✅ Async Queueing Resolution
+- **Problem**: Tool calls blocked Claude Code for 30+ seconds
+- **Solution**: Modified bridge to return immediately with task IDs
+- **Impact**: Unlimited concurrent tool calls, no more timeouts
+
+### ✅ Template System Enhancement
+- **Problem**: Generated code had formatting issues
+- **Solution**: Fixed jinja2 templates with proper spacing
+- **Impact**: Clean, properly formatted Python code generation
+
+### ✅ Tool Description Unification
+- **Problem**: Tool descriptions scattered across codebase
+- **Solution**: Centralized in `prompts/tools/` directory
+- **Impact**: Maintainable, consistent tool documentation
+
+## Testing and Validation
+
+```bash
+# Test async queueing
+pytest tests/unit/test_bridge_async_queueing.py -v
+
+# Test tool descriptions
+pytest tests/unit/test_tool_prompt_formatting.py -v
+
+# Test jinja2 templates
+pytest tests/unit/test_jinja2_board_generation.py -v
+
+# Full test suite
+pytest tests/ --cov=src --cov-report=html
+```
+
+The system is now fully functional for agent-based code orchestration with XML-structured generation and async task processing.

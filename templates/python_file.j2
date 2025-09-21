@@ -1,9 +1,9 @@
 {% if module_docstring %}"""{{ module_docstring }}"""
 
 {% endif %}
-{%- for import in imports %}
+{% for import in imports -%}
 {{ import.to_import_statement() }}
-{%- endfor %}
+{% endfor %}
 {%- if imports %}
 
 {% endif %}
@@ -32,8 +32,9 @@ class {{ dataclass.name }}{% if dataclass.base_classes %}({{ dataclass.base_clas
 
 {% endfor %}
 {%- for class in classes %}
+
 class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join(', ') }}){% endif %}:
-    {%- if class.docstring %}
+    {% if class.docstring -%}
     """{{ class.docstring }}"""
     {% endif %}
 
@@ -55,14 +56,16 @@ class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join('
     {%- endif %}
     def {{ method.name }}(
         {%- for param in method.parameters -%}
-        {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default is not none %} = {{ param.default }}{% endif %}{% if not loop.last %}, {% endif %}
+        {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% if not loop.last %}, {% endif %}
         {%- endfor -%}
     ){% if method.return_type %} -> {{ method.return_type }}{% endif %}:
         {%- if method.docstring %}
         """{{ method.docstring }}"""
-        {%- endif %}
+        {% endif %}
         {{ method.body | indent(8, first=False) }}
+    {% if not loop.last %}
 
+    {% endif %}
     {%- endfor %}
 
 {% endfor %}
@@ -72,7 +75,7 @@ class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join('
 {%- endfor %}
 def {{ function.name }}(
     {%- for param in function.parameters -%}
-    {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default is not none %} = {{ param.default }}{% endif %}{% if not loop.last %}, {% endif %}
+    {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% if not loop.last %}, {% endif %}
     {%- endfor -%}
 ){% if function.return_type %} -> {{ function.return_type }}{% endif %}:
     {%- if function.docstring %}

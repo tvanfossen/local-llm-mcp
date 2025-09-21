@@ -1,0 +1,7 @@
+**validation**: Testing and validation operations for code quality assurance
+Parameters:
+  - operation (string) (REQUIRED): Validation type (tests, pre-commit, file-length, all, validate)
+  - test_path (string): Test directory path (default: src/)
+  - coverage (boolean): Include coverage report (default: true)
+  - verbose (boolean): Verbose output (default: false)
+  - file_paths (array): Specific files to validate

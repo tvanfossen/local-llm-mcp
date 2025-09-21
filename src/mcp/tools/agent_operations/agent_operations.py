@@ -122,7 +122,7 @@ class AgentOperations:
             if agent.state.managed_files:
                 response_text += f"📁 **Managed Files:** {', '.join(agent.state.managed_files)}\n"
             response_text += f"📅 **Created:** {agent.state.created_at}\n\n"
-            response_text += "Agent is ready to receive tasks via the chat operation."
+            response_text += "Agent is ready to receive tasks via the queue_task operation."
 
             return {"success": True, "agent": agent.to_dict(), "response_text": response_text}
 

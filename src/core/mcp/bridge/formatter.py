@@ -42,6 +42,16 @@ class ToolPromptFormatter:
         """Format a single tool for the prompt"""
         try:
             name = tool.get('name', 'unknown_tool')
+
+            # Try to load tool description from prompt file
+            try:
+                tool_prompt = self.prompt_manager.load_prompt('tools', name)
+                if tool_prompt and not tool_prompt.startswith("[PROMPT NOT FOUND"):
+                    return tool_prompt
+            except Exception as e:
+                self.logger.warning(f"Could not load prompt for tool {name}: {e}")
+
+            # Fallback to original formatting
             description = tool.get('description', 'No description available')
 
             # Extract input schema parameters

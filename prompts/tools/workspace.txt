@@ -1,0 +1,8 @@
+**workspace**: Comprehensive file and directory operations for code management
+Parameters:
+  - action (string) (REQUIRED): Operation type (read, write, delete, list, search, create_dir, tree, generate_from_metadata)
+  - path (string): File or directory path
+  - content (string): File content for write operations
+  - pattern (string): Search or file pattern (default: *)
+  - recursive (boolean): Recursive operation (default: false)
+  - overwrite (boolean): Allow file overwriting (default: false)

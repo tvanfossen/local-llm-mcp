@@ -1,0 +1,5 @@
+**file_metadata**: Create and manage XML metadata files for structured code generation
+Parameters:
+  - action (string) (REQUIRED): Action to perform (create, read, list)
+  - path (string): File path for metadata operations
+  - xml_content (string): XML content for create action

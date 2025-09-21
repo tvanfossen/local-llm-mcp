@@ -1,0 +1,7 @@
+**git_operations**: Comprehensive git repository operations and version control
+Parameters:
+  - operation (string) (REQUIRED): Git operation (status, diff, commit, log, branch, stash, remote)
+  - message (string): Commit message for commit operations
+  - add_all (boolean): Add all files before commit (default: false)
+  - files (array): Specific files to commit
+  - staged (boolean): Show staged changes only (default: false)

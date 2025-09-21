@@ -200,7 +200,7 @@ class ConsolidatedToolExecutor:
             # Core Tool 5: Agent Operations
             "agent_operations": {
                 "name": "agent_operations",
-                "description": "Agent management operations (list, info, stats, chat, create)",
+                "description": "Agent management operations (list, info, stats, create)",
                 "function": agent_operations_tool,
                 "inputSchema": {
                     "type": "object",
@@ -208,10 +208,11 @@ class ConsolidatedToolExecutor:
                         "operation": {
                             "type": "string",
                             "description": "Agent operation to perform",
-                            "enum": ["list", "info", "stats", "chat", "create"],
+                            "enum": ["list", "info", "stats", "create", "queue_task", "task_status", "task_result", "list_tasks"],
                         },
-                        "agent_id": {"type": "string", "description": "Agent ID (for info and chat operations)"},
-                        "message": {"type": "string", "description": "Message to send to agent (for chat operation)"},
+                        "agent_id": {"type": "string", "description": "Agent ID (for info and task operations)"},
+                        "message": {"type": "string", "description": "Message to send to agent (for task operations)"},
+                        "task_id": {"type": "string", "description": "Task ID (for task status/result operations)"},
                         "task_type": {
                             "type": "string",
                             "description": "Type of task (conversation, file_edit, code_generation, system_query)",

@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project_orchestration>
+    <project>
+        <name>PyChess</name>
+        <path>~/Projects/PyChess</path>
+        <description>Simple chess game with GUI - Human vs AI opponent</description>
+        <type>game_application</type>
+        <entry_point>chess.py</entry_point>
+        <run_command>python chess.py</run_command>
+    </project>
+
+    <orchestration_mode>
+        <approach>agent_delegation</approach>
+        <philosophy>Act as a puppeteer orchestrating local agents. DO NOT write code directly. Use MCP tools to create agents and delegate all code generation to them.</philosophy>
+        <workflow>
+            <step>Create specialized agents for each component</step>
+            <step>Queue code generation tasks using async system</step>
+            <step>Coordinate between agents for clean interfaces</step>
+            <step>Use validation tools to ensure quality</step>
+            <step>Use git tools to track progress atomically</step>
+        </workflow>
+    </orchestration_mode>
+
+    <architecture>
+        <overview>Clean, minimal chess implementation with modern Python patterns</overview>
+        <structure>
+            <file path="chess.py" description="Main entry point - starts the game"/>
+            <file path="core/board.py" description="8x8 chess board representation"/>
+            <file path="core/pieces.py" description="Chess piece classes with movement rules"/>
+            <file path="core/game.py" description="Game logic, rules, and state management"/>
+            <file path="gui/interface.py" description="Tkinter GUI for the chess board"/>
+            <file path="ai/engine.py" description="Simple minimax AI opponent"/>
+            <file path="utils/helpers.py" description="Shared utility functions"/>
+            <file path="tests/test_chess.py" description="Comprehensive test suite"/>
+        </structure>
+    </architecture>
+
+    <agents>
+        <agent>
+            <name>EntryPointAgent</name>
+            <managed_file>chess.py</managed_file>
+            <responsibility>Main application entry point and game startup</responsibility>
+            <prompt>You are an expert in Python application architecture. Create a clean entry point that initializes the chess game, sets up the GUI, and handles the main game loop. Keep it simple - just import the necessary components and start the game. Include proper error handling and logging setup.</prompt>
+        </agent>
+
+        <agent>
+            <name>BoardArchitect</name>
+            <managed_file>core/board.py</managed_file>
+            <responsibility>Chess board representation and basic operations</responsibility>
+            <prompt>You are an expert in data structures for game boards. Create a ChessBoard class that represents an 8x8 grid with piece placement, movement tracking, and position queries. Include methods for: setup_initial_position(), move_piece(), get_piece_at(), is_valid_position(), and board state serialization. Use clean OOP design with proper type hints.</prompt>
+        </agent>
+
+        <agent>
+            <name>PieceDesigner</name>
+            <managed_file>core/pieces.py</managed_file>
+            <responsibility>Chess piece classes and movement validation</responsibility>
+            <prompt>You are an expert in object-oriented design for game pieces. Create a base Piece class and derived classes for each chess piece (King, Queen, Rook, Bishop, Knight, Pawn). Each piece should know its valid moves, capture rules, and special moves (castling, en passant, promotion). Focus on clean inheritance and polymorphism.</prompt>
+        </agent>
+
+        <agent>
+            <name>GameMaster</name>
+            <managed_file>core/game.py</managed_file>
+            <responsibility>Chess game rules, state management, and turn logic</responsibility>
+            <prompt>You are an expert in chess rules and game logic. Create a ChessGame class that manages game state, validates moves, detects check/checkmate/stalemate, handles turn switching, and tracks game history. Include methods for: make_move(), is_check(), is_checkmate(), is_stalemate(), get_valid_moves(). Ensure all chess rules are correctly implemented.</prompt>
+        </agent>
+
+        <agent>
+            <name>UIDesigner</name>
+            <managed_file>gui/interface.py</managed_file>
+            <responsibility>Tkinter-based chess board GUI with user interaction</responsibility>
+            <prompt>You are an expert in Python Tkinter GUI development. Create a ChessGUI class with an 8x8 grid of clickable squares, piece rendering (using Unicode chess symbols), move highlighting, and game status display. Include drag-and-drop or click-to-move interaction, move validation feedback, and a clean, responsive design. Keep the interface simple but elegant.</prompt>
+        </agent>
+
+        <agent>
+            <name>AIStrategist</name>
+            <managed_file>ai/engine.py</managed_file>
+            <responsibility>Simple chess AI opponent using minimax algorithm</responsibility>
+            <prompt>You are an expert in game AI algorithms. Create a ChessAI class using minimax algorithm with alpha-beta pruning. Include basic position evaluation (material count + simple positional factors), move ordering for efficiency, and adjustable search depth. Keep it under 200 lines and focus on making reasonable moves rather than world-class play.</prompt>
+        </agent>
+
+        <agent>
+            <name>UtilityEngineer</name>
+            <managed_file>utils/helpers.py</managed_file>
+            <responsibility>Shared utility functions and constants</responsibility>
+            <prompt>You are an expert in Python utility design. Create helper functions for chess notation conversion (algebraic notation), coordinate transformations, piece value constants, color definitions, and any shared utilities needed across components. Include FEN notation parsing if possible. Keep functions pure and well-documented.</prompt>
+        </agent>
+
+        <agent>
+            <name>TestEngineer</name>
+            <managed_file>tests/test_chess.py</managed_file>
+            <responsibility>Comprehensive test suite for all components</responsibility>
+            <prompt>You are an expert in Python testing with pytest. Create comprehensive tests for all chess components including: board setup, piece movements, game rules, check/checkmate detection, AI move generation, and GUI interactions (where possible). Aim for high coverage and include edge cases. Use fixtures for game setup.</prompt>
+        </agent>
+    </agents>
+
+    <mcp_workflow>
+        <phase name="project_setup">
+            <action tool="workspace" operation="create_dir" path="core"/>
+            <action tool="workspace" operation="create_dir" path="gui"/>
+            <action tool="workspace" operation="create_dir" path="ai"/>
+            <action tool="workspace" operation="create_dir" path="utils"/>
+            <action tool="workspace" operation="create_dir" path="tests"/>
+        </phase>
+
+        <phase name="agent_creation">
+            <action tool="agent_operations" operation="create">
+                <agent_name>BoardArchitect</agent_name>
+                <description>Expert in chess board data structures</description>
+                <managed_files>["core/board.py"]</managed_files>
+            </action>
+            <action tool="agent_operations" operation="create">
+                <agent_name>PieceDesigner</agent_name>
+                <description>Expert in chess piece OOP design</description>
+                <managed_files>["core/pieces.py"]</managed_files>
+            </action>
+            <action tool="agent_operations" operation="create">
+                <agent_name>GameMaster</agent_name>
+                <description>Expert in chess rules and game logic</description>
+                <managed_files>["core/game.py"]</managed_files>
+            </action>
+            <action tool="agent_operations" operation="create">
+                <agent_name>UIDesigner</agent_name>
+                <description>Expert in Tkinter GUI development</description>
+                <managed_files>["gui/interface.py"]</managed_files>
+            </action>
+            <action tool="agent_operations" operation="create">
+                <agent_name>AIStrategist</agent_name>
+                <description>Expert in chess AI algorithms</description>
+                <managed_files>["ai/engine.py"]</managed_files>
+            </action>
+            <action tool="agent_operations" operation="create">
+                <agent_name>UtilityEngineer</agent_name>
+                <description>Expert in Python utility design</description>
+                <managed_files>["utils/helpers.py"]</managed_files>
+            </action>
+            <action tool="agent_operations" operation="create">
+                <agent_name>EntryPointAgent</agent_name>
+                <description>Expert in Python application architecture</description>
+                <managed_files>["chess.py"]</managed_files>
+            </action>
+            <action tool="agent_operations" operation="create">
+                <agent_name>TestEngineer</agent_name>
+                <description>Expert in Python testing with pytest</description>
+                <managed_files>["tests/test_chess.py"]</managed_files>
+            </action>
+        </phase>
+
+        <phase name="code_generation">
+            <sequence>
+                <task agent="UtilityEngineer" message="Create chess utility functions including piece values, colors, coordinate helpers, and notation conversion"/>
+                <task agent="BoardArchitect" message="Create ChessBoard class with 8x8 representation, piece placement, and position management"/>
+                <task agent="PieceDesigner" message="Create base Piece class and all chess piece subclasses with movement rules"/>
+                <task agent="GameMaster" message="Create ChessGame class with complete rules, move validation, and game state management"/>
+                <task agent="AIStrategist" message="Create ChessAI class with minimax algorithm and position evaluation"/>
+                <task agent="UIDesigner" message="Create ChessGUI class with Tkinter interface and user interaction"/>
+                <task agent="EntryPointAgent" message="Create main chess.py entry point that ties everything together"/>
+                <task agent="TestEngineer" message="Create comprehensive test suite for all components"/>
+            </sequence>
+        </phase>
+
+        <phase name="validation_and_integration">
+            <action tool="validation" operation="tests"/>
+            <action tool="validation" operation="pre-commit"/>
+            <action tool="validation" operation="file-length"/>
+            <action tool="git_operations" operation="status"/>
+            <action tool="git_operations" operation="commit" message="Complete PyChess implementation with GUI and AI"/>
+        </phase>
+    </mcp_workflow>
+
+    <quality_standards>
+        <code_style>PEP 8 compliant with type hints and docstrings</code_style>
+        <max_file_length>250</max_file_length>
+        <test_coverage>Minimum 75%</test_coverage>
+        <documentation>Docstrings for all public methods and classes</documentation>
+        <dependencies>Only standard library + tkinter (no external deps)</dependencies>
+    </quality_standards>
+
+    <expected_deliverables>
+        <deliverable>Fully functional chess game with GUI</deliverable>
+        <deliverable>AI opponent that makes reasonable moves</deliverable>
+        <deliverable>Single entry point: python chess.py</deliverable>
+        <deliverable>Complete test suite with good coverage</deliverable>
+        <deliverable>Clean git history with atomic commits</deliverable>
+        <deliverable>All files under 250 lines</deliverable>
+    </expected_deliverables>
+
+    <integration_notes>
+        <note>Each agent manages exactly ONE file using the async queueing system</note>
+        <note>Use XML-based tool calling throughout</note>
+        <note>Coordinate interfaces between agents before implementation</note>
+        <note>Run validation after each component</note>
+        <note>Commit after each successful agent completion</note>
+        <note>If any file exceeds 250 lines, have agent refactor</note>
+        <note>Game should be playable immediately after all agents complete</note>
+    </integration_notes>
+</project_orchestration>

@@ -29,7 +29,7 @@ from src.schemas.files.python_file import (
 )
 
 
-class JsonFileManager:
+class FileManager:
     """Manages JSON-based file representations and template rendering"""
 
     def __init__(self, workspace_path: str, templates_path: str = "templates"):
@@ -42,6 +42,7 @@ class JsonFileManager:
             loader=FileSystemLoader(self.templates_path),
             trim_blocks=True,
             lstrip_blocks=True,
+            autoescape=False,  # Disable autoescape for code generation
         )
 
         # Ensure .meta directory exists

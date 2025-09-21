@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.core.config.manager.manager import SystemConfig
-from src.core.files.json_file_manager import JsonFileManager
+from src.core.files.file_manager import FileManager
 from src.core.prompts.manager import PromptManager
 from src.schemas.agents.agents import (
     AgentRequest,
@@ -67,7 +67,7 @@ class Agent:
         # Initialize JSON file manager for structured code generation
         workspace_path = getattr(system_config, 'workspace_root', '/workspace')
         templates_path = 'templates'
-        self.json_file_manager = JsonFileManager(workspace_path, templates_path)
+        self.file_manager = FileManager(workspace_path, templates_path)
 
         # Load existing data
         self._load_conversation_history()
