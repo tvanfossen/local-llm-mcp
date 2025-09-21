@@ -1,7 +1,7 @@
 {% if module_docstring %}"""{{ module_docstring }}"""
 
 {% endif %}
-{% for import in imports -%}
+{%- for import in imports -%}
 {{ import.to_import_statement() }}
 {% endfor %}
 {%- if imports %}
@@ -34,10 +34,10 @@ class {{ dataclass.name }}{% if dataclass.base_classes %}({{ dataclass.base_clas
 {%- for class in classes %}
 
 class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join(', ') }}){% endif %}:
-    {% if class.docstring -%}
+    {%- if class.docstring %}
     """{{ class.docstring }}"""
-    {% endif %}
-
+    {%- endif %}
+    
     {%- for var in class.class_variables %}
     {{ var.name }}{% if var.type %}: {{ var.type }}{% endif %} = {{ var.value }}
     {%- endfor %}
@@ -61,13 +61,18 @@ class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join('
     ){% if method.return_type %} -> {{ method.return_type }}{% endif %}:
         {%- if method.docstring %}
         """{{ method.docstring }}"""
-        {% endif %}
-        {{ method.body | indent(8, first=False) }}
+        {%- endif %}
+        {%- if '\n' in method.body %}
+        {%- for line in method.body.split('\n') %}
+        {{ line }}
+        {%- endfor %}
+        {%- else %}
+        {{ method.body }}
+        {%- endif %}
     {% if not loop.last %}
 
     {% endif %}
     {%- endfor %}
-
 {% endfor %}
 {%- for function in functions %}
 {%- for decorator in function.decorators %}
@@ -81,6 +86,12 @@ def {{ function.name }}(
     {%- if function.docstring %}
     """{{ function.docstring }}"""
     {%- endif %}
-    {{ function.body | indent(4, first=False) }}
+    {%- if '\n' in function.body %}
+    {%- for line in function.body.split('\n') %}
+    {{ line }}
+    {%- endfor %}
+    {%- else %}
+    {{ function.body }}
+    {%- endif %}
 
 {% endfor %}

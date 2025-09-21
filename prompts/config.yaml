@@ -1,6 +1,6 @@
 global_variables:
-  max_tokens: 1024
-  temperature: 0.7
+  max_tokens: 8192
+  temperature: 0.5
   model_name: "Qwen2.5-7B"
   xml_version: "1.0"
   timestamp: "{timestamp}"
