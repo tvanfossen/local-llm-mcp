@@ -124,7 +124,9 @@ class ServerOrchestrator:
         logger.info("🔧 HTTP API: /api/* (for testing/debugging)")
         logger.info("❤️ Health check: GET /health")
         logger.info("📊 System info: GET /")
-        logger.info("🛠️  4 Core Tools: local_model, git_operations, workspace, validation")
+        # Get tool count dynamically
+        tool_count = len(self.tool_executor.available_tools) if self.tool_executor else 0
+        logger.info(f"🛠️  {tool_count} Available Tools (dynamically loaded)")
         logger.info("📋 Async Task Queue: Enabled for long-running operations")
 
         # Model and agent info
@@ -202,76 +204,27 @@ class ServerOrchestrator:
 
         return True
 
-    def _initialize_tool_executor(self) -> bool:
+    async def _initialize_tool_executor(self) -> bool:
         """Initialize consolidated tool executor and update agent registry"""
-        logger.info("Initializing consolidated tool executor (4 core tools + async operations)...")
+        logger.info("Initializing consolidated tool executor with dynamic tools + async operations...")
         self.tool_executor = ConsolidatedToolExecutor(self.agent_registry, self.llm_manager)
 
         # Update LLM manager with tool executor and task queue for MCP bridge
         self.llm_manager.tool_executor = self.tool_executor
         self.llm_manager.task_queue = self.agent_registry.task_queue
 
-        # Register tools with LLM manager to initialize MCP bridge
-        tools = [
-            {
-                "name": "file_metadata",
-                "description": "Create and manage XML metadata files for structured code generation",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "action": {"type": "string", "description": "Action to perform (create, read, list)"},
-                        "path": {"type": "string", "description": "File path for metadata operations"},
-                        "xml_content": {"type": "string", "description": "XML content for create action"}
-                    },
-                    "required": ["action"]
-                }
-            },
-            {
-                "name": "workspace",
-                "description": "Create, write, read files and directories. Use generate_from_metadata to create files from XML metadata",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "action": {"type": "string", "description": "Action to perform (write, read, list, generate_from_metadata, etc.)"},
-                        "path": {"type": "string", "description": "File or directory path"},
-                        "content": {"type": "string", "description": "File content for write operations"}
-                    },
-                    "required": ["action"]
-                }
-            },
-            {
-                "name": "validation",
-                "description": "Run tests and validation on code",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "description": "Validation operation to perform"},
-                        "file_paths": {"type": "array", "items": {"type": "string"}, "description": "Files to validate"}
-                    },
-                    "required": ["operation"]
-                }
-            },
-            {
-                "name": "git_operations",
-                "description": "Commit and manage git operations",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "description": "Git operation (status, commit, etc.)"},
-                        "message": {"type": "string", "description": "Commit message for commit operations"}
-                    },
-                    "required": ["operation"]
-                }
-            }
-        ]
+        # Get tools dynamically from the consolidated tool executor (DRY principle)
+        logger.info("Getting available tools from consolidated tool executor...")
+        tools = await self.tool_executor.get_available_tools()
 
-        logger.info("Registering tools with LLM manager for MCP bridge...")
+        logger.info(f"Registering {len(tools)} tools with LLM manager for MCP bridge...")
         self.llm_manager.register_tools(tools)
 
         # Update agent registry with consolidated toolchain
         self.agent_registry.update_toolchain(self.llm_manager, self.tool_executor)
 
-        logger.info("✅ Tool executor ready with: local_model, git_operations, workspace, validation")
+        tool_names = [tool['name'] for tool in tools]
+        logger.info(f"✅ Tool executor ready with {len(tools)} tools: {', '.join(tool_names)}")
         logger.info("✅ Agent operations enhanced with async task queue")
         logger.info("✅ Agent registry updated with consolidated toolchain")
         return True
@@ -292,7 +245,7 @@ async def main():
         orchestrator.setup_signal_handlers()
 
         # Initialize system
-        logger.info("🔧 Initializing Consolidated 4-Tool MCP Server with Async Task Queue...")
+        logger.info("🔧 Initializing Consolidated MCP Server with Dynamic Tools + Async Task Queue...")
         success = await orchestrator.initialize()
 
         if not success:

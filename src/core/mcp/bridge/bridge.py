@@ -104,6 +104,7 @@ class MCPBridge:
                 "error": str(e)
             }
 
+
     async def _execute_tool_call(self, tool_call: Dict[str, Any], parent_task_id: Optional[str] = None) -> Dict[str, Any]:
         """Execute a single tool call - via queue if available, otherwise direct"""
         tool_name = tool_call.get('tool_name') or tool_call.get('name')

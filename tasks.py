@@ -18,28 +18,6 @@ SRC_DIR = PROJECT_ROOT / "src"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
 
-
-
-
-@task
-def test(ctx, coverage=True, verbose=False):
-    """Run tests with optional coverage"""
-    print("🧪 Running tests...")
-
-    cmd = ["python3", "-m", "pytest", "src/"]
-
-    if coverage:
-        cmd.extend(["--cov=src", "--cov-report=term-missing"])
-
-    if verbose:
-        cmd.append("-v")
-    else:
-        cmd.append("--tb=short")
-
-    ctx.run(" ".join(cmd))
-
-
-
 @task
 def build(ctx):
     """Build the Docker container with CUDA support"""
@@ -49,7 +27,7 @@ def build(ctx):
 
 
 @task
-def run(ctx, port=8000, repo=None):
+def run(ctx, port=8000, repo="/home/tvanfossen/Projects/local-llm-mcp/examples/PyChess"):
     """Run the MCP server in Docker with workspace mount"""
     import os
 
@@ -171,4 +149,63 @@ def mcp_test(ctx, endpoint="http://localhost:8000"):
         print("✅ MCP server is healthy")
     except Exception:
         print("❌ MCP server not responding")
+
+
+@task
+def auth(ctx, endpoint="http://localhost:8000", key_file=None):
+    """Authenticate with MCP server to enable tool access"""
+    import os
+    import json
+
+    # Default to the same key location that orchestrate.sh uses
+    if key_file is None:
+        key_file = os.path.expanduser("~/.ssh/mcp/id_rsa_mcp")
+
+    print(f"🔐 Authenticating with MCP server at {endpoint}")
+    print(f"   Using SSH key: {key_file}")
+
+    # Check if key file exists
+    if not os.path.exists(key_file):
+        print(f"❌ SSH key file not found: {key_file}")
+        print(f"   Generate keys with: ./orchestrate.sh")
+        return None
+
+    # Read the SSH key content
+    try:
+        with open(key_file, 'r') as f:
+            private_key_content = f.read().strip()
+    except Exception as e:
+        print(f"❌ Failed to read SSH key: {e}")
+        return None
+
+    # Create authentication payload with the actual SSH key
+    auth_payload = json.dumps({"private_key": private_key_content})
+
+    try:
+        # Send authentication request with proper escaping
+        cmd = f"curl -s -X POST -H 'Content-Type: application/json' -d '{auth_payload}' {endpoint}/api/orchestrator/authenticate"
+        result = ctx.run(cmd, hide=True)
+
+        if result.stdout:
+            # Parse response to check if authentication was successful
+            import json
+            try:
+                response = json.loads(result.stdout)
+                if "session_token" in response:
+                    print(f"✅ Authentication successful")
+                    print(f"   Session Token: {response['session_token']}")
+                    print(f"   Client: {response.get('client_name', 'Unknown')}")
+                    print(f"   Expires in: {response.get('expires_in', 'Unknown')} seconds")
+                    return response["session_token"]
+                else:
+                    print(f"❌ Authentication failed: {response.get('error', 'Unknown error')}")
+            except json.JSONDecodeError:
+                print(f"❌ Invalid response from server: {result.stdout}")
+        else:
+            print("❌ No response from authentication endpoint")
+
+    except Exception as e:
+        print(f"❌ Authentication request failed: {e}")
+
+    return None
 

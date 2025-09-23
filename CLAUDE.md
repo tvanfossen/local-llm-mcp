@@ -6,29 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Development Workflow
 
-DONT START THE SERVER YOURSELF - WAIT FOR ME AND I WILL DO IT
+**CRITICAL SERVER CONSTRAINTS:**
+
+- **TO SEE YOUR CHANGES REFLECTED IN THE SERVER YOU MUST run: inv stop && inv build && inv run --repo=/home/tvanfossen/Projects/local-llm-mcp/examples/PyChess && inv auth**
+
 ```bash
 # Build and start server
 inv build              # Build Docker container with CUDA support
 inv run                 # Start MCP server in Docker (port 8000)
 inv logs                # View all container logs
-inv logs --follow       # Follow logs in real-time
 inv stop                # Stop containers
-inv test                # Health check server
+inv auth                # auth the server once started
 
-# Testing
-inv test                # Run pytest with coverage
-inv test --verbose      # Verbose test output
-pytest src/path/to/test_file.py::test_function  # Single test
 ```
 
-### Container Management
-```bash
-# Server is always run in Docker with GPU acceleration
-inv run --port=8080     # Custom port
-inv run --repo=/path    # Mount different workspace
-docker logs local-llm-mcp-server  # Direct container logs
-```
 
 ## Architecture Overview
 
@@ -206,7 +197,6 @@ See `sample_prompt.xml` for complete PyChess game orchestration:
 ## Development Notes
 
 ### When Working on Agent Code
-- Always test with `inv run` then create agent and queue task
 - Monitor `inv logs` for model output debugging
 - Agent responses should be XML tool calls
 - Check `.meta/*.xml` files for proper metadata generation
@@ -246,21 +236,3 @@ See `sample_prompt.xml` for complete PyChess game orchestration:
 - **Problem**: Tool descriptions scattered across codebase
 - **Solution**: Centralized in `prompts/tools/` directory
 - **Impact**: Maintainable, consistent tool documentation
-
-## Testing and Validation
-
-```bash
-# Test async queueing
-pytest tests/unit/test_bridge_async_queueing.py -v
-
-# Test tool descriptions
-pytest tests/unit/test_tool_prompt_formatting.py -v
-
-# Test jinja2 templates
-pytest tests/unit/test_jinja2_board_generation.py -v
-
-# Full test suite
-pytest tests/ --cov=src --cov-report=html
-```
-
-The system is now fully functional for agent-based code orchestration with XML-structured generation and async task processing.

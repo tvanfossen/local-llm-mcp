@@ -1,0 +1,44 @@
+"""{{ metadata.description }}"""
+
+{% if imports %}
+{% for imp in imports %}
+{% if imp.items %}
+from {{ imp.module }} import {{ imp.items }}
+{% else %}
+import {{ imp.module }}
+{% endif %}
+{% endfor %}
+
+{% endif %}
+{% if constants %}
+{% for constant in constants %}
+{{ constant.name }}: {{ constant.type }} = {{ constant.value }}
+{% endfor %}
+
+{% endif %}
+{% for class in classes %}
+class {{ class.name }}{% if class.base %} ({{ class.base }}){% endif %}:
+    """{{ class.docstring }}"""
+
+{% if class.init_method %}
+    def __init__(self{% for param in class.init_method.parameters[1:] %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}):
+        {{ class.init_method.body | indent(8) }}
+{% endif %}
+
+{% for method in class.methods %}
+    def {{ method.name }}(self{% for param in method.parameters[1:] %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}){% if method.returns %} -> {{ method.returns.type }}{% endif %}:
+{% if method.docstring %}
+        """{{ method.docstring }}"""
+{% endif %}
+        {{ method.body | indent(8) }}
+
+{% endfor %}
+{% endfor %}
+{% for function in functions %}
+def {{ function.name }}({% for param in function.parameters %}{{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}){% if function.returns %} -> {{ function.returns.type }}{% endif %}:
+{% if function.docstring %}
+    """{{ function.docstring }}"""
+{% endif %}
+    {{ function.body | indent(4) }}
+
+{% endfor %}

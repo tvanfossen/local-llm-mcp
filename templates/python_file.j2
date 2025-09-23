@@ -2,7 +2,7 @@
 
 {% endif %}
 {%- for import in imports -%}
-{{ import.to_import_statement() }}
+{{ imp.to_import_statement() }}
 {% endfor %}
 {%- if imports %}
 

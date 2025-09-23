@@ -260,9 +260,9 @@ class UnifiedToolCallParser:
                 tool_name = tool_name_elem.text.strip()
             else:
                 # Format 2: <workspace>action</workspace> (tool name as tag)
-                # Find the first child that's not 'arguments'
+                # Find the first child that's not 'parameters'
                 for child in elem:
-                    if child.tag != 'arguments':
+                    if child.tag != 'parameters':
                         tool_name = child.tag
                         break
 
@@ -270,9 +270,9 @@ class UnifiedToolCallParser:
                 self.logger.error("No tool name found in XML tool call")
                 return None
 
-            # Extract arguments
+            # Extract arguments from parameters tag
             arguments = {}
-            args_elem = elem.find('arguments')
+            args_elem = elem.find('parameters')
             if args_elem is not None:
                 for arg_elem in args_elem:
                     arg_name = arg_elem.tag

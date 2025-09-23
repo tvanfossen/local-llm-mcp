@@ -4,11 +4,23 @@ Context: {context}
 Target File: {filename}
 Request: {request}
 
-You MUST generate Python code using the new two-tool workflow. Follow this EXACT sequence:
+You MUST generate Python code using the dependency-aware workflow. Follow this EXACT sequence:
+
+STEP 0: Query system context (if working on a multi-module project):
+Use 'interface_registry' tool with operation='get_context' and module_path='{filename}' to understand:
+- Available classes and functions from other modules
+- Dependencies you can use
+- Template recommendations
+- Build order requirements
+
+Then use 'interface_registry' tool with operation='recommend_template' and requirements='{request}' to get the optimal template type.
+
+MAIN WORKFLOW:
 
 1. Use 'file_metadata' tool with action='create' to create XML metadata for {filename}
 2. Use 'workspace' tool with action='generate_from_metadata' to create the Python file from the metadata
 3. Use 'validation' tool to validate the generated code
+4. Use 'interface_registry' tool with operation='register_module' to register your module's exports for other agents
 
 STEP 1: Call file_metadata tool to create XML metadata:
 Use file_metadata tool with action='create', path='{filename}', and xml_content containing the complete XML structure below.

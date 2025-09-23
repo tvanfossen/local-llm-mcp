@@ -17,6 +17,7 @@ from src.mcp.tools.git_operations.git_operations import git_tool
 from src.mcp.tools.local_model.local_model import local_model_tool
 from src.mcp.tools.validation.validation import run_all_validations, run_pre_commit, run_tests, validate_file_length
 from src.mcp.tools.workspace.workspace import workspace_tool
+from src.mcp.tools.interface_registry import interface_registry_tool
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +231,31 @@ class ConsolidatedToolExecutor:
                     "required": ["operation"],
                 },
             },
+            # Core Tool 6: Interface Registry Operations
+            "interface_registry": {
+                "name": "interface_registry",
+                "description": "Interface registry for dependency-aware agent orchestration",
+                "function": self._interface_registry_handler,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "description": "Interface registry operation to perform",
+                            "enum": ["register_module", "get_dependencies", "get_interface", "get_context", "validate_dependencies", "get_build_order", "recommend_template", "get_available_classes", "get_available_functions"],
+                        },
+                        "module_path": {"type": "string", "description": "Module path for operations"},
+                        "exports": {"type": "array", "items": {"type": "object"}, "description": "Module exports"},
+                        "dependencies": {"type": "array", "items": {"type": "string"}, "description": "Module dependencies"},
+                        "template_preference": {"type": "string", "description": "Preferred template type"},
+                        "description": {"type": "string", "description": "Module description"},
+                        "context_type": {"type": "string", "description": "Context type (minimal, standard, full)", "default": "standard"},
+                        "requirements": {"type": "string", "description": "Requirements for template recommendation"},
+                        "exclude_modules": {"type": "array", "items": {"type": "string"}, "description": "Modules to exclude"},
+                    },
+                    "required": ["operation"],
+                },
+            },
         }
 
     async def _validation_handler(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -239,6 +265,25 @@ class ConsolidatedToolExecutor:
             return create_mcp_response(False, "operation parameter required")
 
         return await self.validation.execute(operation, args)
+
+    async def _interface_registry_handler(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Handle interface registry operations"""
+        operation = args.get("operation")
+        if not operation:
+            return create_mcp_response(False, "operation parameter required")
+
+        try:
+            # Call the interface registry tool with the args
+            result = await interface_registry_tool(args)
+
+            # Convert to MCP response format - pass the result as the message for data display
+            if result.get("success"):
+                return create_mcp_response(True, result, result)
+            else:
+                return create_mcp_response(False, result.get("error", "Operation failed"))
+
+        except Exception as e:
+            return handle_exception(e, f"Interface registry {operation}")
 
     async def get_available_tools(self) -> list[dict[str, Any]]:
         """Get list of available tools with schemas"""

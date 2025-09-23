@@ -1,0 +1,76 @@
+**INTERFACE REGISTRY TOOL**
+
+The interface_registry tool provides dependency-aware orchestration for multi-agent code generation.
+
+**Purpose**: Enable agents to understand system context, manage dependencies, and coordinate with other agents building the same project.
+
+**Available Operations:**
+
+1. **register_module** - Register a module's interface
+   - module_path: Path to the module (e.g., "core/board.py")
+   - exports: List of classes/functions the module exports
+   - dependencies: List of modules this module depends on
+   - template_preference: Recommended template type
+   - description: Brief description of the module
+
+2. **get_dependencies** - Get dependencies for a module
+   - module_path: Path to query dependencies for
+
+3. **get_context** - Get system context for a module
+   - module_path: Module to get context for
+   - context_type: "minimal", "standard", or "full"
+
+4. **recommend_template** - Get template recommendation
+   - requirements: Description of what you're building
+   - dependencies: Optional list of dependencies
+
+5. **get_build_order** - Get proper build order for all modules
+
+6. **validate_dependencies** - Check if all dependencies are available
+   - module_path: Module to validate
+
+7. **get_available_classes** - Get all available classes in the system
+   - exclude_modules: Optional list of modules to exclude
+
+8. **get_available_functions** - Get all available functions in the system
+   - exclude_modules: Optional list of modules to exclude
+
+**Usage Pattern for Agents:**
+
+Before generating code:
+1. Call get_context to understand available dependencies
+2. Call recommend_template to choose appropriate template
+3. Call get_available_classes/functions to see what's available
+
+After generating code:
+1. Call register_module to register your exports
+2. This helps other agents that depend on your module
+
+**Example Usage:**
+
+```xml
+<tool_call>
+<tool_name>interface_registry</tool_name>
+<parameters>
+<operation>get_context</operation>
+<module_path>core/game.py</module_path>
+<context_type>standard</context_type>
+</parameters>
+</tool_call>
+```
+
+```xml
+<tool_call>
+<tool_name>interface_registry</tool_name>
+<parameters>
+<operation>register_module</operation>
+<module_path>core/board.py</module_path>
+<exports>[{"type": "class", "name": "ChessBoard", "methods": ["move_piece", "get_piece_at"]}]</exports>
+<dependencies>["core/pieces.py"]</dependencies>
+<template_preference>class_module</template_preference>
+<description>Chess board representation with 8x8 grid</description>
+</parameters>
+</tool_call>
+```
+
+This tool enables system-aware code generation where agents coordinate their work based on actual dependencies and interfaces rather than working in isolation.
