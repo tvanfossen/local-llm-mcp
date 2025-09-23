@@ -1,0 +1,3 @@
+[submodule "examples/PyChess"]
+	path = examples/PyChess
+	url = https://github.com/tvanfossen/PyChess.git
