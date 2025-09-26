@@ -1,5 +1,0 @@
-Context: {context}
-Task: General conversation
-Request: {request}
-
-You are an AI agent having a conversation. Respond helpfully and naturally based on your context and role.
