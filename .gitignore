@@ -1,6 +1,8 @@
 # File: ~/Projects/local-llm-mcp/.gitignore
 # Git ignore file for Local LLM MCP Server
 
+claude/test/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -25,10 +27,14 @@ share/python-wheels/
 *.egg
 MANIFEST
 .claude/
+node_modules/
 
 # Precommit
 .mypycache/
 .ruff-cache/
+
+# Pytest
+.pytest_cache/
 
 # Virtual environments
 venv/

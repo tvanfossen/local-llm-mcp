@@ -68,7 +68,7 @@ class ConsolidatedToolExecutor:
         self.available_tools = self._build_tool_registry()
 
     def _build_tool_registry(self) -> dict[str, Any]:
-        """Build registry of 4 core consolidated tools"""
+        """Build registry of  tools"""
         return {
             # Core Tool 1: Local Model Operations
             "local_model": {
@@ -120,10 +120,10 @@ class ConsolidatedToolExecutor:
                     "required": ["operation"],
                 },
             },
-            # Core Tool 3: File Metadata Operations (XML metadata management)
+            # Core Tool 3: File Metadata Operations (JSON metadata management)
             "file_metadata": {
                 "name": "file_metadata",
-                "description": "File metadata operations (create, read, list XML metadata files)",
+                "description": "File metadata operations (create, read, list JSON metadata files)",
                 "function": file_metadata_tool,
                 "inputSchema": {
                     "type": "object",
@@ -134,7 +134,7 @@ class ConsolidatedToolExecutor:
                             "enum": ["create", "read", "list"],
                         },
                         "path": {"type": "string", "description": "File path for metadata operations"},
-                        "xml_content": {"type": "string", "description": "XML content for create action"},
+                        "json_content": {"type": "string", "description": "JSON content for create action"},
                     },
                     "required": ["action"],
                 },
@@ -178,9 +178,9 @@ class ConsolidatedToolExecutor:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "operation": {
+                        "action": {
                             "type": "string",
-                            "description": "Validation operation to perform",
+                            "description": "Validation action to perform",
                             "enum": ["tests", "pre-commit", "file-length", "all"],
                         },
                         "test_path": {"type": "string", "description": "Test path", "default": "src/"},
@@ -195,7 +195,7 @@ class ConsolidatedToolExecutor:
                         },
                         "max_lines": {"type": "integer", "description": "Maximum lines", "default": 300},
                     },
-                    "required": ["operation"],
+                    "required": ["action"],
                 },
             },
             # Core Tool 5: Agent Operations
@@ -260,17 +260,17 @@ class ConsolidatedToolExecutor:
 
     async def _validation_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle validation operations"""
-        operation = args.get("operation")
-        if not operation:
-            return create_mcp_response(False, "operation parameter required")
+        action = args.get("action")
+        if not action:
+            return create_mcp_response(False, "action parameter required")
 
-        return await self.validation.execute(operation, args)
+        return await self.validation.execute(action, args)
 
     async def _interface_registry_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle interface registry operations"""
-        operation = args.get("operation")
-        if not operation:
-            return create_mcp_response(False, "operation parameter required")
+        action = args.get("action")
+        if not action:
+            return create_mcp_response(False, "action parameter required")
 
         try:
             # Call the interface registry tool with the args

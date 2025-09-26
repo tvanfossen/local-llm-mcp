@@ -288,11 +288,11 @@ async def git_tool(args: dict[str, Any]) -> dict[str, Any]:
     - stash: Manage stashes (list, save, pop)
     - remote: Manage remotes (list)
     """
-    operation = args.get("operation")
+    action = args.get("action")
 
-    if not operation:
+    if not action:
         return create_mcp_response(
-            False, "Operation parameter required. Available: status, diff, commit, log, branch, stash, remote"
+            False, "Action parameter required. Available: status, diff, commit, log, branch, stash, remote"
         )
 
     # Initialize git operations
@@ -301,31 +301,31 @@ async def git_tool(args: dict[str, Any]) -> dict[str, Any]:
     except ValueError as e:
         return create_mcp_response(False, str(e))
 
-    # Route to appropriate operation
+    # Route to appropriate action
     try:
-        if operation == "status":
+        if action == "status":
             result = ops.status(args.get("short", False), args.get("branch", True))
 
-        elif operation == "diff":
+        elif action == "diff":
             result = ops.diff(args.get("staged", False), args.get("file_path"))
 
-        elif operation == "commit":
+        elif action == "commit":
             result = ops.commit(args.get("message", ""), args.get("add_all", False), args.get("files"))
 
-        elif operation == "log":
+        elif action == "log":
             result = ops.log(args.get("limit", 10), args.get("oneline", True), args.get("author"))
 
-        elif operation == "branch":
+        elif action == "branch":
             result = ops.branch(args.get("action", "list"), args.get("name"), args.get("delete", False))
 
-        elif operation == "stash":
+        elif action == "stash":
             result = ops.stash(args.get("action", "list"), args.get("message"))
 
-        elif operation == "remote":
+        elif action == "remote":
             result = ops.remote(args.get("action", "list"))
 
         else:
-            return create_mcp_response(False, f"Unknown operation '{operation}'")
+            return create_mcp_response(False, f"Unknown action '{action}'")
 
         # Convert internal response to MCP format
         return create_mcp_response(

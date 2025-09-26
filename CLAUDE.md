@@ -24,7 +24,7 @@ inv auth                # auth the server once started
 ## Architecture Overview
 
 ### Core Concept: Agent-Based MCP Server
-This is a **local LLM MCP server** that provides Claude Code with specialized agents. Each agent owns exactly one file and uses a local CUDA-accelerated LLM for code generation with **XML-structured tool calling**.
+This is a **local LLM MCP server** that provides Claude Code with specialized agents. Each agent owns exactly one file and uses a local CUDA-accelerated LLM for code generation with **JSON-structured tool calling**.
 
 ### Key Architectural Patterns
 
@@ -50,17 +50,17 @@ Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM 
 
 **Agent Communication Flow (Updated):**
 1. MCP tool call creates/queues agent task
-2. Agent uses local LLM to generate XML tool calls
+2. Agent uses local LLM to generate JSON tool calls
 3. **NEW**: Tool calls queue immediately and return `{"queued": True, "task_id": "..."}`
 4. Async task queue processes tool calls independently
 5. Results available via task status/result queries
 
-**Tool Call Format (XML-First):**
-- Agents receive XML-optimized prompts for Qwen2.5-7B
-- Local LLM generates XML tool calls (with JSON fallback)
+**Tool Call Format (JSON-Only):**
+- Agents receive JSON-optimized prompts for Qwen2.5-7B
+- Local LLM generates JSON tool calls exclusively
 - Four core tools: `file_metadata`, `workspace`, `validation`, `git_operations`
-- Metadata stored in `.meta/*.xml` files with structured content
-- Jinja2 templates render Python code from XML metadata
+- Metadata stored in `.meta/*.json` files with structured content
+- Jinja2 templates render Python code from JSON metadata
 
 **CUDA Requirements:**
 - RTX 1080ti (11GB VRAM) optimized
@@ -70,10 +70,10 @@ Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM 
 
 ## Current State (FULLY FUNCTIONAL)
 
-### ✅ XML-Structured Generation System
-- **Status**: XML tool calling fully implemented and tested
-- **Working**: Agent creation, async task queueing, XML metadata generation, jinja2 code generation
-- **Flow**: Agent → XML tool calls → file_metadata → workspace generate_from_metadata → clean Python code
+### ✅ JSON-Structured Generation System
+- **Status**: JSON tool calling fully implemented and tested
+- **Working**: Agent creation, async task queueing, JSON metadata generation, jinja2 code generation
+- **Flow**: Agent → JSON tool calls → file_metadata → workspace generate_from_metadata → clean Python code
 - **Template System**: Jinja2 templates with proper formatting and `autoescape=False`
 
 ### ✅ Async Task Queue (RESOLVED)
@@ -83,14 +83,14 @@ Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM 
 - **Performance**: 100+ tool calls can queue concurrently
 
 ### ✅ Tool Integration
-1. `file_metadata` - Creates `.meta/*.xml` structured metadata
-2. `workspace generate_from_metadata` - Renders Python from XML using jinja2
+1. `file_metadata` - Creates `.meta/*.json` structured metadata
+2. `workspace generate_from_metadata` - Renders Python from JSON using jinja2
 3. `validation` - Tests, linting, file length checks
 4. `git_operations` - Version control integration
 5. `agent_operations` - Agent lifecycle management
 
 ### File Structure Context
-- `.meta/` - Agent-generated XML metadata files
+- `.meta/` - Agent-generated JSON metadata files
 - `.mcp-agents/` - Persistent agent state per repository
 - `src/core/agents/agent/agent.py` - Individual agent implementation
 - `src/core/mcp/bridge/` - Tool call parsing and execution bridge
@@ -104,11 +104,6 @@ Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM 
 - Docker with NVIDIA Container Toolkit
 - Models directory: `~/models/`
 - Workspace mounted at `/workspace` in container
-
-### Authentication
-- Server requires session-based auth for MCP calls
-- Health endpoint publicly accessible
-- Orchestrator UI provides auth token management
 
 ## Tool Usage Patterns
 
@@ -147,7 +142,7 @@ mcp__local-llm-agents__agent_operations({
 
 ### Manual Tool Operations
 ```python
-# Generate Python from existing XML metadata
+# Generate Python from existing JSON metadata
 mcp__local-llm-agents__workspace({
     "action": "generate_from_metadata",
     "path": "core/board.py"
@@ -170,9 +165,9 @@ mcp__local-llm-agents__git_operations({
 ## Project Orchestration
 
 ### Sample Project Structure
-See `sample_prompt.xml` for complete PyChess game orchestration:
+See example JSON orchestration for complete PyChess game:
 
-```xml
+```json
 <project_orchestration>
     <project>
         <name>PyChess</name>
@@ -198,8 +193,8 @@ See `sample_prompt.xml` for complete PyChess game orchestration:
 
 ### When Working on Agent Code
 - Monitor `inv logs` for model output debugging
-- Agent responses should be XML tool calls
-- Check `.meta/*.xml` files for proper metadata generation
+- Agent responses should be JSON tool calls
+- Check `.meta/*.json` files for proper metadata generation
 - Use async task status checking rather than blocking
 
 ### When Working on MCP Integration
@@ -219,6 +214,7 @@ See `sample_prompt.xml` for complete PyChess game orchestration:
 - Test with `workspace generate_from_metadata`
 - Ensure proper newlines and formatting
 - Use `autoescape=False` for code generation
+- **IMPORTANT**: Always run `pytest examples/test/test_schema_validation.py -v` after template changes
 
 ## Recent Major Fixes
 

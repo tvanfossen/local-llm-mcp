@@ -4,6 +4,7 @@ This module provides centralized prompt management for the local-llm-mcp system,
 allowing prompts to be stored in external files for maintainability and rapid iteration.
 """
 
+import json
 import logging
 import yaml
 from pathlib import Path
@@ -54,18 +55,22 @@ class PromptManager:
 
         logger.info(f"PromptManager initialized with directory: {self.prompts_dir}")
 
-    def load_prompt(self, category: str, name: str, format: str = "txt") -> str:
-        """Load a prompt file (txt, xml, or md)
+    def load_prompt(self, category: str, name: str, format: str = "json") -> str:
+        """Load a prompt template from JSON file with schema validation
 
         Args:
             category: Directory category (e.g., 'agents', 'tools', 'system')
-            name: Prompt name (e.g., 'code_generation', 'tool_definition')
-            format: File extension (txt, xml, md)
+            name: Prompt name (e.g., 'structured_code_generation', 'tool_calling_json')
+            format: File extension (only 'json' supported for strict schema enforcement)
 
         Returns:
-            Raw prompt content as string
+            Prompt template string extracted from JSON schema
         """
-        prompt_path = self.prompts_dir / category / f"{name}.{format}"
+        if format != "json":
+            logger.error(f"Only JSON format supported for strict schema compliance, got: {format}")
+            return f"[UNSUPPORTED FORMAT: {format} - JSON only]"
+
+        prompt_path = self.prompts_dir / category / f"{name}.json"
 
         # Check cache first
         cache_key = str(prompt_path)
@@ -73,35 +78,55 @@ class PromptManager:
             return self.cache[cache_key]
 
         if not prompt_path.exists():
-            logger.warning(f"Prompt file not found: {prompt_path}")
-            return f"[PROMPT NOT FOUND: {category}/{name}.{format}]"
+            logger.warning(f"JSON prompt file not found: {prompt_path}")
+            return f"[JSON PROMPT NOT FOUND: {category}/{name}.json]"
 
         try:
             with open(prompt_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                data = json.load(f)
 
-            # Cache the content
-            self.cache[cache_key] = content
-            logger.debug(f"Loaded prompt: {prompt_path}")
-            return content
+            # Extract template from JSON schema
+            if not isinstance(data, dict):
+                raise ValueError("JSON prompt must be an object")
 
+            template = data.get("template")
+            if not template:
+                raise ValueError("JSON prompt must contain 'template' field")
+
+            # Cache the extracted template
+            self.cache[cache_key] = template
+            logger.debug(f"Loaded JSON prompt template: {prompt_path}")
+            return template
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in prompt {prompt_path}: {e}")
+            return f"[JSON PARSE ERROR: {e}]"
         except Exception as e:
-            logger.error(f"Failed to load prompt {prompt_path}: {e}")
+            logger.error(f"Failed to load JSON prompt {prompt_path}: {e}")
             return f"[PROMPT LOAD ERROR: {e}]"
 
-    def format_prompt(self, category: str, name: str, format: str = "txt", **kwargs) -> str:
-        """Load and format prompt with variables
+    def format_prompt(self, category: str, name: str, format: str = "json", **kwargs) -> str:
+        """Load and format prompt with variables from JSON schema
 
         Args:
             category: Directory category
             name: Prompt name
-            format: File extension
-            **kwargs: Variables to substitute in the prompt
+            format: File extension (only 'json' supported)
+            **kwargs: Variables to substitute in the prompt template
 
         Returns:
             Formatted prompt with variables substituted
+
+        Raises:
+            ValueError: If template substitution fails or prompt is too long
+            KeyError: If required template variables are missing
         """
         prompt = self.load_prompt(category, name, format)
+
+        # Check character limit BEFORE processing (2000 chars for Qwen2.5-7B)
+        MAX_PROMPT_CHARS = 2000
+        if len(prompt) > MAX_PROMPT_CHARS:
+            raise ValueError(f"Prompt {category}/{name} exceeds {MAX_PROMPT_CHARS} character limit: {len(prompt)} chars")
 
         # Merge variables: global < category < runtime
         all_variables = {}
@@ -112,24 +137,50 @@ class PromptManager:
         if isinstance(category_vars, dict):
             all_variables.update(category_vars.get('variables', {}))
 
+        # Load additional variables from JSON file itself (like metadata_schema)
+        prompt_path = self.prompts_dir / category / f"{name}.json"
+        if prompt_path.exists():
+            try:
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Add metadata_schema if it exists and is needed by template
+                if 'metadata_schema' in data and '{metadata_schema}' in prompt:
+                    all_variables['metadata_schema'] = json.dumps(data['metadata_schema'], indent=2)
+
+            except Exception as e:
+                logger.warning(f"Could not load additional variables from {prompt_path}: {e}")
+
         # Runtime variables override everything
         all_variables.update(kwargs)
 
+        # Format template with strict error handling
         try:
-            return prompt.format(**all_variables)
+            formatted_prompt = prompt.format(**all_variables)
         except KeyError as e:
-            logger.error(f"Missing variable in prompt {category}/{name}: {e}")
-            return prompt  # Return unformatted if variables missing
+            missing_var = str(e).strip("'")
+            raise KeyError(f"Missing required variable '{missing_var}' in prompt {category}/{name}")
         except Exception as e:
-            logger.error(f"Failed to format prompt {category}/{name}: {e}")
-            return prompt
+            raise ValueError(f"Template formatting failed for {category}/{name}: {str(e)}")
+
+        # Validate that all placeholders were actually substituted
+        import re
+        remaining_placeholders = re.findall(r'\{(\w+)\}', formatted_prompt)
+        if remaining_placeholders:
+            raise ValueError(f"Unsubstituted placeholders in {category}/{name}: {remaining_placeholders}")
+
+        # Check final prompt length
+        if len(formatted_prompt) > MAX_PROMPT_CHARS:
+            raise ValueError(f"Formatted prompt {category}/{name} exceeds {MAX_PROMPT_CHARS} character limit: {len(formatted_prompt)} chars")
+
+        return formatted_prompt
 
     def register_variable(self, key: str, value: Any):
         """Register a global variable for prompts"""
         self.variables[key] = value
         logger.debug(f"Registered global variable: {key}")
 
-    def validate_prompt(self, category: str, name: str, format: str = "txt") -> List[str]:
+    def validate_prompt(self, category: str, name: str, format: str = "json") -> List[str]:
         """Check for missing variables in prompt
 
         Returns:
@@ -183,13 +234,13 @@ class PromptValidator:
         if not self.prompt_manager.prompts_dir.exists():
             return {"global": ["Prompts directory does not exist"]}
 
-        # Walk through all prompt files
-        for prompt_file in self.prompt_manager.prompts_dir.rglob("*.txt"):
+        # Walk through all JSON prompt files
+        for prompt_file in self.prompt_manager.prompts_dir.rglob("*.json"):
             relative_path = prompt_file.relative_to(self.prompt_manager.prompts_dir)
             category = str(relative_path.parent)
             name = prompt_file.stem
 
-            prompt_issues = self.prompt_manager.validate_prompt(category, name, "txt")
+            prompt_issues = self.prompt_manager.validate_prompt(category, name, "json")
             if prompt_issues:
                 issues[str(relative_path)] = prompt_issues
 
@@ -205,22 +256,23 @@ class PromptValidator:
         # Implementation depends on metadata structure
         return []
 
-    def validate_xml_examples(self) -> List[str]:
-        """Validate all XML examples against schema
+    def validate_json_examples(self) -> List[str]:
+        """Validate all JSON examples against schema
 
         Returns:
             List of validation errors
         """
         errors = []
 
-        # Find all XML files in examples
-        xml_files = list(self.prompt_manager.prompts_dir.rglob("*.xml"))
+        # Find all JSON files in examples
+        json_files = list(self.prompt_manager.prompts_dir.rglob("*.json"))
 
-        for xml_file in xml_files:
+        for json_file in json_files:
             try:
-                import xml.etree.ElementTree as ET
-                ET.parse(xml_file)
-            except ET.ParseError as e:
-                errors.append(f"{xml_file}: {e}")
+                import json
+                with open(json_file, 'r') as f:
+                    json.load(f)
+            except json.JSONDecodeError as e:
+                errors.append(f"{json_file}: {e}")
 
         return errors

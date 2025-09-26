@@ -1,14 +1,22 @@
-"""File Metadata Tool - XML metadata file management
+"""File Metadata Tool - JSON metadata file management
 
 Responsibilities:
-- Create and update XML metadata files in .meta/ directory
+- Create and update JSON metadata files in .meta/ directory
 - Store structured file representations for code generation
 - Small, focused tool calls to reduce context usage
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict
+
+try:
+    import jsonschema
+    from jsonschema import validate, ValidationError
+    SCHEMA_VALIDATION_AVAILABLE = True
+except ImportError:
+    SCHEMA_VALIDATION_AVAILABLE = False
 
 from src.core.utils.utils import create_mcp_response, handle_exception
 
@@ -21,9 +29,45 @@ class FileMetadataOperations:
     def __init__(self, workspace_root: str = "/workspace"):
         """Initialize with workspace root"""
         self.workspace_root = Path(workspace_root)
+        self.schema = self._load_schema()
 
-    def create_metadata(self, path: str, xml_content: str) -> Dict[str, Any]:
-        """Create or update XML metadata file"""
+    def _load_schema(self) -> Dict[str, Any]:
+        """Load the JSON schema for metadata validation"""
+        try:
+            schema_path = Path("/app/schema/python_metadata.json")
+            if schema_path.exists():
+                with open(schema_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                logger.warning(f"Schema file not found at {schema_path}")
+                return {}
+        except Exception as e:
+            logger.error(f"Failed to load schema: {e}")
+            return {}
+
+    def _validate_metadata(self, metadata_obj: Dict[str, Any]) -> tuple[bool, str]:
+        """Validate metadata against schema"""
+        if not SCHEMA_VALIDATION_AVAILABLE:
+            logger.warning("jsonschema not available, skipping validation")
+            return True, ""
+
+        if not self.schema:
+            logger.warning("No schema loaded, skipping validation")
+            return True, ""
+
+        try:
+            validate(instance=metadata_obj, schema=self.schema)
+            return True, ""
+        except ValidationError as e:
+            error_msg = f"Schema validation failed: {e.message}"
+            if e.path:
+                error_msg += f" at path: {' -> '.join(str(p) for p in e.path)}"
+            return False, error_msg
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
+
+    def create_metadata(self, path: str, json_content: str) -> Dict[str, Any]:
+        """Create or update JSON metadata file"""
         try:
             # Ensure path is relative to workspace root
             if path.startswith('/'):
@@ -31,26 +75,50 @@ class FileMetadataOperations:
 
             # Create .meta directory structure
             meta_dir = self.workspace_root / ".meta"
-            meta_file = meta_dir / f"{path}.xml"
+            meta_file = meta_dir / f"{path}.json"
 
             # Ensure parent directories exist
             meta_file.parent.mkdir(parents=True, exist_ok=True)
 
             logger.info(f"📝 Creating metadata file: {meta_file}")
 
-            # Write XML content with proper header
-            final_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!-- Generated XML metadata for {path} -->
-{xml_content.strip()}"""
+            # Parse and validate JSON content
+            try:
+                metadata_obj = json.loads(json_content) if isinstance(json_content, str) else json_content
+
+                # Validate against schema before processing
+                is_valid, validation_error = self._validate_metadata(metadata_obj)
+                if not is_valid:
+                    return {
+                        "success": False,
+                        "error": f"Metadata validation failed: {validation_error}"
+                    }
+
+                # Add metadata header
+                if isinstance(metadata_obj, dict):
+                    metadata_obj["_metadata"] = {
+                        "generated_for": path,
+                        "format": "json",
+                        "description": f"Generated JSON metadata for {path}"
+                    }
+
+                # Write formatted JSON
+                final_json = json.dumps(metadata_obj, indent=2, ensure_ascii=False)
+
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid JSON content: {str(e)}"
+                }
 
             with open(meta_file, 'w', encoding='utf-8') as f:
-                f.write(final_xml)
+                f.write(final_json)
 
             return {
                 "success": True,
                 "message": f"Metadata file created: {meta_file}",
                 "path": str(meta_file),
-                "size": len(final_xml)
+                "size": len(final_json)
             }
 
         except Exception as e:
@@ -61,13 +129,13 @@ class FileMetadataOperations:
             }
 
     def read_metadata(self, path: str) -> Dict[str, Any]:
-        """Read XML metadata file"""
+        """Read JSON metadata file"""
         try:
             # Ensure path is relative to workspace root
             if path.startswith('/'):
                 path = path[1:]
 
-            meta_file = self.workspace_root / ".meta" / f"{path}.xml"
+            meta_file = self.workspace_root / ".meta" / f"{path}.json"
 
             if not meta_file.exists():
                 return {
@@ -78,12 +146,21 @@ class FileMetadataOperations:
             with open(meta_file, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            return {
-                "success": True,
-                "content": content,
-                "path": str(meta_file),
-                "size": len(content)
-            }
+            # Parse and validate JSON
+            try:
+                metadata_obj = json.loads(content)
+                return {
+                    "success": True,
+                    "content": content,
+                    "data": metadata_obj,
+                    "path": str(meta_file),
+                    "size": len(content)
+                }
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid JSON in metadata file: {str(e)}"
+                }
 
         except Exception as e:
             logger.error(f"Failed to read metadata file {path}: {e}")
@@ -105,15 +182,15 @@ class FileMetadataOperations:
                 }
 
             metadata_files = []
-            for xml_file in meta_dir.rglob("*.xml"):
-                relative_path = xml_file.relative_to(meta_dir)
-                # Remove .xml extension to get original file path
-                original_path = str(relative_path)[:-4]
+            for json_file in meta_dir.rglob("*.json"):
+                relative_path = json_file.relative_to(meta_dir)
+                # Remove .json extension to get original file path
+                original_path = str(relative_path)[:-5]
 
                 metadata_files.append({
                     "original_path": original_path,
-                    "metadata_path": str(xml_file),
-                    "size": xml_file.stat().st_size
+                    "metadata_path": str(json_file),
+                    "size": json_file.stat().st_size
                 })
 
             return {
@@ -144,14 +221,14 @@ async def file_metadata_tool(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
         if action == "create":
             path = arguments.get("path")
-            xml_content = arguments.get("xml_content")
+            json_content = arguments.get("json_content")
 
             if not path:
                 return create_mcp_response(False, "path parameter required")
-            if not xml_content:
-                return create_mcp_response(False, "xml_content parameter required")
+            if not json_content:
+                return create_mcp_response(False, "json_content parameter required")
 
-            result = _file_metadata_operations.create_metadata(path, xml_content)
+            result = _file_metadata_operations.create_metadata(path, json_content)
 
             if result["success"]:
                 return create_mcp_response(True, f"✅ {result['message']}")

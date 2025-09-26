@@ -28,17 +28,17 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
     - get_available_classes: Get all available classes
     - get_available_functions: Get all available functions
     """
-    operation = args.get("operation")
-    if not operation:
+    action = args.get("action")
+    if not action:
         return {
             "success": False,
-            "error": "operation parameter required"
+            "error": "action parameter required"
         }
 
     registry = get_registry()
 
     try:
-        if operation == "register_module":
+        if action == "register_module":
             path = args.get("module_path")
             exports = args.get("exports", [])
             dependencies = args.get("dependencies", [])
@@ -52,7 +52,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                 "module_path": path
             }
 
-        elif operation == "get_dependencies":
+        elif action == "get_dependencies":
             path = args.get("module_path")
             dependencies = registry.get_dependencies(path)
             return {
@@ -61,7 +61,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                 "dependencies": dependencies
             }
 
-        elif operation == "get_interface":
+        elif action == "get_interface":
             path = args.get("module_path")
             interface = registry.get_interface(path)
             if interface:
@@ -81,7 +81,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                     "error": f"Interface not found for module: {path}"
                 }
 
-        elif operation == "get_context":
+        elif action == "get_context":
             path = args.get("module_path")
             context_type = args.get("context_type", "standard")
             context = registry.get_module_context(path, context_type)
@@ -91,7 +91,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                 "context": context
             }
 
-        elif operation == "validate_dependencies":
+        elif action == "validate_dependencies":
             path = args.get("module_path")
             is_valid, errors = registry.validate_dependencies(path)
             return {
@@ -101,7 +101,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                 "errors": errors
             }
 
-        elif operation == "get_build_order":
+        elif action == "get_build_order":
             build_order = registry.get_build_order()
             has_circular, circular_modules = registry.has_circular_dependencies()
             return {
@@ -113,7 +113,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                 }
             }
 
-        elif operation == "recommend_template":
+        elif action == "recommend_template":
             requirements = args.get("requirements", "")
             dependencies = args.get("dependencies", [])
             template = registry.recommend_template(requirements, dependencies)
@@ -123,7 +123,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                 "recommended_template": template
             }
 
-        elif operation == "get_available_classes":
+        elif action == "get_available_classes":
             exclude_modules = args.get("exclude_modules", [])
             classes = registry.get_available_classes(exclude_modules)
             return {
@@ -131,7 +131,7 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
                 "available_classes": classes
             }
 
-        elif operation == "get_available_functions":
+        elif action == "get_available_functions":
             exclude_modules = args.get("exclude_modules", [])
             functions = registry.get_available_functions(exclude_modules)
             return {
@@ -142,11 +142,11 @@ async def interface_registry_tool(args: Dict[str, Any]) -> Dict[str, Any]:
         else:
             return {
                 "success": False,
-                "error": f"Unknown operation: {operation}"
+                "error": f"Unknown action: {action}"
             }
 
     except Exception as e:
         return {
             "success": False,
-            "error": f"Error in interface registry operation '{operation}': {str(e)}"
+            "error": f"Error in interface registry action '{action}': {str(e)}"
         }

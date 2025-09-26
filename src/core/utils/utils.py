@@ -282,7 +282,6 @@ def is_text_file(path: Path) -> bool:
         ".tsx",
         ".html",
         ".css",
-        ".xml",
         ".csv",
         ".sql",
         ".rs",

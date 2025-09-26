@@ -11,21 +11,19 @@ from .unified_parser import UnifiedToolCallParser, ParsingStrategy
 logger = logging.getLogger(__name__)
 
 class MCPBridge:
-    """Bridge between local model and MCP tools with XML/JSON hybrid support"""
+    """Bridge between local model and MCP tools with JSON-only support"""
 
-    def __init__(self, task_queue=None, tool_executor=None, available_tools: List[Dict] = None, use_xml: bool = False):
+    def __init__(self, task_queue=None, tool_executor=None, available_tools: List[Dict] = None):
         self.task_queue = task_queue
         self.tool_executor = tool_executor
         self.available_tools = available_tools or []
-        self.use_xml = use_xml  # Toggle between XML and JSON formats
 
-        # Use unified parser with appropriate strategy
-        strategy = ParsingStrategy.XML_PRIMARY if use_xml else ParsingStrategy.JSON_PRIMARY
-        self.parser = UnifiedToolCallParser(strategy)
-        self.formatter = ToolPromptFormatter(self.available_tools, use_xml=self.use_xml)
+        # Use JSON-only parser strategy
+        self.parser = UnifiedToolCallParser(ParsingStrategy.JSON_PRIMARY)
+        self.formatter = ToolPromptFormatter(self.available_tools)
 
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.logger.info(f"MCPBridge initialized with {len(self.available_tools)} tools (XML mode: {self.use_xml})")
+        self.logger.info(f"MCPBridge initialized with {len(self.available_tools)} tools (JSON-only mode)")
 
     def get_tools_prompt(self) -> str:
         """Get formatted tools prompt for model"""
@@ -108,7 +106,8 @@ class MCPBridge:
     async def _execute_tool_call(self, tool_call: Dict[str, Any], parent_task_id: Optional[str] = None) -> Dict[str, Any]:
         """Execute a single tool call - via queue if available, otherwise direct"""
         tool_name = tool_call.get('tool_name') or tool_call.get('name')
-        arguments = tool_call.get('arguments', {})
+        # Handle both new "parameters" format and legacy "arguments" format
+        arguments = tool_call.get('parameters', tool_call.get('arguments', {}))
 
         self.logger.debug(f"ENTRY _execute_tool_call: {tool_name} with {arguments}")
 

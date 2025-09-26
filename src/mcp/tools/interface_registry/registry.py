@@ -2,6 +2,7 @@
 
 import yaml
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Any
 from dataclasses import dataclass, asdict
@@ -36,7 +37,11 @@ class InterfaceRegistry:
     """Central registry for module interfaces and dependencies."""
 
     def __init__(self, registry_path: Optional[str] = None):
-        self.registry_path = Path(registry_path) if registry_path else Path("project_interfaces.yaml")
+        workspace_root = Path(os.environ.get("WORKSPACE_ROOT", "/workspace"))
+        if registry_path:
+            self.registry_path = Path(registry_path)
+        else:
+            self.registry_path = workspace_root / "project_interfaces.yaml"
         self.interfaces: Dict[str, ModuleInterface] = {}
         self._dependency_graph: Dict[str, Set[str]] = defaultdict(set)
         self.load_registry()

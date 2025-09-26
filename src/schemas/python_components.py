@@ -1,6 +1,6 @@
-"""Python Component Data Classes for XML Schema
+"""Python Component Data Classes for JSON Schema
 
-This module provides data classes that correspond to the XML schema for
+This module provides data classes that correspond to the JSON schema for
 representing Python code components in a structured format.
 """
 

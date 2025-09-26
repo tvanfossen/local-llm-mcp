@@ -1,4 +1,4 @@
-"""Tool Prompt Formatter for Local Model - XML/JSON HYBRID WITH PROMPT MANAGER"""
+"""Tool Prompt Formatter for Local Model - JSON-Only with Prompt Manager"""
 
 import logging
 from typing import Dict, List, Any
@@ -7,11 +7,10 @@ from src.core.prompts.manager import PromptManager
 logger = logging.getLogger(__name__)
 
 class ToolPromptFormatter:
-    """Formats MCP tools for inclusion in model prompts - XML/JSON hybrid with prompt manager"""
+    """Formats MCP tools for inclusion in model prompts - JSON-only with prompt manager"""
 
-    def __init__(self, tools: List[Dict[str, Any]], use_xml: bool = False):
+    def __init__(self, tools: List[Dict[str, Any]]):
         self.tools = tools
-        self.use_xml = use_xml  # Toggle between XML and JSON formats
         self.prompt_manager = PromptManager()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
@@ -28,8 +27,8 @@ class ToolPromptFormatter:
             if definition:
                 tool_definitions.append(definition)
         
-        # Use prompt manager to load appropriate format (XML or JSON)
-        prompt_format = 'tool_calling_xml' if self.use_xml else 'tool_calling_json'
+        # Use JSON-only prompt format
+        prompt_format = 'tool_calling_json'
         prompt = self.prompt_manager.format_prompt(
             'system', prompt_format,
             tool_definitions=chr(10).join(tool_definitions)
@@ -45,11 +44,20 @@ class ToolPromptFormatter:
 
             # Try to load tool description from prompt file
             try:
-                tool_prompt = self.prompt_manager.load_prompt('tools', name)
+                tool_prompt = self.prompt_manager.format_prompt(
+                    'tools', name,
+                    # Provide the necessary template variables
+                    action=tool.get('name', 'unknown_action'),
+                    path='<path>',
+                    description=tool.get('description', 'No description available'),
+                    operation=tool.get('name', 'unknown_operation'),
+                    parameters='See parameters below',
+                    module_path='<module_path>'
+                )
                 if tool_prompt and not tool_prompt.startswith("[PROMPT NOT FOUND"):
                     return tool_prompt
             except Exception as e:
-                self.logger.warning(f"Could not load prompt for tool {name}: {e}")
+                self.logger.warning(f"Could not format prompt for tool {name}: {e}")
 
             # Fallback to original formatting
             description = tool.get('description', 'No description available')
@@ -98,8 +106,8 @@ Parameters:
             available_tools = [tool.get('name', 'unknown') for tool in self.tools]
             return False, f"Tool '{tool_name}' not available. Available tools: {available_tools}"
 
-        # Validate arguments
-        arguments = tool_call.get('arguments', {})
+        # Validate arguments - support both "parameters" and "arguments" formats
+        arguments = tool_call.get('parameters', tool_call.get('arguments', {}))
         if not isinstance(arguments, dict):
             return False, f"Arguments must be a dictionary, got {type(arguments)}"
 

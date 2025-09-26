@@ -99,21 +99,22 @@ class TaskQueue:
             logger.info("Generic task queue worker stopped")
 
     async def _process_tasks(self):
-        """Background worker to process queued tasks"""
+        """Background worker to process queued tasks concurrently"""
         while True:
             try:
                 # Priority queue returns (priority, task_id)
                 # We use negative priority for max-heap behavior
                 await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
                 _, task_id = await self.queue.get()
-                
+
                 # Get task from storage by ID
                 task = self.tasks.get(task_id)
                 if task:
-                    await self._execute_task(task)
+                    # Execute task concurrently - don't wait for completion
+                    asyncio.create_task(self._execute_task(task))
                 else:
                     logger.error(f"Task {task_id} not found in task storage")
-                    
+
                 self.queue.task_done()
             except asyncio.CancelledError:
                 break
@@ -149,12 +150,37 @@ class TaskQueue:
             if task.status == TaskStatus.RUNNING:
                 task.status = TaskStatus.COMPLETED
 
-            logger.info(f"Task {task.task_id} completed successfully")
+            # Log successful completion with more details
+            logger.info(f"✅ TASK COMPLETED: {task.task_id} ({task.task_type})")
+
+            # Create task completion log entry
+            import os
+            task_logs_dir = os.environ.get("WORKSPACE_ROOT", "/workspace") + "/.mcp-logs/tasks"
+            os.makedirs(task_logs_dir, exist_ok=True)
+
+            with open(f"{task_logs_dir}/completed_tasks.log", "a") as f:
+                f.write(f"[{datetime.now(timezone.utc).isoformat()}] TASK COMPLETED: {task.task_id}\n")
+                f.write(f"Type: {task.task_type}\n")
+                if hasattr(task, 'tool_name'):
+                    f.write(f"Tool: {task.tool_name}\n")
+                f.write("=" * 50 + "\n")
 
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error = str(e)
-            logger.error(f"Task {task.task_id} failed: {e}")
+            # Log to both main logger and a task-specific log file
+            logger.error(f"❌ TASK FAILED: {task.task_id} - {e}")
+
+            # Create task-specific log entry for debugging
+            import os
+            task_logs_dir = os.environ.get("WORKSPACE_ROOT", "/workspace") + "/.mcp-logs/tasks"
+            os.makedirs(task_logs_dir, exist_ok=True)
+
+            with open(f"{task_logs_dir}/failed_tasks.log", "a") as f:
+                f.write(f"[{datetime.now(timezone.utc).isoformat()}] TASK FAILED: {task.task_id}\n")
+                f.write(f"Type: {task.task_type}\n")
+                f.write(f"Error: {e}\n")
+                f.write("=" * 50 + "\n")
 
     def queue_task(self, task: Task, parent_task_id: Optional[str] = None) -> str:
         """Queue a task for async execution with nesting control"""
