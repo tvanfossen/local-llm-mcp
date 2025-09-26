@@ -1,0 +1,164 @@
+{
+  "tool_name": "workspace",
+  "description": "Comprehensive file and directory operations for code management",
+  "category": "file_operations",
+  "parameters": [
+    {
+      "name": "action",
+      "type": "string",
+      "required": true,
+      "description": "Operation type to perform",
+      "allowed_values": [
+        "read",
+        "delete",
+        "list",
+        "search",
+        "create_dir",
+        "tree",
+        "generate_from_metadata"
+      ]
+    },
+    {
+      "name": "path",
+      "type": "string",
+      "required": false,
+      "description": "File or directory path (required for most actions)"
+    },
+    {
+      "name": "pattern",
+      "type": "string",
+      "required": false,
+      "description": "Search or file pattern",
+      "default": "*"
+    },
+    {
+      "name": "recursive",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable recursive operation",
+      "default": false
+    },
+    {
+      "name": "overwrite",
+      "type": "boolean",
+      "required": false,
+      "description": "Allow file overwriting",
+      "default": false
+    }
+  ],
+  "usage_examples": [
+    {
+      "action": "read",
+      "description": "Read file contents",
+      "example": {
+        "action": "read",
+        "path": "src/main.py"
+      }
+    },
+    {
+      "action": "generate_from_metadata",
+      "description": "Generate Python code from JSON metadata",
+      "example": {
+        "action": "generate_from_metadata",
+        "path": "src/calculator.py"
+      }
+    },
+    {
+      "action": "list",
+      "description": "List directory contents",
+      "example": {
+        "action": "list",
+        "path": "src",
+        "recursive": true
+      }
+    }
+  ],
+  "template": "**workspace**: {description}\nAction: {action}, Path: {path}",
+  "parameter_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["action"],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["read", "delete", "list", "search", "create_dir", "tree", "generate_from_metadata"],
+        "description": "Operation type to perform"
+      },
+      "path": {
+        "type": "string",
+        "description": "File or directory path (required for most actions)"
+      },
+      "pattern": {
+        "type": "string",
+        "default": "*",
+        "description": "Search or file pattern"
+      },
+      "recursive": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable recursive operation"
+      },
+      "overwrite": {
+        "type": "boolean",
+        "default": false,
+        "description": "Allow file overwriting"
+      },
+      "confirm": {
+        "type": "boolean",
+        "default": false,
+        "description": "Confirm deletion operations"
+      },
+      "include_hidden": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include hidden files in operations"
+      },
+      "max_depth": {
+        "type": "integer",
+        "default": 3,
+        "description": "Maximum directory depth for tree operations"
+      },
+      "encoding": {
+        "type": "string",
+        "default": "utf-8",
+        "description": "File encoding for read/write operations"
+      },
+      "create_dirs": {
+        "type": "boolean",
+        "default": true,
+        "description": "Create parent directories if needed"
+      },
+      "parents": {
+        "type": "boolean",
+        "default": true,
+        "description": "Create parent directories"
+      },
+      "case_sensitive": {
+        "type": "boolean",
+        "default": true,
+        "description": "Case sensitive search operations"
+      },
+      "file_pattern": {
+        "type": "string",
+        "default": "*.py",
+        "description": "File pattern for search operations"
+      },
+      "json_artifact": {
+        "type": "object",
+        "description": "JSON artifact for code generation"
+      }
+    },
+    "allOf": [
+      {
+        "if": {"properties": {"action": {"enum": ["read", "delete", "list", "create_dir", "generate_from_metadata"]}}},
+        "then": {"required": ["action", "path"]}
+      }
+    ]
+  },
+  "notes": [
+    "generate_from_metadata reads .meta/{path}.json files",
+    "Uses jinja2 templates to render Python code from metadata",
+    "All file paths are relative to workspace root",
+    "Supports both file and directory operations"
+  ]
+}

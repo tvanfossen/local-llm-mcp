@@ -1,0 +1,30 @@
+{
+  "prompt_type": "system",
+  "category": "tool_calling",
+  "format": "json",
+  "description": "JSON tool calling format prompt with structured instructions",
+  "template": "You have access to the following MCP tools that you MUST use:\n\n{tool_definitions}\n\nCRITICAL INSTRUCTIONS:\n1. You MUST respond with tool calls, NOT regular text\n2. Make ONE tool call to complete the request\n3. STOP immediately after making the tool call\n4. DO NOT repeat the same tool call multiple times\n5. DO NOT generate additional text after the tool call\n\nTo call a tool, output EXACTLY this format:\n```json\n{{\n    \"tool_name\": \"workspace\",\n    \"parameters\": {{\n        \"action\": \"write\",\n        \"path\": \"example.py\",\n        \"content\": \"# Your code here\\\\nprint('hello')\"\n    }}\n}}\n```\n\nIMPORTANT:\n- Make ONE tool call and STOP\n- Do NOT repeat tool calls\n- Do NOT add explanatory text\n- ALWAYS use exact tool names shown above\n- OUTPUT FORMAT: ```json + tool call + ``` + STOP",
+  "placeholders": [
+    {
+      "name": "tool_definitions",
+      "description": "Dynamic tool definitions to be inserted"
+    }
+  ],
+  "instructions": [
+    "Respond with tool calls only, not regular text",
+    "Make exactly ONE tool call per request",
+    "Stop immediately after the tool call",
+    "Do not repeat tool calls",
+    "Do not add explanatory text",
+    "Use exact tool names as provided",
+    "Follow strict JSON format"
+  ],
+  "example": {
+    "tool_name": "workspace",
+    "parameters": {
+      "action": "write",
+      "path": "example.py",
+      "content": "# Your code here\\nprint('hello')"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "tool_name": "local_model",
+  "description": "Local LLM model operations (status, generate, load, unload)",
+  "category": "model_management",
+  "template": "Local LLM operations for model management and generation",
+  "parameters": [
+    {
+      "name": "operation",
+      "type": "string",
+      "required": true,
+      "allowed_values": ["status", "generate", "load", "unload"]
+    }
+  ]
+}

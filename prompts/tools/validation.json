@@ -1,0 +1,137 @@
+{
+  "tool_name": "validation",
+  "description": "Testing and validation operations for code quality assurance",
+  "category": "quality_assurance",
+  "parameters": [
+    {
+      "name": "operation",
+      "type": "string",
+      "required": true,
+      "description": "Validation type to perform",
+      "allowed_values": [
+        "tests",
+        "pre-commit",
+        "file-length",
+        "all",
+        "validate"
+      ]
+    },
+    {
+      "name": "test_path",
+      "type": "string",
+      "required": false,
+      "description": "Test directory path",
+      "default": "src/"
+    },
+    {
+      "name": "coverage",
+      "type": "boolean",
+      "required": false,
+      "description": "Include coverage report",
+      "default": true
+    },
+    {
+      "name": "verbose",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable verbose output",
+      "default": false
+    },
+    {
+      "name": "file_paths",
+      "type": "array",
+      "required": false,
+      "description": "Specific files to validate",
+      "item_type": "string"
+    }
+  ],
+  "usage_examples": [
+    {
+      "operation": "tests",
+      "description": "Run test suite with coverage",
+      "example": {
+        "operation": "tests",
+        "test_path": "tests/",
+        "coverage": true,
+        "verbose": true
+      }
+    },
+    {
+      "operation": "pre-commit",
+      "description": "Run pre-commit hooks",
+      "example": {
+        "operation": "pre-commit",
+        "file_paths": ["src/main.py", "src/utils.py"]
+      }
+    },
+    {
+      "operation": "file-length",
+      "description": "Check file length limits",
+      "example": {
+        "operation": "file-length",
+        "file_paths": ["src/large_file.py"]
+      }
+    },
+    {
+      "operation": "all",
+      "description": "Run all validation checks",
+      "example": {
+        "operation": "all",
+        "verbose": true
+      }
+    }
+  ],
+  "template": "**validation**: {description}\nOperation: {operation}",
+  "parameter_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["operation"],
+    "properties": {
+      "operation": {
+        "type": "string",
+        "enum": ["tests", "pre-commit", "file-length", "all", "validate"],
+        "description": "Validation type to perform"
+      },
+      "test_path": {
+        "type": "string",
+        "default": "src/",
+        "description": "Test directory path"
+      },
+      "coverage": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include coverage report in test operations"
+      },
+      "verbose": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable verbose output for detailed logging"
+      },
+      "file_paths": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Specific files to validate"
+      },
+      "all_files": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run validation on all files in workspace"
+      },
+      "hook": {
+        "type": "string",
+        "description": "Specific pre-commit hook to run"
+      },
+      "max_lines": {
+        "type": "integer",
+        "default": 300,
+        "description": "Maximum allowed lines per file"
+      }
+    }
+  },
+  "notes": [
+    "Supports multiple validation operations in single tool",
+    "Coverage reports generated for test operations",
+    "Pre-commit hooks ensure code quality standards",
+    "File length validation prevents overly large files"
+  ]
+}

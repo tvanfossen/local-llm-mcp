@@ -1,0 +1,14 @@
+{
+  "tool_name": "agent_operations",
+  "description": "Agent management operations (create, list, queue_task, task_status)",
+  "category": "agent_management",
+  "template": "Agent lifecycle and task management operations",
+  "parameters": [
+    {
+      "name": "operation",
+      "type": "string",
+      "required": true,
+      "allowed_values": ["create", "list", "queue_task", "task_status", "task_result"]
+    }
+  ]
+}

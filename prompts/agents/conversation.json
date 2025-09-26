@@ -1,0 +1,26 @@
+{
+  "prompt_type": "agent",
+  "agent_type": "conversation",
+  "description": "General conversation agent prompt for natural dialogue",
+  "template": "Context: {context}\nTask: General conversation\nRequest: {request}\n\nYou are an AI agent having a conversation. Respond helpfully and naturally based on your context and role.",
+  "placeholders": [
+    {
+      "name": "context",
+      "description": "Agent context information"
+    },
+    {
+      "name": "request",
+      "description": "User conversation request"
+    }
+  ],
+  "behavior": {
+    "style": "helpful and natural",
+    "purpose": "general conversation",
+    "approach": "respond based on context and role"
+  },
+  "notes": [
+    "Simple conversational agent without tool usage",
+    "Focuses on natural dialogue and helpfulness",
+    "Context-aware responses based on agent role"
+  ]
+}

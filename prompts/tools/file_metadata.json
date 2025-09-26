@@ -1,0 +1,88 @@
+{
+  "tool_name": "file_metadata",
+  "description": "Create and manage JSON metadata files for structured code generation",
+  "category": "metadata_management",
+  "parameters": [
+    {
+      "name": "action",
+      "type": "string",
+      "required": true,
+      "description": "Action to perform",
+      "allowed_values": ["create", "read", "list"]
+    },
+    {
+      "name": "path",
+      "type": "string",
+      "required": false,
+      "description": "File path for metadata operations (required for create and read actions)"
+    },
+    {
+      "name": "json_content",
+      "type": "string",
+      "required": false,
+      "description": "JSON content for create action (required when action is 'create')"
+    }
+  ],
+  "usage_examples": [
+    {
+      "action": "create",
+      "description": "Create a new JSON metadata file",
+      "example": {
+        "action": "create",
+        "path": "src/calculator.py",
+        "json_content": "{\"metadata\": {\"description\": \"Calculator module\"}, \"functions\": [{\"name\": \"add\", \"parameters\": [{\"name\": \"a\", \"type\": \"int\"}, {\"name\": \"b\", \"type\": \"int\"}], \"returns\": {\"type\": \"int\"}, \"body\": \"return a + b\"}]}"
+      }
+    },
+    {
+      "action": "read",
+      "description": "Read an existing JSON metadata file",
+      "example": {
+        "action": "read",
+        "path": "src/calculator.py"
+      }
+    },
+    {
+      "action": "list",
+      "description": "List all metadata files",
+      "example": {
+        "action": "list"
+      }
+    }
+  ],
+  "output_format": "JSON metadata files stored in .meta/ directory with .json extension",
+  "template": "**file_metadata**: {description}\nAction: {action}, Path: {path}",
+  "parameter_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["action"],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["create", "read", "list"],
+        "description": "Action to perform on metadata files"
+      },
+      "path": {
+        "type": "string",
+        "description": "File path for metadata operations (required for create and read actions)"
+      },
+      "json_content": {
+        "type": "string",
+        "description": "JSON content for create action (required when action is 'create')"
+      }
+    },
+    "allOf": [
+      {
+        "if": {"properties": {"action": {"enum": ["create", "read"]}}},
+        "then": {"required": ["action", "path"]}
+      },
+      {
+        "if": {"properties": {"action": {"const": "create"}}},
+        "then": {"required": ["action", "path", "json_content"]}
+      }
+    ]
+  },
+  "notes": [
+    "Metadata files enable structured code generation via templates",
+    "Files are stored as .meta/{path}.json relative to workspace root"
+  ]
+}

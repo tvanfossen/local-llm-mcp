@@ -1,0 +1,140 @@
+{
+  "tool_name": "git_operations",
+  "description": "Comprehensive git repository operations and version control",
+  "category": "version_control",
+  "parameters": [
+    {
+      "name": "operation",
+      "type": "string",
+      "required": true,
+      "description": "Git operation to perform",
+      "allowed_values": [
+        "status",
+        "diff",
+        "commit",
+        "log",
+        "branch",
+        "stash",
+        "remote"
+      ]
+    },
+    {
+      "name": "message",
+      "type": "string",
+      "required": false,
+      "description": "Commit message for commit operations (required when operation is 'commit')"
+    },
+    {
+      "name": "add_all",
+      "type": "boolean",
+      "required": false,
+      "description": "Add all files before commit",
+      "default": false
+    },
+    {
+      "name": "files",
+      "type": "array",
+      "required": false,
+      "description": "Specific files to commit",
+      "item_type": "string"
+    },
+    {
+      "name": "staged",
+      "type": "boolean",
+      "required": false,
+      "description": "Show staged changes only for diff operations",
+      "default": false
+    }
+  ],
+  "usage_examples": [
+    {
+      "operation": "status",
+      "description": "Check repository status",
+      "example": {
+        "operation": "status"
+      }
+    },
+    {
+      "operation": "commit",
+      "description": "Commit changes with message",
+      "example": {
+        "operation": "commit",
+        "message": "Add new calculator functionality",
+        "add_all": true
+      }
+    },
+    {
+      "operation": "diff",
+      "description": "Show repository differences",
+      "example": {
+        "operation": "diff",
+        "staged": true
+      }
+    },
+    {
+      "operation": "log",
+      "description": "Show commit history",
+      "example": {
+        "operation": "log"
+      }
+    }
+  ],
+  "template": "**git_operations**: {description}\nOperation: {operation}",
+  "parameter_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["operation"],
+    "properties": {
+      "operation": {
+        "type": "string",
+        "enum": ["status", "diff", "commit", "log", "branch", "stash", "remote"],
+        "description": "Git operation to perform"
+      },
+      "message": {
+        "type": "string",
+        "description": "Commit message (required for commit operation)"
+      },
+      "add_all": {
+        "type": "boolean",
+        "default": false,
+        "description": "Add all files before commit"
+      },
+      "files": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Specific files to commit"
+      },
+      "staged": {
+        "type": "boolean",
+        "default": false,
+        "description": "Show staged changes only for diff operations"
+      },
+      "short": {
+        "type": "boolean",
+        "default": false,
+        "description": "Short status format"
+      },
+      "limit": {
+        "type": "integer",
+        "default": 10,
+        "description": "Number of log entries (for log operation)"
+      },
+      "action": {
+        "type": "string",
+        "description": "Action for branch/stash operations"
+      },
+      "name": {
+        "type": "string",
+        "description": "Branch or stash name"
+      }
+    },
+    "if": {"properties": {"operation": {"const": "commit"}}},
+    "then": {"required": ["operation", "message"]}
+  },
+  "notes": [
+    "Provides full git workflow support",
+    "Commit operations can target specific files or all changes",
+    "Status and diff operations help review changes before commit",
+    "Supports branch and stash operations for workflow management"
+  ]
+}

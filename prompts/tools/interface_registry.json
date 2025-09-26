@@ -1,0 +1,252 @@
+{
+  "tool_name": "interface_registry",
+  "description": "Dependency-aware orchestration for multi-agent code generation",
+  "category": "dependency_management",
+  "purpose": "Enable agents to understand system context, manage dependencies, and coordinate with other agents building the same project",
+  "parameters": [
+    {
+      "name": "operation",
+      "type": "string",
+      "required": true,
+      "description": "Registry operation to perform",
+      "allowed_values": [
+        "register_module",
+        "get_dependencies",
+        "get_context",
+        "recommend_template",
+        "get_build_order",
+        "validate_dependencies",
+        "get_available_classes",
+        "get_available_functions"
+      ]
+    },
+    {
+      "name": "module_path",
+      "type": "string",
+      "required": false,
+      "description": "Path to the module (e.g., 'core/board.py')"
+    },
+    {
+      "name": "exports",
+      "type": "array",
+      "required": false,
+      "description": "List of classes/functions the module exports",
+      "item_type": "object"
+    },
+    {
+      "name": "dependencies",
+      "type": "array",
+      "required": false,
+      "description": "List of modules this module depends on",
+      "item_type": "string"
+    },
+    {
+      "name": "template_preference",
+      "type": "string",
+      "required": false,
+      "description": "Recommended template type"
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "Brief description of the module"
+    },
+    {
+      "name": "context_type",
+      "type": "string",
+      "required": false,
+      "description": "Context detail level",
+      "allowed_values": ["minimal", "standard", "full"]
+    },
+    {
+      "name": "requirements",
+      "type": "string",
+      "required": false,
+      "description": "Description of what you're building"
+    },
+    {
+      "name": "exclude_modules",
+      "type": "array",
+      "required": false,
+      "description": "Optional list of modules to exclude",
+      "item_type": "string"
+    }
+  ],
+  "operations": {
+    "register_module": {
+      "description": "Register a module's interface",
+      "required_params": ["operation", "module_path", "exports"],
+      "optional_params": ["dependencies", "template_preference", "description"]
+    },
+    "get_dependencies": {
+      "description": "Get dependencies for a module",
+      "required_params": ["operation", "module_path"]
+    },
+    "get_context": {
+      "description": "Get system context for a module",
+      "required_params": ["operation", "module_path"],
+      "optional_params": ["context_type"]
+    },
+    "recommend_template": {
+      "description": "Get template recommendation",
+      "required_params": ["operation", "requirements"],
+      "optional_params": ["dependencies"]
+    },
+    "get_build_order": {
+      "description": "Get proper build order for all modules",
+      "required_params": ["operation"]
+    },
+    "validate_dependencies": {
+      "description": "Check if all dependencies are available",
+      "required_params": ["operation", "module_path"]
+    },
+    "get_available_classes": {
+      "description": "Get all available classes in the system",
+      "required_params": ["operation"],
+      "optional_params": ["exclude_modules"]
+    },
+    "get_available_functions": {
+      "description": "Get all available functions in the system",
+      "required_params": ["operation"],
+      "optional_params": ["exclude_modules"]
+    }
+  },
+  "usage_pattern": {
+    "before_generation": [
+      "Call get_context to understand available dependencies",
+      "Call recommend_template to choose appropriate template",
+      "Call get_available_classes/functions to see what's available"
+    ],
+    "after_generation": [
+      "Call register_module to register your exports",
+      "This helps other agents that depend on your module"
+    ]
+  },
+  "usage_examples": [
+    {
+      "operation": "get_context",
+      "description": "Get context for a module",
+      "example": {
+        "operation": "get_context",
+        "module_path": "core/game.py",
+        "context_type": "standard"
+      }
+    },
+    {
+      "operation": "register_module",
+      "description": "Register module interface",
+      "example": {
+        "operation": "register_module",
+        "module_path": "core/board.py",
+        "exports": [
+          {
+            "type": "class",
+            "name": "ChessBoard",
+            "methods": ["move_piece", "get_piece_at"]
+          }
+        ],
+        "dependencies": ["core/pieces.py"],
+        "template_preference": "class_module",
+        "description": "Chess board representation with 8x8 grid"
+      }
+    },
+    {
+      "operation": "get_available_classes",
+      "description": "Get available classes",
+      "example": {
+        "operation": "get_available_classes",
+        "exclude_modules": ["test_modules"]
+      }
+    }
+  ],
+  "template": "**interface_registry**: {description}\nOperation: {operation}, Module: {module_path}",
+  "parameter_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["operation"],
+    "properties": {
+      "operation": {
+        "type": "string",
+        "enum": [
+          "register_module",
+          "get_dependencies",
+          "get_context",
+          "recommend_template",
+          "get_build_order",
+          "validate_dependencies",
+          "get_available_classes",
+          "get_available_functions"
+        ],
+        "description": "Registry operation to perform"
+      },
+      "module_path": {
+        "type": "string",
+        "description": "Path to the module (e.g., 'core/board.py')"
+      },
+      "exports": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "enum": ["class", "function", "constant"]},
+            "name": {"type": "string"},
+            "methods": {"type": "array", "items": {"type": "string"}},
+            "parameters": {"type": "array", "items": {"type": "object"}},
+            "returns": {"type": "object"}
+          },
+          "required": ["type", "name"]
+        },
+        "description": "List of classes/functions the module exports"
+      },
+      "dependencies": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "List of modules this module depends on"
+      },
+      "template_preference": {
+        "type": "string",
+        "description": "Recommended template type for code generation"
+      },
+      "description": {
+        "type": "string",
+        "description": "Brief description of the module's purpose"
+      },
+      "context_type": {
+        "type": "string",
+        "enum": ["minimal", "standard", "full"],
+        "default": "standard",
+        "description": "Context detail level for get_context operation"
+      },
+      "requirements": {
+        "type": "string",
+        "description": "Description of what you're building for template recommendation"
+      },
+      "exclude_modules": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Optional list of modules to exclude from results"
+      }
+    },
+    "allOf": [
+      {
+        "if": {"properties": {"operation": {"const": "register_module"}}},
+        "then": {"required": ["operation", "module_path", "exports"]}
+      },
+      {
+        "if": {"properties": {"operation": {"enum": ["get_dependencies", "get_context", "validate_dependencies"]}}},
+        "then": {"required": ["operation", "module_path"]}
+      },
+      {
+        "if": {"properties": {"operation": {"const": "recommend_template"}}},
+        "then": {"required": ["operation", "requirements"]}
+      }
+    ]
+  },
+  "notes": [
+    "Enables system-aware code generation",
+    "Agents coordinate work based on actual dependencies",
+    "Prevents working in isolation by providing system context",
+    "Critical for multi-module project orchestration"
+  ]
+}

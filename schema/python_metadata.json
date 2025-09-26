@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Python File Metadata Schema",
+  "description": "Structured metadata schema for Python file generation without raw text bodies",
+  "type": "object",
+  "required": ["metadata"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["created", "agent_id", "version", "description"],
+      "properties": {
+        "created": {"type": "string", "format": "date-time"},
+        "agent_id": {"type": "string"},
+        "version": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    },
+    "imports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module"],
+        "properties": {
+          "module": {"type": "string"},
+          "imported_items": {"type": "string"},
+          "alias": {"type": "string"}
+        }
+      }
+    },
+    "constants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "value"],
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string"},
+          "value": {"type": "string"}
+        }
+      }
+    },
+    "classes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string"},
+          "docstring": {"type": "string"},
+          "base_classes": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "init_method": {
+            "type": "object",
+            "properties": {
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name"],
+                  "properties": {
+                    "name": {"type": "string"},
+                    "type": {"type": "string"},
+                    "default": {"type": "string"}
+                  }
+                }
+              },
+              "operations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/operation"
+                }
+              },
+              "docstring": {"type": "string"}
+            }
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "properties": {
+                "name": {"type": "string"},
+                "docstring": {"type": "string"},
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                      "name": {"type": "string"},
+                      "type": {"type": "string"},
+                      "default": {"type": "string"}
+                    }
+                  }
+                },
+                "returns": {
+                  "type": "object",
+                  "properties": {
+                    "type": {"type": "string"},
+                    "description": {"type": "string"}
+                  }
+                },
+                "operations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/operation"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string"},
+          "docstring": {"type": "string"},
+          "parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "properties": {
+                "name": {"type": "string"},
+                "type": {"type": "string"},
+                "default": {"type": "string"}
+              }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "properties": {
+              "type": {"type": "string"},
+              "description": {"type": "string"}
+            }
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/operation"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "operation": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "assignment",
+            "arithmetic",
+            "comparison",
+            "logical",
+            "conditional",
+            "loop",
+            "exception_handling",
+            "function_call",
+            "return",
+            "validation",
+            "initialization"
+          ]
+        },
+        "target": {"type": "string"},
+        "operands": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "operator": {"type": "string"},
+        "condition": {"type": "string"},
+        "exception_type": {"type": "string"},
+        "exception_message": {"type": "string"},
+        "function_name": {"type": "string"},
+        "arguments": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "value": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    }
+  }
+}
