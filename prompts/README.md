@@ -6,7 +6,7 @@ All prompts are externalized for maintainability and rapid iteration without tou
 ## Structure
 - `agents/` - Agent-specific prompts for different task types
 - `tools/` - Tool-related prompts and definitions
-- `system/` - System-level prompts for XML instructions and error handling
+- `system/` - System-level prompts for JSON instructions and error handling
 - `templates/` - Reusable prompt components
 - `debug/` - Debug and development prompts
 
@@ -19,7 +19,7 @@ Each prompt can use variables defined in:
 Variables are substituted using Python's `.format()` syntax: `{variable_name}`
 
 ## Adding New Prompts
-1. Create file in appropriate directory with `.txt`, `.xml`, or `.md` extension
+1. Create file in appropriate directory with `.txt`, `.json`, or `.md` extension
 2. Document variables in the category section of `config.yaml`
 3. Add test case if complex logic
 4. Update this README if needed
