@@ -1,0 +1,13 @@
+dependencies: {}
+exports: {}
+modules:
+  test_calculator.py:
+    dependencies:
+    - typing
+    description: Complete calculator implementation with incremental operations
+    exports:
+      classes:
+      - description: A simple calculator class
+        name: Calculator
+      functions: []
+    last_updated: auto-generated

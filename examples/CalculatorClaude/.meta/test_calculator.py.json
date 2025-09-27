@@ -1,0 +1,62 @@
+{
+  "file_info": {
+    "name": "test_calculator.py",
+    "description": "Complete calculator implementation with incremental operations",
+    "author": "Local LLM Agent",
+    "version": "1.0.0"
+  },
+  "imports": [
+    {
+      "module": "typing",
+      "imported_items": "Union"
+    }
+  ],
+  "classes": [
+    {
+      "name": "Calculator",
+      "description": "A simple calculator class",
+      "docstring": "A calculator class for basic arithmetic operations",
+      "base_classes": [],
+      "methods": [
+        {
+          "name": "add",
+          "description": "",
+          "docstring": "Add two numbers and return the result",
+          "parameters": [],
+          "operations": [],
+          "returns": "{\"type\": \"Union[int, float]\"}"
+        }
+      ]
+    }
+  ],
+  "functions": [],
+  "constants": [],
+  "variables": [],
+  "metadata": {
+    "file_type": "python_module",
+    "complexity": "low",
+    "test_coverage_target": 80,
+    "linting_rules": [
+      "flake8",
+      "pylint"
+    ],
+    "dependencies": [
+      "typing"
+    ],
+    "status": "complete",
+    "completed_at": "auto-generated",
+    "stats": {
+      "imports_count": 1,
+      "classes_count": 1,
+      "functions_count": 0,
+      "constants_count": 0,
+      "variables_count": 0,
+      "methods_count": 1
+    }
+  },
+  "_metadata": {
+    "generated_for": "test_calculator.py",
+    "format": "json",
+    "description": "Generated JSON metadata for test_calculator.py"
+  }
+}

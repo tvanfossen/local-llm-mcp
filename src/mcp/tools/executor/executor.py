@@ -1,7 +1,7 @@
-"""Consolidated MCP Tool Executor - 4 Core Tools Only
+"""Consolidated MCP Tool Executor - 5 Core Tools Only
 
 Responsibilities:
-- Execute 4 consolidated tool categories
+- Execute 5 consolidated tool categories
 - Route requests to appropriate tool handlers
 - Maintain clean separation of concerns
 - Use class-based design for maintainability
@@ -17,7 +17,6 @@ from src.mcp.tools.git_operations.git_operations import git_tool
 from src.mcp.tools.local_model.local_model import local_model_tool
 from src.mcp.tools.validation.validation import run_all_validations, run_pre_commit, run_tests, validate_file_length
 from src.mcp.tools.workspace.workspace import workspace_tool
-from src.mcp.tools.interface_registry import interface_registry_tool
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +119,10 @@ class ConsolidatedToolExecutor:
                     "required": ["operation"],
                 },
             },
-            # Core Tool 3: File Metadata Operations (JSON metadata management)
+            # Core Tool 3: File Metadata Operations (Incremental JSON metadata management)
             "file_metadata": {
                 "name": "file_metadata",
-                "description": "File metadata operations (create, read, list JSON metadata files)",
+                "description": "Incrementally build JSON metadata files for structured code generation",
                 "function": file_metadata_tool,
                 "inputSchema": {
                     "type": "object",
@@ -131,10 +130,29 @@ class ConsolidatedToolExecutor:
                         "action": {
                             "type": "string",
                             "description": "Metadata action to perform",
-                            "enum": ["create", "read", "list"],
+                            "enum": ["create_file", "add_import", "add_variable", "add_class", "add_function", "add_field", "complete_file", "read", "list"],
                         },
                         "path": {"type": "string", "description": "File path for metadata operations"},
-                        "json_content": {"type": "string", "description": "JSON content for create action"},
+                        "description": {"type": "string", "description": "Description for file/component"},
+                        "name": {"type": "string", "description": "Name for component (class, function, etc.)"},
+                        "module": {"type": "string", "description": "Module name for imports"},
+                        "imported_items": {"type": "string", "description": "Items to import from module"},
+                        "alias": {"type": "string", "description": "Alias for import"},
+                        "value": {"type": "string", "description": "Value for variables"},
+                        "type": {"type": "string", "description": "Type annotation"},
+                        "class_name": {"type": "string", "description": "Target class name for methods/fields"},
+                        "parameters": {"type": "array", "description": "Function parameters"},
+                        "returns": {"type": "object", "description": "Return type information"},
+                        "operations": {"type": "array", "description": "Function body operations"},
+                        "docstring": {"type": "string", "description": "Docstring for component"},
+                        "base_classes": {"type": "array", "description": "Base classes for inheritance"},
+                        "is_constant": {"type": "boolean", "description": "Whether variable is a constant"},
+                        "default": {"type": "string", "description": "Default value for fields"},
+                        "section": {"type": "string", "description": "Specific metadata section to read"},
+                        "filter_pattern": {"type": "string", "description": "Pattern to filter files"},
+                        "include_stats": {"type": "boolean", "description": "Include file statistics"},
+                        "final_description": {"type": "string", "description": "Final description when completing file"},
+                        "complexity": {"type": "string", "description": "File complexity level"}
                     },
                     "required": ["action"],
                 },
@@ -231,31 +249,6 @@ class ConsolidatedToolExecutor:
                     "required": ["operation"],
                 },
             },
-            # Core Tool 6: Interface Registry Operations
-            "interface_registry": {
-                "name": "interface_registry",
-                "description": "Interface registry for dependency-aware agent orchestration",
-                "function": self._interface_registry_handler,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "description": "Interface registry operation to perform",
-                            "enum": ["register_module", "get_dependencies", "get_interface", "get_context", "validate_dependencies", "get_build_order", "recommend_template", "get_available_classes", "get_available_functions"],
-                        },
-                        "module_path": {"type": "string", "description": "Module path for operations"},
-                        "exports": {"type": "array", "items": {"type": "object"}, "description": "Module exports"},
-                        "dependencies": {"type": "array", "items": {"type": "string"}, "description": "Module dependencies"},
-                        "template_preference": {"type": "string", "description": "Preferred template type"},
-                        "description": {"type": "string", "description": "Module description"},
-                        "context_type": {"type": "string", "description": "Context type (minimal, standard, full)", "default": "standard"},
-                        "requirements": {"type": "string", "description": "Requirements for template recommendation"},
-                        "exclude_modules": {"type": "array", "items": {"type": "string"}, "description": "Modules to exclude"},
-                    },
-                    "required": ["operation"],
-                },
-            },
         }
 
     async def _validation_handler(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -266,24 +259,6 @@ class ConsolidatedToolExecutor:
 
         return await self.validation.execute(action, args)
 
-    async def _interface_registry_handler(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Handle interface registry operations"""
-        action = args.get("action")
-        if not action:
-            return create_mcp_response(False, "action parameter required")
-
-        try:
-            # Call the interface registry tool with the args
-            result = await interface_registry_tool(args)
-
-            # Convert to MCP response format - pass the result as the message for data display
-            if result.get("success"):
-                return create_mcp_response(True, result, result)
-            else:
-                return create_mcp_response(False, result.get("error", "Operation failed"))
-
-        except Exception as e:
-            return handle_exception(e, f"Interface registry {operation}")
 
     async def get_available_tools(self) -> list[dict[str, Any]]:
         """Get list of available tools with schemas"""

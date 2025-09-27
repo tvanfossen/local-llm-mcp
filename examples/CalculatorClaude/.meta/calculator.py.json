@@ -1,0 +1,290 @@
+{
+  "file_info": {
+    "name": "calculator.py",
+    "description": "A comprehensive calculator implementation with basic and advanced arithmetic operations",
+    "author": "Local LLM Agent",
+    "version": "1.0.0"
+  },
+  "imports": [
+    {
+      "module": "math",
+      "items": [
+        "sqrt",
+        "pow",
+        "sin",
+        "cos",
+        "tan",
+        "log"
+      ],
+      "alias": null
+    },
+    {
+      "module": "typing",
+      "items": [
+        "Union",
+        "Optional"
+      ],
+      "alias": null
+    }
+  ],
+  "classes": [
+    {
+      "name": "Calculator",
+      "description": "A calculator class that provides basic and advanced mathematical operations",
+      "docstring": "Calculator class for performing various mathematical operations.\n\nThis class provides methods for basic arithmetic operations (add, subtract,\nmultiply, divide) as well as advanced operations (power, square root,\ntrigonometric functions).",
+      "inheritance": [],
+      "attributes": [
+        {
+          "name": "history",
+          "type": "list",
+          "description": "List to store calculation history",
+          "default": "[]"
+        },
+        {
+          "name": "precision",
+          "type": "int",
+          "description": "Number of decimal places for results",
+          "default": "2"
+        }
+      ],
+      "methods": [
+        {
+          "name": "__init__",
+          "description": "Initialize calculator with optional precision setting",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "precision",
+              "type": "int",
+              "description": "Number of decimal places for results",
+              "default": "2"
+            }
+          ],
+          "return_type": "None",
+          "docstring": "Initialize the calculator with specified precision.",
+          "body": "self.precision = precision\nself.history = []"
+        },
+        {
+          "name": "add",
+          "description": "Add two numbers",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "a",
+              "type": "Union[int, float]",
+              "description": "First number"
+            },
+            {
+              "name": "b",
+              "type": "Union[int, float]",
+              "description": "Second number"
+            }
+          ],
+          "return_type": "float",
+          "docstring": "Add two numbers and return the result.",
+          "body": "result = round(a + b, self.precision)\nself._add_to_history(f\"{a} + {b} = {result}\")\nreturn result"
+        },
+        {
+          "name": "subtract",
+          "description": "Subtract second number from first",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "a",
+              "type": "Union[int, float]",
+              "description": "First number"
+            },
+            {
+              "name": "b",
+              "type": "Union[int, float]",
+              "description": "Second number"
+            }
+          ],
+          "return_type": "float",
+          "docstring": "Subtract second number from first and return the result.",
+          "body": "result = round(a - b, self.precision)\nself._add_to_history(f\"{a} - {b} = {result}\")\nreturn result"
+        },
+        {
+          "name": "multiply",
+          "description": "Multiply two numbers",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "a",
+              "type": "Union[int, float]",
+              "description": "First number"
+            },
+            {
+              "name": "b",
+              "type": "Union[int, float]",
+              "description": "Second number"
+            }
+          ],
+          "return_type": "float",
+          "docstring": "Multiply two numbers and return the result.",
+          "body": "result = round(a * b, self.precision)\nself._add_to_history(f\"{a} * {b} = {result}\")\nreturn result"
+        },
+        {
+          "name": "divide",
+          "description": "Divide first number by second",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "a",
+              "type": "Union[int, float]",
+              "description": "Dividend"
+            },
+            {
+              "name": "b",
+              "type": "Union[int, float]",
+              "description": "Divisor"
+            }
+          ],
+          "return_type": "float",
+          "docstring": "Divide first number by second and return the result.",
+          "body": "if b == 0:\n    raise ValueError(\"Cannot divide by zero\")\nresult = round(a / b, self.precision)\nself._add_to_history(f\"{a} / {b} = {result}\")\nreturn result"
+        },
+        {
+          "name": "power",
+          "description": "Raise first number to the power of second",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "base",
+              "type": "Union[int, float]",
+              "description": "Base number"
+            },
+            {
+              "name": "exponent",
+              "type": "Union[int, float]",
+              "description": "Exponent"
+            }
+          ],
+          "return_type": "float",
+          "docstring": "Raise base to the power of exponent and return the result.",
+          "body": "result = round(pow(base, exponent), self.precision)\nself._add_to_history(f\"{base} ^ {exponent} = {result}\")\nreturn result"
+        },
+        {
+          "name": "square_root",
+          "description": "Calculate square root of a number",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "x",
+              "type": "Union[int, float]",
+              "description": "Number to find square root of"
+            }
+          ],
+          "return_type": "float",
+          "docstring": "Calculate and return the square root of x.",
+          "body": "if x < 0:\n    raise ValueError(\"Cannot calculate square root of negative number\")\nresult = round(sqrt(x), self.precision)\nself._add_to_history(f\"√{x} = {result}\")\nreturn result"
+        },
+        {
+          "name": "get_history",
+          "description": "Get calculation history",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            }
+          ],
+          "return_type": "list",
+          "docstring": "Return the list of calculation history.",
+          "body": "return self.history.copy()"
+        },
+        {
+          "name": "clear_history",
+          "description": "Clear calculation history",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            }
+          ],
+          "return_type": "None",
+          "docstring": "Clear the calculation history.",
+          "body": "self.history.clear()"
+        },
+        {
+          "name": "_add_to_history",
+          "description": "Private method to add operation to history",
+          "parameters": [
+            {
+              "name": "self",
+              "type": "Calculator",
+              "description": "The calculator instance"
+            },
+            {
+              "name": "operation",
+              "type": "str",
+              "description": "Operation string to add to history"
+            }
+          ],
+          "return_type": "None",
+          "docstring": "Add an operation to the calculation history.",
+          "body": "self.history.append(operation)"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "main",
+      "description": "Main function to demonstrate calculator usage",
+      "parameters": [],
+      "return_type": "None",
+      "docstring": "Demonstrate basic calculator functionality.",
+      "body": "calc = Calculator(precision=2)\n\nprint(\"Calculator Demo\")\nprint(\"===============\")\n\nprint(f\"10 + 5 = {calc.add(10, 5)}\")\nprint(f\"10 - 3 = {calc.subtract(10, 3)}\")\nprint(f\"4 * 6 = {calc.multiply(4, 6)}\")\nprint(f\"15 / 3 = {calc.divide(15, 3)}\")\nprint(f\"2 ^ 8 = {calc.power(2, 8)}\")\nprint(f\"√16 = {calc.square_root(16)}\")\n\nprint(\"\\nCalculation History:\")\nfor operation in calc.get_history():\n    print(f\"  {operation}\")"
+    }
+  ],
+  "constants": [],
+  "variables": [],
+  "metadata": {
+    "file_type": "python_module",
+    "complexity": "medium",
+    "test_coverage_target": 90,
+    "linting_rules": [
+      "flake8",
+      "pylint"
+    ],
+    "dependencies": [
+      "math",
+      "typing"
+    ]
+  },
+  "_metadata": {
+    "generated_for": "calculator.py",
+    "format": "json",
+    "description": "Generated JSON metadata for calculator.py"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "tool_name": "file_metadata",
-  "description": "Create and manage JSON metadata files for structured code generation",
+  "description": "Incrementally build JSON metadata files for structured code generation with small, focused operations",
   "category": "metadata_management",
   "parameters": [
     {
@@ -8,49 +8,173 @@
       "type": "string",
       "required": true,
       "description": "Action to perform",
-      "allowed_values": ["create", "read", "list"]
+      "allowed_values": ["create_file", "add_import", "add_variable", "add_class", "add_function", "add_field", "complete_file", "read", "list"]
     },
     {
       "name": "path",
       "type": "string",
-      "required": false,
-      "description": "File path for metadata operations (required for create and read actions)"
+      "required": true,
+      "description": "File path relative to workspace (required for all actions except list)"
     },
     {
-      "name": "json_content",
+      "name": "description",
       "type": "string",
       "required": false,
-      "description": "JSON content for create action (required when action is 'create')"
+      "description": "Description for file or component"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "Name for component (class, function, variable, etc.)"
+    },
+    {
+      "name": "module",
+      "type": "string",
+      "required": false,
+      "description": "Module name for import operations"
+    },
+    {
+      "name": "imported_items",
+      "type": "string",
+      "required": false,
+      "description": "Specific items to import (for 'from X import Y' syntax)"
+    },
+    {
+      "name": "alias",
+      "type": "string",
+      "required": false,
+      "description": "Alias for import (for 'import X as Y' syntax)"
+    },
+    {
+      "name": "value",
+      "type": "string",
+      "required": false,
+      "description": "Value for variables and constants"
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "required": false,
+      "description": "Type annotation for variables, parameters, returns"
+    },
+    {
+      "name": "class_name",
+      "type": "string",
+      "required": false,
+      "description": "Target class name for adding methods or fields"
+    },
+    {
+      "name": "parameters",
+      "type": "array",
+      "required": false,
+      "description": "Function parameters list"
+    },
+    {
+      "name": "returns",
+      "type": "object",
+      "required": false,
+      "description": "Return type information for functions"
+    },
+    {
+      "name": "operations",
+      "type": "array",
+      "required": false,
+      "description": "Function body operations (for advanced function definitions)"
+    },
+    {
+      "name": "docstring",
+      "type": "string",
+      "required": false,
+      "description": "Docstring for classes, functions, or methods"
+    },
+    {
+      "name": "base_classes",
+      "type": "array",
+      "required": false,
+      "description": "List of base class names for inheritance"
+    },
+    {
+      "name": "is_constant",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether a variable should be treated as a constant"
+    },
+    {
+      "name": "default",
+      "type": "string",
+      "required": false,
+      "description": "Default value for class fields"
     }
   ],
   "usage_examples": [
     {
-      "action": "create",
-      "description": "Create a new JSON metadata file",
+      "action": "create_file",
+      "description": "Initialize a new file structure",
       "example": {
-        "action": "create",
-        "path": "src/calculator.py",
-        "json_content": "{\"metadata\": {\"description\": \"Calculator module\"}, \"functions\": [{\"name\": \"add\", \"parameters\": [{\"name\": \"a\", \"type\": \"int\"}, {\"name\": \"b\", \"type\": \"int\"}], \"returns\": {\"type\": \"int\"}, \"body\": \"return a + b\"}]}"
+        "action": "create_file",
+        "path": "calculator.py",
+        "description": "A comprehensive calculator implementation"
       }
     },
     {
-      "action": "read",
-      "description": "Read an existing JSON metadata file",
+      "action": "add_import",
+      "description": "Add import statement",
       "example": {
-        "action": "read",
-        "path": "src/calculator.py"
+        "action": "add_import",
+        "path": "calculator.py",
+        "module": "typing",
+        "imported_items": "Union, Optional"
       }
     },
     {
-      "action": "list",
-      "description": "List all metadata files",
+      "action": "add_class",
+      "description": "Add class definition",
       "example": {
-        "action": "list"
+        "action": "add_class",
+        "path": "calculator.py",
+        "name": "Calculator",
+        "description": "Main calculator class",
+        "docstring": "A calculator class for basic arithmetic operations"
+      }
+    },
+    {
+      "action": "add_function",
+      "description": "Add function or method",
+      "example": {
+        "action": "add_function",
+        "path": "calculator.py",
+        "name": "add",
+        "class_name": "Calculator",
+        "parameters": [{"name": "a", "type": "int"}, {"name": "b", "type": "int"}],
+        "returns": {"type": "int"},
+        "docstring": "Add two numbers"
+      }
+    },
+    {
+      "action": "add_variable",
+      "description": "Add variable or constant",
+      "example": {
+        "action": "add_variable",
+        "path": "calculator.py",
+        "name": "PI",
+        "value": "3.14159",
+        "type": "float",
+        "is_constant": true
+      }
+    },
+    {
+      "action": "complete_file",
+      "description": "Mark file as complete and finalize metadata",
+      "example": {
+        "action": "complete_file",
+        "path": "calculator.py",
+        "final_description": "Complete calculator implementation with all operations"
       }
     }
   ],
-  "output_format": "JSON metadata files stored in .meta/ directory with .json extension",
-  "template": "**file_metadata**: {description}\nAction: {action}, Path: {path}",
+  "output_format": "JSON metadata files stored in .meta/ directory with automatic dependency tracking",
+  "template": "**file_metadata**: Incremental metadata building\nAction: {action}, Path: {path}, Component: {name}",
   "parameter_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
@@ -58,31 +182,46 @@
     "properties": {
       "action": {
         "type": "string",
-        "enum": ["create", "read", "list"],
-        "description": "Action to perform on metadata files"
+        "enum": ["create_file", "add_import", "add_variable", "add_class", "add_function", "add_field", "complete_file", "read", "list"],
+        "description": "Incremental operation to perform"
       },
       "path": {
         "type": "string",
-        "description": "File path for metadata operations (required for create and read actions)"
+        "description": "File path relative to workspace"
       },
-      "json_content": {
+      "name": {
         "type": "string",
-        "description": "JSON content for create action (required when action is 'create')"
+        "description": "Component name"
+      },
+      "description": {
+        "type": "string",
+        "description": "Component description"
       }
     },
     "allOf": [
       {
-        "if": {"properties": {"action": {"enum": ["create", "read"]}}},
+        "if": {"properties": {"action": {"enum": ["create_file", "add_import", "add_variable", "add_class", "add_function", "add_field", "complete_file", "read"]}}},
         "then": {"required": ["action", "path"]}
       },
       {
-        "if": {"properties": {"action": {"const": "create"}}},
-        "then": {"required": ["action", "path", "json_content"]}
+        "if": {"properties": {"action": {"enum": ["add_import"]}}},
+        "then": {"required": ["action", "path", "module"]}
+      },
+      {
+        "if": {"properties": {"action": {"enum": ["add_variable", "add_class", "add_function"]}}},
+        "then": {"required": ["action", "path", "name"]}
+      },
+      {
+        "if": {"properties": {"action": {"enum": ["add_field"]}}},
+        "then": {"required": ["action", "path", "class_name", "name"]}
       }
     ]
   },
   "notes": [
-    "Metadata files enable structured code generation via templates",
+    "Supports incremental file building with small, focused operations",
+    "Automatic dependency tracking integration",
+    "Local models can build files piece-by-piece within context limits",
+    "Each operation updates metadata immediately for immediate feedback",
     "Files are stored as .meta/{path}.json relative to workspace root"
   ]
 }
