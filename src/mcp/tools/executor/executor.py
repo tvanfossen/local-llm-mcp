@@ -11,7 +11,9 @@ import logging
 from typing import Any, Dict
 
 from src.core.utils.utils import create_mcp_response, handle_exception
+from .schema_loader import ToolSchemaLoader
 from src.mcp.tools.agent_operations.agent_operations import agent_operations_tool
+from src.mcp.tools.code_generation.code_generation import code_generation_tool
 from src.mcp.tools.file_metadata.file_metadata import file_metadata_tool
 from src.mcp.tools.git_operations.git_operations import git_tool
 from src.mcp.tools.local_model.local_model import local_model_tool
@@ -48,6 +50,7 @@ class ConsolidatedToolExecutor:
     def __init__(self, agent_registry=None, llm_manager=None):
         self.agent_registry = agent_registry
         self.llm_manager = llm_manager
+        self.schema_loader = ToolSchemaLoader()
 
         # Initialize tool handlers
         self.validation = ValidationOperations()
@@ -67,189 +70,53 @@ class ConsolidatedToolExecutor:
         self.available_tools = self._build_tool_registry()
 
     def _build_tool_registry(self) -> dict[str, Any]:
-        """Build registry of  tools"""
-        return {
-            # Core Tool 1: Local Model Operations
-            "local_model": {
-                "name": "local_model",
-                "description": "Local LLM operations (status, generate, load, unload)",
-                "function": local_model_tool,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "description": "Model operation to perform",
-                            "enum": ["status", "generate", "load", "unload"],
-                        },
-                        "prompt": {"type": "string", "description": "Prompt for generation"},
-                        "max_tokens": {"type": "integer", "description": "Max tokens to generate", "default": 512},
-                        "temperature": {"type": "number", "description": "Generation temperature", "default": 0.7},
-                    },
-                    "required": ["operation"],
-                },
-            },
-            # Core Tool 2: Git Operations
-            "git_operations": {
-                "name": "git_operations",
-                "description": "Unified git operations (status, diff, commit, log, branch, stash, remote)",
-                "function": git_tool,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "description": "Git operation to perform",
-                            "enum": ["status", "diff", "commit", "log", "branch", "stash", "remote"],
-                        },
-                        "message": {"type": "string", "description": "Commit message (for commit operation)"},
-                        "add_all": {"type": "boolean", "description": "Add all files (for commit)", "default": False},
-                        "files": {"type": "array", "items": {"type": "string"}, "description": "Files to commit"},
-                        "staged": {
-                            "type": "boolean",
-                            "description": "Show staged changes (for diff)",
-                            "default": False,
-                        },
-                        "file_path": {"type": "string", "description": "Specific file path"},
-                        "limit": {"type": "integer", "description": "Number of log entries (for log)", "default": 10},
-                        "action": {"type": "string", "description": "Action for branch/stash operations"},
-                        "name": {"type": "string", "description": "Branch or stash name"},
-                        "short": {"type": "boolean", "description": "Short status format", "default": False},
-                    },
-                    "required": ["operation"],
-                },
-            },
-            # Core Tool 3: File Metadata Operations (Incremental JSON metadata management)
-            "file_metadata": {
-                "name": "file_metadata",
-                "description": "Incrementally build JSON metadata files for structured code generation",
-                "function": file_metadata_tool,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "description": "Metadata action to perform",
-                            "enum": ["create_file", "add_import", "add_variable", "add_class", "add_function", "add_field", "complete_file", "read", "list"],
-                        },
-                        "path": {"type": "string", "description": "File path for metadata operations"},
-                        "description": {"type": "string", "description": "Description for file/component"},
-                        "name": {"type": "string", "description": "Name for component (class, function, etc.)"},
-                        "module": {"type": "string", "description": "Module name for imports"},
-                        "imported_items": {"type": "string", "description": "Items to import from module"},
-                        "alias": {"type": "string", "description": "Alias for import"},
-                        "value": {"type": "string", "description": "Value for variables"},
-                        "type": {"type": "string", "description": "Type annotation"},
-                        "class_name": {"type": "string", "description": "Target class name for methods/fields"},
-                        "parameters": {"type": "array", "description": "Function parameters"},
-                        "returns": {"type": "object", "description": "Return type information"},
-                        "operations": {"type": "array", "description": "Function body operations"},
-                        "docstring": {"type": "string", "description": "Docstring for component"},
-                        "base_classes": {"type": "array", "description": "Base classes for inheritance"},
-                        "is_constant": {"type": "boolean", "description": "Whether variable is a constant"},
-                        "default": {"type": "string", "description": "Default value for fields"},
-                        "section": {"type": "string", "description": "Specific metadata section to read"},
-                        "filter_pattern": {"type": "string", "description": "Pattern to filter files"},
-                        "include_stats": {"type": "boolean", "description": "Include file statistics"},
-                        "final_description": {"type": "string", "description": "Final description when completing file"},
-                        "complexity": {"type": "string", "description": "File complexity level"}
-                    },
-                    "required": ["action"],
-                },
-            },
-            # Core Tool 4: Workspace Operations (File I/O)
-            "workspace": {
-                "name": "workspace",
-                "description": "Workspace operations (read, write, delete, list, search, create_dir, tree)",
-                "function": workspace_tool,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "description": "Workspace action to perform",
-                            "enum": ["read", "write", "delete", "list", "search", "create_dir", "tree", "write_artifact", "write_structured", "generate_from_metadata"],
-                        },
-                        "path": {"type": "string", "description": "File or directory path"},
-                        "content": {"type": "string", "description": "File content"},
-                        "pattern": {"type": "string", "description": "Search/file pattern", "default": "*"},
-                        "file_pattern": {"type": "string", "description": "File pattern for search", "default": "*.py"},
-                        "recursive": {"type": "boolean", "description": "Recursive operation", "default": False},
-                        "include_hidden": {"type": "boolean", "description": "Include hidden files", "default": False},
-                        "overwrite": {"type": "boolean", "description": "Allow overwriting", "default": False},
-                        "create_dirs": {"type": "boolean", "description": "Create parent dirs", "default": True},
-                        "parents": {"type": "boolean", "description": "Create parent dirs", "default": True},
-                        "confirm": {"type": "boolean", "description": "Confirm deletion", "default": False},
-                        "case_sensitive": {"type": "boolean", "description": "Case sensitive search", "default": True},
-                        "max_depth": {"type": "integer", "description": "Maximum depth", "default": 3},
-                        "encoding": {"type": "string", "description": "File encoding", "default": "utf-8"},
-                        "json_artifact": {"type": "object", "description": "JSON artifact for code generation"},
-                    },
-                    "required": ["action"],
-                },
-            },
-            # Core Tool 4: Validation Operations
-            "validation": {
-                "name": "validation",
-                "description": "Testing and validation operations (tests, pre-commit, file-length, all)",
-                "function": self._validation_handler,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "description": "Validation action to perform",
-                            "enum": ["tests", "pre-commit", "file-length", "all"],
-                        },
-                        "test_path": {"type": "string", "description": "Test path", "default": "src/"},
-                        "coverage": {"type": "boolean", "description": "Run with coverage", "default": True},
-                        "verbose": {"type": "boolean", "description": "Verbose output", "default": False},
-                        "hook": {"type": "string", "description": "Specific pre-commit hook to run"},
-                        "all_files": {"type": "boolean", "description": "Run on all files", "default": False},
-                        "file_paths": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Files to validate",
-                        },
-                        "max_lines": {"type": "integer", "description": "Maximum lines", "default": 300},
-                    },
-                    "required": ["action"],
-                },
-            },
-            # Core Tool 5: Agent Operations
-            "agent_operations": {
-                "name": "agent_operations",
-                "description": "Agent management operations (list, info, stats, create)",
-                "function": agent_operations_tool,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "description": "Agent operation to perform",
-                            "enum": ["list", "info", "stats", "create", "queue_task", "task_status", "task_result", "list_tasks"],
-                        },
-                        "agent_id": {"type": "string", "description": "Agent ID (for info and task operations)"},
-                        "message": {"type": "string", "description": "Message to send to agent (for task operations)"},
-                        "task_id": {"type": "string", "description": "Task ID (for task status/result operations)"},
-                        "task_type": {
-                            "type": "string",
-                            "description": "Type of task (conversation, file_edit, code_generation, system_query)",
-                            "default": "conversation",
-                        },
-                        "name": {"type": "string", "description": "Agent name (for create operation)"},
-                        "description": {"type": "string", "description": "Agent description (for create operation)"},
-                        "specialized_files": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Files the agent will manage (for create operation)",
-                            "default": [],
-                        },
-                    },
-                    "required": ["operation"],
-                },
-            },
+        """Build registry of tools using dynamic schema loading"""
+        logger.info("Building tool registry with dynamic schema loading...")
+
+        # Define tool mappings (name -> function) - functions stay the same
+        tool_functions = {
+            "local_model": local_model_tool,
+            "git_operations": git_tool,
+            "file_metadata": file_metadata_tool,
+            "workspace": workspace_tool,
+            "validation": self._validation_handler,
+            "agent_operations": agent_operations_tool,
+            "code_generation": code_generation_tool,
         }
+
+        # Load schemas dynamically from JSON files
+        dynamic_schemas = self.schema_loader.get_all_tool_schemas()
+
+        # Build registry combining dynamic schemas with static functions
+        registry = {}
+
+        for tool_name, tool_function in tool_functions.items():
+            if tool_name in dynamic_schemas:
+                # Use dynamic schema from JSON file
+                schema_info = dynamic_schemas[tool_name]
+                registry[tool_name] = {
+                    "name": schema_info["name"],
+                    "description": schema_info["description"],
+                    "function": tool_function,
+                    "inputSchema": schema_info["inputSchema"]
+                }
+                logger.debug(f"✅ Loaded dynamic schema for {tool_name}")
+            else:
+                # Fallback for tools without JSON schema files (should be rare)
+                logger.warning(f"⚠️ No JSON schema found for {tool_name}, using minimal fallback")
+                registry[tool_name] = {
+                    "name": tool_name,
+                    "description": f"Tool: {tool_name} (schema not found)",
+                    "function": tool_function,
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+
+        logger.info(f"✅ Built tool registry with {len(registry)} tools ({len(dynamic_schemas)} dynamic schemas)")
+        return registry
 
     async def _validation_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle validation operations"""

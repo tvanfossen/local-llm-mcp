@@ -50,9 +50,18 @@ class FileMetadataRouter:
     async def route_operation(self, action: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Route operation to appropriate handler"""
         if action not in self.operations:
+            available_actions = list(self.operations.keys())
+            error_msg = f"Invalid action '{action}'. Valid actions: {', '.join(available_actions)}"
+
+            # Provide specific guidance for common mistakes
+            if action == "add_method":
+                error_msg += ". To add methods to a class, use 'add_function' with 'class_name' parameter."
+            elif action == "add_code":
+                error_msg += ". No direct code injection allowed. Use structured metadata operations instead."
+
             return {
                 "success": False,
-                "error": f"Unknown action '{action}'. Available: {', '.join(self.operations.keys())}"
+                "error": error_msg
             }
 
         try:

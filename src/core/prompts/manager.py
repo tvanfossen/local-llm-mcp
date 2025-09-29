@@ -93,6 +93,12 @@ class PromptManager:
             if not template:
                 raise ValueError("JSON prompt must contain 'template' field")
 
+            # Handle both string and list templates
+            if isinstance(template, list):
+                template = "\n".join(template)
+            elif not isinstance(template, str):
+                raise ValueError("Template must be a string or list of strings")
+
             # Cache the extracted template
             self.cache[cache_key] = template
             logger.debug(f"Loaded JSON prompt template: {prompt_path}")
@@ -123,8 +129,8 @@ class PromptManager:
         """
         prompt = self.load_prompt(category, name, format)
 
-        # Check character limit BEFORE processing (2000 chars for Qwen2.5-7B)
-        MAX_PROMPT_CHARS = 2000
+        # Check character limit BEFORE processing (increased for detailed method examples)
+        MAX_PROMPT_CHARS = 4000
         if len(prompt) > MAX_PROMPT_CHARS:
             raise ValueError(f"Prompt {category}/{name} exceeds {MAX_PROMPT_CHARS} character limit: {len(prompt)} chars")
 

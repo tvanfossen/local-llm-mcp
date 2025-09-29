@@ -1,20 +1,20 @@
 {
   "tool_name": "file_metadata",
-  "description": "Incrementally build JSON metadata files for structured code generation with small, focused operations",
+  "description": "Build JSON metadata incrementally",
   "category": "metadata_management",
   "parameters": [
     {
       "name": "action",
       "type": "string",
       "required": true,
-      "description": "Action to perform",
-      "allowed_values": ["create_file", "add_import", "add_variable", "add_class", "add_function", "add_field", "complete_file", "read", "list"]
+      "description": "Action",
+      "allowed_values": ["create_file", "add_import", "add_class", "add_function", "add_variable", "add_field", "complete_file"]
     },
     {
       "name": "path",
       "type": "string",
       "required": true,
-      "description": "File path relative to workspace (required for all actions except list)"
+      "description": "File path"
     },
     {
       "name": "description",
@@ -68,7 +68,7 @@
       "name": "parameters",
       "type": "array",
       "required": false,
-      "description": "Function parameters list"
+      "description": "Function parameters as array of objects. Each object has 'name' and 'type' fields. Example: [{\"name\": \"self\", \"type\": \"ClassName\"}, {\"name\": \"x\", \"type\": \"float\"}]"
     },
     {
       "name": "returns",
@@ -80,7 +80,7 @@
       "name": "operations",
       "type": "array",
       "required": false,
-      "description": "Function body operations (for advanced function definitions)"
+      "description": "REQUIRED for add_function: Implementation logic as array of operation objects. Each object has 'type' (e.g. 'return') and 'value' (e.g. 'x + y') fields. Example: [{\"type\": \"return\", \"value\": \"a + b\"}]. Without this field, functions/methods will have empty bodies."
     },
     {
       "name": "docstring",
@@ -107,74 +107,35 @@
       "description": "Default value for class fields"
     }
   ],
-  "usage_examples": [
-    {
-      "action": "create_file",
-      "description": "Initialize a new file structure",
-      "example": {
-        "action": "create_file",
-        "path": "calculator.py",
-        "description": "A comprehensive calculator implementation"
-      }
-    },
-    {
-      "action": "add_import",
-      "description": "Add import statement",
-      "example": {
-        "action": "add_import",
-        "path": "calculator.py",
-        "module": "typing",
-        "imported_items": "Union, Optional"
-      }
-    },
-    {
-      "action": "add_class",
-      "description": "Add class definition",
-      "example": {
-        "action": "add_class",
-        "path": "calculator.py",
-        "name": "Calculator",
-        "description": "Main calculator class",
-        "docstring": "A calculator class for basic arithmetic operations"
-      }
-    },
-    {
-      "action": "add_function",
-      "description": "Add function or method",
-      "example": {
-        "action": "add_function",
-        "path": "calculator.py",
-        "name": "add",
-        "class_name": "Calculator",
-        "parameters": [{"name": "a", "type": "int"}, {"name": "b", "type": "int"}],
-        "returns": {"type": "int"},
-        "docstring": "Add two numbers"
-      }
-    },
-    {
-      "action": "add_variable",
-      "description": "Add variable or constant",
-      "example": {
-        "action": "add_variable",
-        "path": "calculator.py",
-        "name": "PI",
-        "value": "3.14159",
-        "type": "float",
-        "is_constant": true
-      }
-    },
-    {
-      "action": "complete_file",
-      "description": "Mark file as complete and finalize metadata",
-      "example": {
-        "action": "complete_file",
-        "path": "calculator.py",
-        "final_description": "Complete calculator implementation with all operations"
-      }
-    }
+  "action_requirements": {
+    "create_file": ["path"],
+    "add_import": ["path", "module"],
+    "add_class": ["path", "name"],
+    "add_function": ["path", "name", "operations"],
+    "add_variable": ["path", "name"],
+    "add_field": ["path", "class_name", "name"],
+    "complete_file": ["path"]
+  },
+  "critical_notes": [
+    "INVALID ACTIONS: Only use actions listed in allowed_values. Actions like 'add_code' and 'add_method' do not exist.",
+    "METHODS: To add methods to a class, use 'add_function' with 'class_name' parameter specified.",
+    "OPERATIONS REQUIRED: add_function MUST include 'operations' array for implementation.",
+    "EMPTY METHODS: Without 'operations' field, generated functions/methods will have no implementation."
   ],
+  "format_requirements": {
+    "parameters": {
+      "type": "array_of_objects",
+      "example": "[{\"name\": \"self\", \"type\": \"ClassName\"}, {\"name\": \"a\", \"type\": \"float\"}, {\"name\": \"b\", \"type\": \"float\"}]",
+      "wrong_format": "{\"a\": \"float\", \"b\": \"float\"}"
+    },
+    "operations": {
+      "type": "array_of_objects",
+      "example": "[{\"type\": \"return\", \"value\": \"a + b\"}]",
+      "wrong_format": "\"return a + b\""
+    }
+  },
   "output_format": "JSON metadata files stored in .meta/ directory with automatic dependency tracking",
-  "template": "**file_metadata**: Incremental metadata building\nAction: {action}, Path: {path}, Component: {name}",
+  "template": "**file_metadata**: Incremental metadata building\nAction: {action}, Path: {path}, Operation: {operation}",
   "parameter_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",

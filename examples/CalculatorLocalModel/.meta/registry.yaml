@@ -1,0 +1,14 @@
+dependencies: {}
+exports: {}
+modules:
+  calculator.py:
+    dependencies:
+    - typing
+    description: ''
+    exports:
+      classes:
+      - docstring: ''
+        methods: []
+        name: Calculator
+      functions: []
+    last_updated: auto-generated

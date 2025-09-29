@@ -39,6 +39,40 @@ class AddFunctionOperation(BaseMetadataOperation):
         operations = arguments.get("operations", [])
         class_name = arguments.get("class_name")
 
+        # Debug logging to see what we receive
+        logger.info(f"add_function received parameters: {parameters} (type: {type(parameters)})")
+        logger.info(f"add_function received returns: {returns} (type: {type(returns)})")
+
+        # Handle stringified JSON parameters
+        import json
+        if isinstance(parameters, str):
+            try:
+                parameters = json.loads(parameters)
+            except json.JSONDecodeError:
+                parameters = []
+
+        # Handle stringified JSON returns
+        if isinstance(returns, str):
+            try:
+                returns = json.loads(returns)
+            except json.JSONDecodeError:
+                returns = None
+
+        # Handle stringified JSON operations
+        if isinstance(operations, str):
+            try:
+                operations = json.loads(operations)
+            except json.JSONDecodeError:
+                operations = []
+
+        # Require operations for complete function implementation
+        if not operations:
+            context = f"method in class '{class_name}'" if class_name else "function"
+            return {
+                "success": False,
+                "error": f"Missing 'operations' field for {context} '{name}'. Functions/methods require implementation logic. Example: operations = [{{\"type\": \"return\", \"value\": \"result_expression\"}}]"
+            }
+
         try:
             # Load existing metadata
             metadata, meta_file = self._load_or_create_metadata(path)

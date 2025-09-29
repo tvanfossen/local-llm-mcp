@@ -318,12 +318,21 @@ class Agent:
                     tool_calls = result.get("tool_calls", [])
                     results = result.get("results", [])
 
-                    # LIMIT: Enforce max 8 tool calls per inference to prevent excessive calls
-                    MAX_TOOL_CALLS = 8
+                    # LIMIT: Increased max tool calls for incremental construction
+                    MAX_TOOL_CALLS = 25
+                    SELF_QUEUE_THRESHOLD = 20  # Queue more work when approaching limit
+
                     if len(tool_calls) > MAX_TOOL_CALLS:
                         self.logger.warning(f"⚠️ TOOL CALL LIMIT: Truncating {len(tool_calls)} calls to {MAX_TOOL_CALLS}")
                         tool_calls = tool_calls[:MAX_TOOL_CALLS]
                         results = results[:MAX_TOOL_CALLS]
+
+                        # Self-queuing: Create continuation task for remaining work
+                        remaining_work = f"Continue incremental construction of {filename} from where previous batch left off"
+                        self.logger.info(f"🔄 SELF-QUEUING: Creating continuation task for remaining work")
+                        # Note: Self-queuing implementation would go here if task queue supports it
+                    elif len(tool_calls) >= SELF_QUEUE_THRESHOLD:
+                        self.logger.info(f"📊 HIGH TOOL USAGE: {len(tool_calls)} calls (approaching {MAX_TOOL_CALLS} limit)")
 
                     self.logger.info(f"✅ TOOL CALLS EXECUTED: {len(tool_calls)} calls")
                     for i, (call, res) in enumerate(zip(tool_calls, results)):

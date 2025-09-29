@@ -1,0 +1,55 @@
+{
+  "file_info": {
+    "name": "math_utils.py",
+    "description": "Utility functions for mathematical operations",
+    "author": "Local LLM Agent",
+    "version": "1.0.0"
+  },
+  "imports": [],
+  "classes": [],
+  "functions": [
+    {
+      "name": "square_root",
+      "description": "",
+      "docstring": "Calculate the square root of a number",
+      "parameters": [
+        {
+          "name": "x",
+          "type": "Union[int, float]"
+        }
+      ],
+      "operations": [
+        {
+          "type": "validation",
+          "condition": "x >= 0",
+          "exception_type": "ValueError",
+          "exception_message": "Cannot calculate square root of negative number"
+        },
+        {
+          "type": "return",
+          "value": "x ** 0.5"
+        }
+      ],
+      "returns": {
+        "type": "float"
+      }
+    }
+  ],
+  "constants": [],
+  "variables": [],
+  "metadata": {
+    "file_type": "python_module",
+    "complexity": "low",
+    "test_coverage_target": 80,
+    "linting_rules": [
+      "flake8",
+      "pylint"
+    ],
+    "dependencies": []
+  },
+  "_metadata": {
+    "generated_for": "math_utils.py",
+    "format": "json",
+    "description": "Generated JSON metadata for math_utils.py"
+  }
+}

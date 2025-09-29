@@ -38,7 +38,7 @@ class UnifiedToolCallParser:
 
     # Regex patterns for JSON formats
     JSON_FENCE_RE = re.compile(r'```(?:json)?\s*\n?(.*?)\n?```', re.DOTALL | re.IGNORECASE)
-    JSON_BLOCK_RE = re.compile(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', re.DOTALL)
+    JSON_BLOCK_RE = re.compile(r'(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\])', re.DOTALL)
 
     def __init__(self, strategy: ParsingStrategy = ParsingStrategy.JSON_PRIMARY):
         self.strategy = strategy
@@ -94,7 +94,16 @@ class UnifiedToolCallParser:
             json_content = match.group(1).strip()
             parsed_call = self._parse_json_safely(json_content)
             if parsed_call:
-                calls.append(parsed_call)
+                # Check if this is an array of tool calls
+                if "_tool_call_array" in parsed_call:
+                    # Expand array into individual calls
+                    for tool_call in parsed_call["_tool_call_array"]:
+                        if isinstance(tool_call, dict):
+                            calls.append(tool_call)
+                        else:
+                            errors.append(f"Invalid tool call in array: {tool_call}")
+                else:
+                    calls.append(parsed_call)
             else:
                 # If there were matches but parsing failed, it's an error
                 if json_content.strip():
@@ -113,9 +122,19 @@ class UnifiedToolCallParser:
         for match in matches:
             json_content = match.group().strip()
             parsed_call = self._parse_json_safely(json_content)
-            if parsed_call and "tool_name" in parsed_call:
-                calls.append(parsed_call)
-            elif json_content.strip().startswith('{') and json_content.strip().endswith('}'):
+            if parsed_call:
+                # Check if this is an array of tool calls
+                if "_tool_call_array" in parsed_call:
+                    # Expand array into individual calls
+                    for tool_call in parsed_call["_tool_call_array"]:
+                        if isinstance(tool_call, dict) and "tool_name" in tool_call:
+                            calls.append(tool_call)
+                        else:
+                            errors.append(f"Invalid tool call in array: {tool_call}")
+                elif "tool_name" in parsed_call:
+                    calls.append(parsed_call)
+            elif (json_content.strip().startswith('{') and json_content.strip().endswith('}')) or \
+                 (json_content.strip().startswith('[') and json_content.strip().endswith(']')):
                 # Looks like JSON but failed to parse or missing tool_name
                 errors.append(f"Failed to parse JSON block: invalid syntax or missing tool_name")
 
@@ -127,6 +146,9 @@ class UnifiedToolCallParser:
             parsed = json.loads(json_text)
             if isinstance(parsed, dict):
                 return parsed
+            elif isinstance(parsed, list):
+                # Handle array of tool calls - return special marker for array processing
+                return {"_tool_call_array": parsed}
         except json.JSONDecodeError as e:
             self.logger.debug(f"JSON parse failed: {e}")
         except Exception as e:

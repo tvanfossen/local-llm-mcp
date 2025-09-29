@@ -57,15 +57,32 @@ class DependencyTracker:
             exports = {"classes": [], "functions": []}
 
             for cls in metadata.get("classes", []):
+                # Extract class methods
+                methods = []
+                for method in cls.get("methods", []):
+                    # Build method signature from parameters and return type
+                    signature = self._build_method_signature(method)
+
+                    methods.append({
+                        "name": method.get("name", ""),
+                        "docstring": method.get("docstring", ""),
+                        "signature": signature
+                    })
+
                 exports["classes"].append({
                     "name": cls.get("name", ""),
-                    "description": cls.get("description", "")
+                    "docstring": cls.get("docstring", ""),
+                    "methods": methods
                 })
 
             for func in metadata.get("functions", []):
+                # Build function signature from parameters and return type
+                signature = self._build_function_signature(func)
+
                 exports["functions"].append({
                     "name": func.get("name", ""),
-                    "description": func.get("description", "")
+                    "docstring": func.get("docstring", ""),
+                    "signature": signature
                 })
 
             # Update registry
@@ -159,6 +176,76 @@ class DependencyTracker:
                     return True, circular_modules
 
         return False, []
+
+    def _build_method_signature(self, method: Dict[str, Any]) -> str:
+        """Build method signature from parameters and return type"""
+        try:
+            name = method.get("name", "")
+            parameters = method.get("parameters", [])
+            returns = method.get("returns", {})
+
+            # Build parameter list
+            param_strs = []
+            for param in parameters:
+                param_name = param.get("name", "")
+                param_type = param.get("type", "")
+                param_default = param.get("default", "")
+
+                if param_name:
+                    param_str = param_name
+                    if param_type:
+                        param_str += f": {param_type}"
+                    if param_default:
+                        param_str += f" = {param_default}"
+                    param_strs.append(param_str)
+
+            # Build signature
+            signature = f"{name}({', '.join(param_strs)})"
+
+            # Add return type if specified
+            return_type = returns.get("type", "")
+            if return_type:
+                signature += f" -> {return_type}"
+
+            return signature
+        except Exception as e:
+            logger.warning(f"Failed to build method signature for {method.get('name', 'unknown')}: {e}")
+            return method.get("name", "")
+
+    def _build_function_signature(self, func: Dict[str, Any]) -> str:
+        """Build function signature from parameters and return type"""
+        try:
+            name = func.get("name", "")
+            parameters = func.get("parameters", [])
+            returns = func.get("returns", {})
+
+            # Build parameter list (functions don't have 'self')
+            param_strs = []
+            for param in parameters:
+                param_name = param.get("name", "")
+                param_type = param.get("type", "")
+                param_default = param.get("default", "")
+
+                if param_name:
+                    param_str = param_name
+                    if param_type:
+                        param_str += f": {param_type}"
+                    if param_default:
+                        param_str += f" = {param_default}"
+                    param_strs.append(param_str)
+
+            # Build signature
+            signature = f"{name}({', '.join(param_strs)})"
+
+            # Add return type if specified
+            return_type = returns.get("type", "")
+            if return_type:
+                signature += f" -> {return_type}"
+
+            return signature
+        except Exception as e:
+            logger.warning(f"Failed to build function signature for {func.get('name', 'unknown')}: {e}")
+            return func.get("name", "")
 
     def get_available_classes(self, exclude_modules: List[str] = None) -> Dict[str, List]:
         """Get all available classes from registry"""

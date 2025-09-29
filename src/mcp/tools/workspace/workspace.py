@@ -75,6 +75,54 @@ def _extract_imports_from_body(body: str) -> tuple[list[str], str]:
     return extracted_imports, cleaned_body
 
 
+def _convert_operations_to_body(operations: List[Dict[str, Any]]) -> str:
+    """Convert operations array to Python method/function body"""
+    if not operations:
+        return "pass"
+
+    body_lines = []
+    for operation in operations:
+        op_type = operation.get('type', '')
+
+        if op_type == 'return':
+            value = operation.get('value', '')
+            if value:
+                body_lines.append(f"return {value}")
+            else:
+                body_lines.append("return")
+        elif op_type == 'assignment':
+            target = operation.get('target', '')
+            value = operation.get('value', '')
+            if target and value:
+                body_lines.append(f"{target} = {value}")
+        elif op_type == 'validation':
+            condition = operation.get('condition', '')
+            exception_type = operation.get('exception_type', 'ValueError')
+            exception_message = operation.get('exception_message', 'Invalid input')
+            if condition:
+                body_lines.append(f"if not ({condition}):")
+                body_lines.append(f"    raise {exception_type}('{exception_message}')")
+        elif op_type == 'function_call':
+            function_name = operation.get('function_name', '')
+            arguments = operation.get('arguments', [])
+            target = operation.get('target', '')
+            if function_name:
+                args_str = ", ".join(str(arg) for arg in arguments)
+                call_str = f"{function_name}({args_str})"
+                if target:
+                    body_lines.append(f"{target} = {call_str}")
+                else:
+                    body_lines.append(call_str)
+        elif op_type == 'pass':
+            body_lines.append("pass")
+        else:
+            # Default case for unknown operation types
+            description = operation.get('description', f'TODO: Implement {op_type}')
+            body_lines.append(f"# {description}")
+            body_lines.append("pass")
+
+    return '\n'.join(body_lines) if body_lines else "pass"
+
 
 def _json_to_python_file(json_obj: Dict[str, Any], filename: str) -> PythonFile:
     """Convert JSON structure to PythonFile schema object"""
@@ -98,8 +146,12 @@ def _json_to_python_file(json_obj: Dict[str, Any], filename: str) -> PythonFile:
                 if isinstance(import_data, dict):
                     module = import_data.get('module', '')
                     items = import_data.get('items', '')
+                    imported_items = import_data.get('imported_items', '')
+
                     if module:
-                        items_list = [item.strip() for item in items.split(',')] if items else []
+                        # Handle both 'items' and 'imported_items' field formats
+                        items_source = items or imported_items
+                        items_list = [item.strip() for item in items_source.split(',')] if items_source else []
                         import_obj = PythonImport(module=module, items=items_list)
                         python_file.add_import(import_obj)
 
@@ -152,15 +204,20 @@ def _json_to_python_file(json_obj: Dict[str, Any], filename: str) -> PythonFile:
 
                     body = "pass"
                     raw_body = func_data.get('body', '')
+                    operations = func_data.get('operations', [])
+
                     if raw_body:
                         # Extract imports from function body
                         body_imports, cleaned_body = _extract_imports_from_body(raw_body.strip())
                         extracted_imports.update(body_imports)
                         body = cleaned_body if cleaned_body else "pass"
+                    elif operations and isinstance(operations, list):
+                        # Convert operations to function body
+                        body = _convert_operations_to_body(operations)
 
                     function = PythonFunction(
                         name=name,
-                        docstring=None,
+                        docstring=func_data.get('docstring'),
                         parameters=parameters,
                         return_type=return_type,
                         body=body
@@ -249,15 +306,20 @@ def _json_to_python_file(json_obj: Dict[str, Any], filename: str) -> PythonFile:
 
                                 method_body = "pass"
                                 raw_body = method_data.get('body', '')
+                                operations = method_data.get('operations', [])
+
                                 if raw_body:
                                     # Extract imports from method body
                                     body_imports, cleaned_body = _extract_imports_from_body(raw_body.strip())
                                     extracted_imports.update(body_imports)
                                     method_body = cleaned_body if cleaned_body else "pass"
+                                elif operations and isinstance(operations, list):
+                                    # Convert operations to method body
+                                    method_body = _convert_operations_to_body(operations)
 
                                 method = PythonMethod(
                                     name=method_name,
-                                    docstring=None,
+                                    docstring=method_data.get('docstring'),
                                     parameters=method_params,
                                     return_type=method_return_type,
                                     body=method_body

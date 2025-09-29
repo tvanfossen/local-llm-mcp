@@ -1,13 +1,58 @@
 dependencies: {}
 exports: {}
 modules:
-  test_calculator.py:
+  calculator.py:
     dependencies:
     - typing
-    description: Complete calculator implementation with incremental operations
+    description: ''
     exports:
       classes:
-      - description: A simple calculator class
+      - docstring: A calculator class for performing basic arithmetic operations
+        methods:
+        - docstring: Add two numbers and return the result
+          name: add
+          signature: 'add(self: Calculator, a: Union[int, float], b: Union[int, float])
+            -> Union[int, float]'
+        - docstring: Subtract two numbers and return the result
+          name: subtract
+          signature: 'subtract(self: Calculator, a: Union[int, float], b: Union[int,
+            float]) -> Union[int, float]'
+        - docstring: Multiply two numbers and return the result
+          name: multiply
+          signature: 'multiply(self: Calculator, a: Union[int, float], b: Union[int,
+            float]) -> Union[int, float]'
+        - docstring: Divide two numbers and return the result
+          name: divide
+          signature: 'divide(self: Calculator, a: Union[int, float], b: Union[int,
+            float]) -> Union[int, float]'
+        - docstring: Raise a number to a power and return the result
+          name: power
+          signature: 'power(self: Calculator, base: Union[int, float], exponent: Union[int,
+            float]) -> Union[int, float]'
         name: Calculator
       functions: []
+    last_updated: auto-generated
+  main.py:
+    dependencies:
+    - calculator
+    description: ''
+    exports:
+      classes: []
+      functions:
+      - docstring: Demonstrate calculator functionality with sample operations
+        name: main
+        signature: main() -> None
+      - docstring: Entry point when script is run directly
+        name: __main_guard__
+        signature: __main_guard__() -> None
+    last_updated: auto-generated
+  math_utils.py:
+    dependencies: []
+    description: Utility functions for mathematical operations
+    exports:
+      classes: []
+      functions:
+      - docstring: Calculate the square root of a number
+        name: square_root
+        signature: 'square_root(x: Union[int, float]) -> float'
     last_updated: auto-generated
