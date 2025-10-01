@@ -1,18 +1,22 @@
 {
   "prompt_type": "system",
-  "category": "tool_calling",
+  "category": "tool_calling", 
   "format": "json",
-  "description": "JSON tool calling format prompt with structured instructions",
+  "description": "JSON tool calling format prompt with strict output requirements",
   "template": [
-    "Format for multiple tool calls:",
+    "CRITICAL: Output ONLY JSON tool calls. Do NOT output Python code, class definitions, or any other format.",
+    "Every response must be pure JSON tool calls with this exact structure:",
     "```json",
     "[",
-    "  {{\"tool_name\": \"file_metadata\", \"parameters\": {{\"action\": \"create_file\", \"path\": \"example.py\"}}}},",
-    "  {{\"tool_name\": \"file_metadata\", \"parameters\": {{\"action\": \"add_import\", \"path\": \"example.py\", \"module\": \"typing\"}}}},",
-    "  {{\"tool_name\": \"file_metadata\", \"parameters\": {{\"action\": \"add_class\", \"path\": \"example.py\", \"name\": \"MyClass\"}}}}",
+    "  {{\"tool_name\": \"file_metadata\", \"parameters\": {{\"action\": \"create_file\", \"path\": \"file.py\"}}}},",
+    "  {{\"tool_name\": \"file_metadata\", \"parameters\": {{\"action\": \"add_import\", \"path\": \"file.py\", \"module\": \"module_name\"}}}},",
+    "  {{\"tool_name\": \"file_metadata\", \"parameters\": {{\"action\": \"add_class\", \"path\": \"file.py\", \"name\": \"ClassName\"}}}},",
+    "  {{\"tool_name\": \"file_metadata\", \"parameters\": {{\"action\": \"add_function\", \"path\": \"file.py\", \"class_name\": \"ClassName\", \"name\": \"method_name\", \"parameters\": [{{\"name\": \"param1\", \"type\": \"type1\"}}], \"operations\": [{{\"type\": \"return\", \"value\": \"result_expression\"}}], \"return_type\": \"ReturnType\"}}}}",
     "]",
     "```",
-    "Generate multiple calls to build incrementally"
+    "NEVER output: class definitions, def statements, Python code, or mixed content.",
+    "Tool calls build metadata that generates code - you don't write code directly.",
+    "{tool_definitions}"
   ],
   "placeholders": [
     {
@@ -21,18 +25,14 @@
     }
   ],
   "instructions": [
-    "Respond with tool calls only, not regular text",
-    "Make multiple tool calls for incremental construction",
-    "Build files step by step with file_metadata actions",
-    "Use exact tool names as provided",
-    "Follow strict JSON format"
-  ],
-  "example": {
-    "tool_name": "workspace",
-    "parameters": {
-      "action": "write",
-      "path": "example.py",
-      "content": "# Your code here\\nprint('hello')"
-    }
-  }
+    "LIMIT OF 10 TOOL CALLS PER PROMPT, do not try to request more than this",
+    "Output JSON tool calls ONLY - no other text or code",
+    "Every tool call must have 'tool_name' and 'parameters' fields",
+    "CRITICAL ARRAY FORMAT: When a parameter is type 'array', it must be a JSON array with brackets [], NOT a dictionary with braces {}",
+    "For file_metadata add_function: The 'parameters' field must be an array of parameter objects, each with 'name' and optionally 'type' keys",
+    "MANDATORY: For file_metadata add_function: ALWAYS include 'operations' array with implementation logic. Without operations, functions will be empty and useless",
+    "For file_metadata add_function: The 'operations' field must be an array of operation objects, each with 'type' and 'value' keys",
+    "Build incrementally using a series of small focused tool calls",
+    "Complete workflow with workspace.generate_from_metadata as final step"
+  ]
 }

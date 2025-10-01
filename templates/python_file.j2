@@ -76,17 +76,17 @@ class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join('
     """{{ class.docstring }}"""
 {% endif %}
 
-{% for method in class.methods %}
-    def {{ method.name }}(self{% for param in method.parameters if param.name != 'self' %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}){% if method.return_type %} -> {{ method.return_type }}{% endif %}:
-{% if method.docstring %}
-        """{{ method.docstring }}"""
+{% for function in class.functions %}
+    def {{ function.name }}(self{% for param in function.parameters if param.name != 'self' %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}){% if function.return_type %} -> {{ function.return_type }}{% endif %}:
+{% if function.docstring %}
+        """{{ function.docstring }}"""
 {% endif -%}
-{% if method.body -%}
-{% for line in method.body.split('\n') %}{% if line.strip() %}
+{% if function.body -%}
+{% for line in function.body.split('\n') %}{% if line.strip() %}
         {{ line }}
 {% endif %}{% endfor -%}
-{% elif method.operations -%}
-{% for operation in method.operations -%}
+{% elif function.operations -%}
+{% for operation in function.operations -%}
 {% if operation.type == 'validation' %}
         if not ({{ operation.condition }}):
             raise {{ operation.exception_type }}('{{ operation.exception_message }}')

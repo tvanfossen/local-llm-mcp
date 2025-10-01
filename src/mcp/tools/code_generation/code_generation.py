@@ -38,7 +38,7 @@ class CodeGenerator:
         self.jinja_env.globals['debug'] = True
 
     def convert_operations_to_body(self, operations: List[Dict[str, Any]]) -> str:
-        """Convert operations array to Python method/function body"""
+        """Convert operations array to Python function body"""
         logger.debug(f"Converting {len(operations)} operations to body")
 
         if not operations:
@@ -186,15 +186,15 @@ class CodeGenerator:
                         docstring = class_data.get('docstring', '')
                         methods = []
 
-                        # Process methods
+                        # Process function
                         methods_data = class_data.get('methods', [])
                         if methods_data and isinstance(methods_data, list):
                             for j, method_data in enumerate(methods_data):
                                 if isinstance(method_data, dict):
                                     method_name = method_data.get('name', f'unknown_method_{j}')
-                                    logger.debug(f"Processing method {j}: {method_name}")
+                                    logger.debug(f"Processing function {j}: {method_name}")
 
-                                    # Extract method parameters
+                                    # Extract function parameters
                                     method_params = []
                                     params_data = method_data.get('parameters', [])
                                     if params_data and isinstance(params_data, list):

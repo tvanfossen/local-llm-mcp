@@ -4,6 +4,7 @@ modules:
   calculator.py:
     dependencies:
     - typing
+    - typing
     description: ''
     exports:
       classes:

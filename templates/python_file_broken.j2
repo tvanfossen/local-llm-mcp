@@ -37,12 +37,12 @@ class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join('
     """{{ class.docstring }}"""
 {% endif %}
 
-{%- if class.init_method %}
-    def __init__(self{% for param in class.init_method.parameters if param.name != 'self' %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}):
-{%- if class.init_method.docstring %}
-        """{{ class.init_method.docstring }}"""
+{%- if class.init_function %}
+    def __init__(self{% for param in class.init_function.parameters if param.name != 'self' %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}):
+{%- if class.init_function.docstring %}
+        """{{ class.init_function.docstring }}"""
 {% endif -%}
-{% for operation in class.init_method.operations -%}
+{% for operation in class.init_function.operations -%}
 {%- if operation.type == 'assignment' %}
         self.{{ operation.target }} = {{ operation.value }}
 {%- elif operation.type == 'validation' %}
@@ -57,12 +57,12 @@ class {{ class.name }}{% if class.base_classes %}({{ class.base_classes | join('
 {% endfor -%}
 
 {% endif -%}
-{%- for method in class.methods %}
-    def {{ method.name }}(self{% for param in method.parameters if param.name != 'self' %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}){% if method.return_type %} -> {{ method.return_type }}{% endif %}:
-{%- if method.docstring %}
-        """{{ method.docstring }}"""
+{%- for function in class.functions %}
+    def {{ function.name }}(self{% for param in function.parameters if param.name != 'self' %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}){% if function.return_type %} -> {{ function.return_type }}{% endif %}:
+{%- if function.docstring %}
+        """{{ function.docstring }}"""
 {% endif %}
-{% for line in method.body.split('\n') -%}
+{% for line in function.body.split('\n') -%}
 {% if line.strip() %}
         {{ line }}
 {% endif %}

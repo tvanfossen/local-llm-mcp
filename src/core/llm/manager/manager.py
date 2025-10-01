@@ -241,11 +241,17 @@ class LLMManager:
         enhanced_prompt = prompt
         if tools_enabled and self.mcp_bridge:
             tools_prompt = self._format_tools_for_qwen()
-            logger.debug(f"Tools available, enhanced prompt with {len(tools_prompt)} chars")
-            logger.debug(f"Tools prompt preview: {tools_prompt[:200]}...")
+            logger.info(f"{'='*80}")
             logger.info(f"🔧 TOOLS AVAILABLE: Enhanced prompt with {len(tools_prompt)} character tool definitions")
-            logger.info(f"🔧 TOOLS PROMPT: {tools_prompt[:200]}...")
+            logger.info(f"{'='*80}")
+            logger.info(f"📋 FULL TOOLS PROMPT:")
+            logger.info(tools_prompt)
+            logger.info(f"{'='*80}")
             enhanced_prompt = f"{tools_prompt}\n\nUser request: {prompt}\n\nResponse:"
+            logger.info(f"📝 COMPLETE ENHANCED PROMPT ({len(enhanced_prompt)} chars):")
+            logger.info(f"{'='*80}")
+            logger.info(enhanced_prompt)
+            logger.info(f"{'='*80}")
         else:
             logger.debug(f"NO TOOLS - tools_enabled={tools_enabled}, mcp_bridge={self.mcp_bridge is not None}")
             logger.warning("🚨 NO TOOLS AVAILABLE: mcp_bridge not configured or tools_enabled=False")
@@ -267,14 +273,15 @@ class LLMManager:
             }
 
         response_text = result["response"]
-        # Moved verbose model output to debug log to prevent main container log truncation
-        logger.debug(f"Model generated: {len(response_text)} characters")
+        logger.info(f"{'='*80}")
+        logger.info(f"🔍 LLM RAW OUTPUT ({len(response_text)} characters):")
+        logger.info(f"{'='*80}")
+        logger.info(response_text)
+        logger.info(f"{'='*80}")
 
         # Process output for tool calls if bridge is available
         if tools_enabled and self.mcp_bridge:
-            logger.debug("Processing model output for tool calls")
-            logger.info(f"🔍 Processing model output: {len(response_text)} characters")
-            # Verbose output preview removed to prevent log truncation
+            logger.info("Processing model output for tool calls")
             processed = await self.mcp_bridge.process_model_output(response_text)
 
             if processed.get("type") == "tool_calls":

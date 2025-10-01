@@ -27,9 +27,15 @@ class MCPBridge:
 
     def get_tools_prompt(self) -> str:
         """Get formatted tools prompt for model"""
-        self.logger.debug("ENTRY get_tools_prompt")
+        self.logger.info(f"{'='*80}")
+        self.logger.info("ENTRY get_tools_prompt - formatting tools for model")
         prompt = self.formatter.get_tools_prompt()
-        self.logger.debug(f"EXIT get_tools_prompt: {len(prompt)} characters")
+        self.logger.info(f"EXIT get_tools_prompt: {len(prompt)} characters")
+        self.logger.info(f"{'='*80}")
+        self.logger.info("📋 FORMATTED TOOLS PROMPT:")
+        self.logger.info(f"{'='*80}")
+        self.logger.info(prompt)
+        self.logger.info(f"{'='*80}")
         return prompt
 
     async def process_model_output(self, model_output: str, parent_task_id: Optional[str] = None) -> Dict[str, Any]:
@@ -109,6 +115,11 @@ class MCPBridge:
         # Handle both new "parameters" format and legacy "arguments" format
         arguments = tool_call.get('parameters', tool_call.get('arguments', {}))
 
+        # LOG: Tool call details before execution
+        self.logger.info(f"🔧 BRIDGE EXECUTING TOOL CALL:")
+        self.logger.info(f"  📛 Tool: {tool_name}")
+        self.logger.info(f"  📥 Raw Call: {tool_call}")
+        self.logger.info(f"  🔧 Arguments: {arguments}")
         self.logger.debug(f"ENTRY _execute_tool_call: {tool_name} with {arguments}")
 
         if not self.tool_executor:

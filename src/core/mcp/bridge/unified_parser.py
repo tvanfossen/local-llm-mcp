@@ -58,6 +58,10 @@ class UnifiedToolCallParser:
         tool_calls = []
         errors = []
 
+        # LOG: Raw input for debugging
+        self.logger.info(f"🔍 PARSER RAW INPUT ({len(text)} chars):")
+        self.logger.info(f"📝 CONTENT: {text}")
+
         try:
             # Strategy 1: JSON fence blocks
             fence_calls, fence_errors = self._extract_json_from_fences(text)
@@ -70,14 +74,23 @@ class UnifiedToolCallParser:
                 tool_calls.extend(direct_calls)
                 errors.extend(direct_errors)
 
+            # LOG: Extracted tool calls before validation
+            self.logger.info(f"🔧 EXTRACTED TOOL CALLS ({len(tool_calls)} total):")
+            for i, call in enumerate(tool_calls):
+                self.logger.info(f"  [{i+1}] {call}")
+
             # Validate all calls
             valid_calls = []
-            for call in tool_calls:
+            for i, call in enumerate(tool_calls):
                 if self._validate_tool_call(call):
                     valid_calls.append(call)
+                    self.logger.info(f"✅ VALID: Call {i+1} passed validation")
                 else:
-                    errors.append(f"Invalid JSON tool call: {call}")
+                    error_msg = f"Invalid JSON tool call: {call}"
+                    errors.append(error_msg)
+                    self.logger.warning(f"❌ INVALID: Call {i+1} failed validation - {error_msg}")
 
+            self.logger.info(f"📊 PARSER SUMMARY: {len(valid_calls)}/{len(tool_calls)} calls valid")
             return ParseResult(valid_calls, "json", errors)
 
         except Exception as e:
@@ -85,21 +98,31 @@ class UnifiedToolCallParser:
             return ParseResult([], "json_error", errors)
 
     def _extract_json_from_fences(self, text: str) -> tuple[List[Dict[str, Any]], List[str]]:
-        """Extract JSON tool calls from fence blocks"""
+        """Extract JSON tool calls from fence blocks with enhanced error detection"""
         calls = []
         errors = []
+
+        # Detect Python code contamination early
+        if "class " in text or "\ndef " in text or text.strip().startswith("import "):
+            errors.append("Python code detected in output - model should output JSON tool calls only")
+
         matches = list(self.JSON_FENCE_RE.finditer(text))
 
         for match in matches:
             json_content = match.group(1).strip()
+
             parsed_call = self._parse_json_safely(json_content)
             if parsed_call:
                 # Check if this is an array of tool calls
                 if "_tool_call_array" in parsed_call:
                     # Expand array into individual calls
                     for tool_call in parsed_call["_tool_call_array"]:
-                        if isinstance(tool_call, dict):
+                        # ONLY process dicts that have "tool_name" - ignore nested parameter/operation objects
+                        if isinstance(tool_call, dict) and "tool_name" in tool_call:
                             calls.append(tool_call)
+                        elif isinstance(tool_call, dict):
+                            # This is a nested object (parameter/operation), not a tool call - skip silently
+                            pass
                         else:
                             errors.append(f"Invalid tool call in array: {tool_call}")
                 else:

@@ -134,24 +134,6 @@ class FileManager:
                 python_file.add_or_update_dataclass(dataclass)
                 self.logger.info(f"Updated dataclass '{dataclass.name}' in {filename}")
 
-            elif element_type == "method":
-                # For updating a method within a class
-                class_name = element_data.get("class_name")
-                method_data = element_data.get("method_data")
-
-                if not class_name or not method_data:
-                    raise ValueError("Method update requires 'class_name' and 'method_data'")
-
-                # Find the class
-                target_class = python_file.get_class(class_name)
-                if target_class is None:
-                    raise ValueError(f"Class '{class_name}' not found in {filename}")
-
-                # Update the method
-                method = PythonMethod(**method_data)
-                target_class.add_or_update_method(method)
-                self.logger.info(f"Updated method '{method.name}' in class '{class_name}' in {filename}")
-
             elif element_type == "import":
                 import_stmt = PythonImport(**element_data)
                 python_file.add_import(import_stmt)
@@ -215,7 +197,7 @@ class FileManager:
                 {
                     "name": c.name,
                     "docstring": c.docstring,
-                    "methods": [{"name": m.name, "docstring": m.docstring} for m in c.methods],
+                    "functions": [{"name": m.name, "docstring": m.docstring} for m in c.functions],
                 }
                 for c in python_file.classes
             ],

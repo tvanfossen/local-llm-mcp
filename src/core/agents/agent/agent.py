@@ -111,6 +111,74 @@ class Agent:
 
         return agent_logger
 
+    def _log_tool_calls_detailed(self, tool_calls: list, results: list = None):
+        """Comprehensive logging of tool calls to both main and agent-specific logs"""
+
+        # Main logger for server-wide visibility
+        self.logger.info(f"🎯 AGENT TOOL CALLS EXTRACTED ({len(tool_calls)} total):")
+
+        # Agent-specific detailed logging (goes to .mcp-logs/{agent_id}.log)
+        self.logger.info("=" * 80)
+        self.logger.info(f"TOOL CALL ANALYSIS - {datetime.now().isoformat()}")
+        self.logger.info("=" * 80)
+
+        for i, call in enumerate(tool_calls):
+            tool_name = call.get('tool_name', 'MISSING_NAME')
+
+            # Main log (brief)
+            self.logger.info(f"  [{i+1}] Tool: {tool_name}")
+
+            # Agent log (detailed)
+            self.logger.info(f"TOOL CALL #{i+1}:")
+            self.logger.info(f"  Name: {tool_name}")
+            self.logger.info(f"  Full Call: {json.dumps(call, indent=2)}")
+
+            # Validation checks with detailed logging
+            if not call.get('tool_name'):
+                self.logger.error(f"  ❌ CRITICAL: Missing tool_name in call #{i+1}")
+
+            params = call.get('parameters') or call.get('arguments')
+            if not params:
+                self.logger.error(f"  ❌ CRITICAL: Missing parameters/arguments in call #{i+1}")
+            elif not isinstance(params, dict):
+                self.logger.error(f"  ❌ CRITICAL: Parameters not a dict in call #{i+1}: {type(params)}")
+
+            # Log file_metadata details
+            if tool_name == 'file_metadata':
+                action = params.get('action') if params else None
+                self.logger.info(f"  📝 file_metadata action: {action}")
+
+                if action == 'add_function':
+                    operations = params.get('operations') if params else None
+                    if not operations:
+                        self.logger.warning(f"  ⚠️ add_function without operations - will create empty method")
+                    else:
+                        self.logger.info(f"  ✅ add_function with {len(operations)} operations")
+
+        # Log results if available
+        if results:
+            self.logger.info(f"🔄 TOOL CALL RESULTS ({len(results)} total):")
+            self.logger.info("EXECUTION RESULTS:")
+
+            for i, res in enumerate(results):
+                success = res.get('success', False)
+                queued = res.get('queued', False)
+                error = res.get('error', 'No error')
+
+                # Main log (brief)
+                self.logger.info(f"  [{i+1}] Success: {success}, Queued: {queued}")
+
+                # Agent log (detailed)
+                self.logger.info(f"RESULT #{i+1}:")
+                self.logger.info(f"  Success: {success}")
+                self.logger.info(f"  Queued: {queued}")
+                self.logger.info(f"  Full Result: {json.dumps(res, indent=2)}")
+
+                if not success:
+                    self.logger.error(f"  ❌ EXECUTION FAILED: {error}")
+
+        self.logger.info("=" * 80)
+
     @classmethod
     def create(cls, params: AgentCreateParams, llm_manager=None, tool_executor=None) -> "Agent":
         """Create a new agent with fresh state"""
@@ -295,16 +363,21 @@ class Agent:
                 filename=filename,
                 request=request.message
             )
-            
+
+            self.logger.info(f"{'='*80}")
             self.logger.info(f"🔧 Calling LLM with tool-calling enabled for {filename}")
-            self.logger.debug(f"LLM prompt length: {len(tool_prompt)} chars")
-            # Verbose prompt preview moved to agent log file to reduce noise
+            self.logger.info(f"📏 Agent prompt length: {len(tool_prompt)} chars")
+            self.logger.info(f"{'='*80}")
+            self.logger.info(f"📝 FULL AGENT PROMPT (before tool definitions):")
+            self.logger.info(f"{'='*80}")
+            self.logger.info(tool_prompt)
+            self.logger.info(f"{'='*80}")
 
             # CRITICAL: Use generate_with_tools() NOT generate_response()
             result = await self.llm_manager.generate_with_tools(
                 tool_prompt,
                 max_tokens=1024,  # Reduced from 8192 to prevent runaway generation
-                temperature=0.7,  # Increased from 0.3 to encourage generation
+                temperature=0.5,  # Increased from 0.3 to encourage generation
                 tools_enabled=True  # CRITICAL: Enable tool calling
             )
 
@@ -318,9 +391,66 @@ class Agent:
                     tool_calls = result.get("tool_calls", [])
                     results = result.get("results", [])
 
+                    # COMPREHENSIVE LOGGING: Tool calls extracted from LLM
+                    self._log_tool_calls_detailed(tool_calls, results)
+
+                    # WORKFLOW COMPLETION: Ensure workspace.generate_from_metadata is called
+                    # This is a graceful completion step - if LLM created metadata but forgot to build,
+                    # we complete the workflow automatically (prompted to do so, but 7B model may forget)
+                    has_generate_call = any(
+                        tc.get("tool_name") == "workspace" and
+                        tc.get("parameters", {}).get("action") == "generate_from_metadata"
+                        for tc in tool_calls
+                    )
+
+                    has_metadata_creation = any(
+                        tc.get("tool_name") == "file_metadata" and
+                        tc.get("parameters", {}).get("action") in ["create_file", "add_class", "add_function"]
+                        for tc in tool_calls
+                    )
+
+                    if not has_generate_call and has_metadata_creation:
+                        self.logger.info("📝 Auto-completing workflow: adding workspace.generate_from_metadata")
+                        completion_call = {
+                            "tool_name": "workspace",
+                            "parameters": {
+                                "action": "generate_from_metadata",
+                                "path": filename
+                            }
+                        }
+                        tool_calls.append(completion_call)
+
+                        # Add success result for the auto-added call
+                        results.append({
+                            "success": True,
+                            "queued": True,
+                            "tool_name": "workspace",
+                            "message": "Auto-added workflow completion call"
+                        })
+
                     # LIMIT: Increased max tool calls for incremental construction
-                    MAX_TOOL_CALLS = 25
+                    MAX_TOOL_CALLS = 10
                     SELF_QUEUE_THRESHOLD = 20  # Queue more work when approaching limit
+
+                    # CRITICAL: Validate minimum tool calls for code generation
+                    MIN_EXPECTED_CALLS = 6  # create_file, add_import, add_class, 2x add_function, generate_from_metadata
+                    if len(tool_calls) < MIN_EXPECTED_CALLS:
+                        self.logger.warning(f"⚠️ Only {len(tool_calls)} tool calls generated, expected at least {MIN_EXPECTED_CALLS}")
+                        
+                        # Check if it's trying to use wrong structure
+                        if "class " in str(result.get("content", "")):
+                            error = "Model generated Python code instead of tool calls - prompt confusion detected"
+                            self.logger.error(f"❌ {error}")
+                            return AgentResponse(
+                                success=False,
+                                content=f"❌ {error}. Model must output JSON tool calls only.",
+                                agent_id=self.state.agent_id,
+                                task_type=request.task_type,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                            )
+                        
+                        # Warn but continue - might be a simple task
+                        self.logger.warning("Proceeding with fewer tool calls than expected")
 
                     if len(tool_calls) > MAX_TOOL_CALLS:
                         self.logger.warning(f"⚠️ TOOL CALL LIMIT: Truncating {len(tool_calls)} calls to {MAX_TOOL_CALLS}")

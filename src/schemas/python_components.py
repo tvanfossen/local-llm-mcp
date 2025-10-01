@@ -298,7 +298,7 @@ class PythonClass:
     class_variables: List[Variable] = field(default_factory=list)
     init_method: Optional[InitMethod] = None
     properties: List[Property] = field(default_factory=list)
-    methods: List[Method] = field(default_factory=list)
+    functions: List[Method] = field(default_factory=list)
     docstring: Optional[str] = None
     line_start: Optional[int] = None  # For mapping to actual file
     line_end: Optional[int] = None
@@ -328,7 +328,7 @@ class PythonClass:
                 line_end=self.init_method.line_end
             )
             methods.append(init_as_method)
-        methods.extend(self.methods)
+        methods.extend(self.functions)
         return methods
 
 
@@ -357,7 +357,7 @@ class PythonFile:
             if cls.init_method:
                 components.append(cls.init_method)
             components.extend(cls.properties)
-            components.extend(cls.methods)
+            components.extend(cls.functions)
 
         return components
 
@@ -457,12 +457,12 @@ class PythonFile:
             lines.extend(self._generate_property_code(prop))
 
         # Add methods
-        for method in cls.methods:
+        for method in cls.functions:
             lines.append("")
             lines.extend(self._generate_method_code(method))
 
         # If class is empty, add pass
-        if not (cls.class_variables or cls.init_method or cls.properties or cls.methods):
+        if not (cls.class_variables or cls.init_method or cls.properties or cls.functions):
             if not cls.docstring:
                 lines.append("    pass")
 

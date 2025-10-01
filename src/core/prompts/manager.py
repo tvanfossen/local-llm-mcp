@@ -129,7 +129,6 @@ class PromptManager:
         """
         prompt = self.load_prompt(category, name, format)
 
-        # Check character limit BEFORE processing (increased for detailed method examples)
         MAX_PROMPT_CHARS = 4000
         if len(prompt) > MAX_PROMPT_CHARS:
             raise ValueError(f"Prompt {category}/{name} exceeds {MAX_PROMPT_CHARS} character limit: {len(prompt)} chars")
@@ -161,8 +160,13 @@ class PromptManager:
         all_variables.update(kwargs)
 
         # Format template with strict error handling
+        logger.info(f"{'='*80}")
+        logger.info(f"📝 FORMATTING PROMPT: {category}/{name}")
+        logger.info(f"Variables provided: {list(all_variables.keys())}")
+        logger.info(f"{'='*80}")
         try:
             formatted_prompt = prompt.format(**all_variables)
+            logger.info(f"✅ Formatting successful: {len(formatted_prompt)} chars")
         except KeyError as e:
             missing_var = str(e).strip("'")
             raise KeyError(f"Missing required variable '{missing_var}' in prompt {category}/{name}")

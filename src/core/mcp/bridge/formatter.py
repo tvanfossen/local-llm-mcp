@@ -42,19 +42,29 @@ class ToolPromptFormatter:
         try:
             name = tool.get('name', 'unknown_tool')
 
-            # Try to load tool description directly from JSON file template
+            # Try to load tool description from JSON file template with proper substitution
             try:
-                tool_prompt = self.prompt_manager.load_prompt('tools', name, 'json')
+                # Prepare variables for tool template substitution
+                tool_variables = {
+                    'tool_name': name,
+                    'description': tool.get('description', 'No description available'),
+                    'operation': name,  # fallback
+                    'action': 'tool_action',  # fallback
+                    'path': 'file_path',  # fallback
+                    'module_path': 'module.path'  # fallback
+                }
+
+                tool_prompt = self.prompt_manager.format_prompt('tools', name, **tool_variables)
 
                 # Check if we got a valid template (not an error message)
                 if tool_prompt and not tool_prompt.startswith("["):
-                    self.logger.debug(f"✅ Loaded detailed description for {name} from JSON file")
+                    self.logger.debug(f"✅ Loaded and formatted detailed description for {name} from JSON file")
                     return tool_prompt
                 else:
                     self.logger.debug(f"⚠️ JSON template not found or invalid for {name}: {tool_prompt}")
 
             except Exception as e:
-                self.logger.warning(f"Failed to load JSON template for tool {name}: {e}")
+                self.logger.warning(f"Failed to format JSON template for tool {name}: {e}")
 
             # Enhanced fallback with detailed parameter formatting
             description = tool.get('description', 'No description available')
@@ -137,12 +147,13 @@ Parameters:
         if not action:
             return False, "file_metadata: 'action' parameter is required"
 
-        # Check for common mistakes
-        if action == 'add_method':
-            return False, (
-                "file_metadata: Invalid action 'add_method'. Use 'add_function' with 'class_name' parameter "
-                "to add methods to classes. Example: {\"action\": \"add_function\", \"class_name\": \"ClassName\", ...}"
-            )
+        # Action validation is handled by schema enum validation below
+
+        # Handle model hallucination: redirect add_method to add_function
+        if action == "add_method":
+            self.logger.info(f"🔀 Redirecting hallucinated 'add_method' to 'add_function'")
+            arguments['action'] = "add_function"
+            action = "add_function"
 
         # Validate against schema enum
         input_schema = tool_schema.get('inputSchema', {})

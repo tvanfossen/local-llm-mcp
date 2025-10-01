@@ -117,10 +117,10 @@
     "complete_file": ["path"]
   },
   "critical_notes": [
-    "INVALID ACTIONS: Only use actions listed in allowed_values. Actions like 'add_code' and 'add_method' do not exist.",
-    "METHODS: To add methods to a class, use 'add_function' with 'class_name' parameter specified.",
+    "INVALID ACTIONS: Only use actions listed in allowed_values.",
+    "FUNCTIONS: To add functions to a class, use 'add_function' with 'class_name' parameter specified.",
     "OPERATIONS REQUIRED: add_function MUST include 'operations' array for implementation.",
-    "EMPTY METHODS: Without 'operations' field, generated functions/methods will have no implementation."
+    "EMPTY FUNCTIONS: Without 'operations' field, generated functions will have no implementation."
   ],
   "format_requirements": {
     "parameters": {

@@ -20,17 +20,17 @@ import {{ imp.module }}
 class {{ class.name }}{% if class.base %} ({{ class.base }}){% endif %}:
     """{{ class.docstring }}"""
 
-{% if class.init_method %}
-    def __init__(self{% for param in class.init_method.parameters[1:] %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}):
-        {{ class.init_method.body | indent(8) }}
+{% if class.init_function %}
+    def __init__(self{% for param in class.init_function.parameters[1:] %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}):
+        {{ class.init_function.body | indent(8) }}
 {% endif %}
 
-{% for method in class.methods %}
-    def {{ method.name }}(self{% for param in method.parameters[1:] %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}){% if method.returns %} -> {{ method.returns.type }}{% endif %}:
-{% if method.docstring %}
-        """{{ method.docstring }}"""
+{% for function in class.functions %}
+    def {{ function.name }}(self{% for param in function.parameters[1:] %}, {{ param.name }}{% if param.type %}: {{ param.type }}{% endif %}{% if param.default %} = {{ param.default }}{% endif %}{% endfor %}){% if function.returns %} -> {{ function.returns.type }}{% endif %}:
+{% if function.docstring %}
+        """{{ function.docstring }}"""
 {% endif %}
-        {{ method.body | indent(8) }}
+        {{ function.body | indent(8) }}
 
 {% endfor %}
 {% if class.properties %}

@@ -140,18 +140,38 @@ class ConsolidatedToolExecutor:
 
     async def execute_tool(self, tool_name: str, args: dict[str, Any] = None) -> dict[str, Any]:
         """Execute a tool by name"""
+        # COMPREHENSIVE TOOL EXECUTION LOGGING
+        logger.info(f"🔧 TOOL EXECUTOR: Executing {tool_name}")
+        logger.info(f"  📥 Arguments: {args}")
+
         if tool_name not in self.available_tools:
-            return create_mcp_response(False, f"Unknown tool: {tool_name}")
+            error_result = create_mcp_response(False, f"Unknown tool: {tool_name}")
+            logger.error(f"  ❌ Tool not found: {tool_name}")
+            logger.error(f"  📤 Error result: {error_result}")
+            return error_result
 
         tool_info = self.available_tools[tool_name]
         tool_function = tool_info["function"]
+        logger.info(f"  ✅ Tool found: {tool_name}")
 
         try:
             if args is None:
                 args = {}
-            return await tool_function(args)
+
+            logger.info(f"  🚀 Executing {tool_name} with {len(args)} arguments...")
+            result = await tool_function(args)
+
+            logger.info(f"  ✅ Tool execution completed: {tool_name}")
+            logger.info(f"  📤 Result success: {result.get('success', 'unknown')}")
+            logger.info(f"  📤 Full result: {result}")
+
+            return result
         except Exception as e:
-            return handle_exception(e, f"Tool {tool_name}")
+            error_result = handle_exception(e, f"Tool {tool_name}")
+            logger.error(f"  ❌ Tool execution failed: {tool_name}")
+            logger.error(f"  💥 Exception: {e}")
+            logger.error(f"  📤 Error result: {error_result}")
+            return error_result
 
     async def list_tools(self) -> dict[str, Any]:
         """List all available tools"""

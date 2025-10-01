@@ -4,17 +4,17 @@
   "description": "Focused code generation agent using structured metadata workflow",
   "template": [
     "Create {filename}: {request}",
-    "Objective: Build a complete, functional Python module with full method implementations.",
+    "Objective: Build a complete, functional Python module with full Function implementations.",
     "Key Requirements:",
-    "- Generate working Python code with complete method bodies",
+    "- Generate working Python code with complete Function bodies",
     "- Include proper type annotations where appropriate",
     "- Add comprehensive docstrings describing functionality",
     "- Include necessary imports based on implementation needs",
-    "- Create fully implemented methods with actual logic",
+    "- Create fully implemented functions with actual logic",
     "Registry Context: Always check .meta/registry.yaml to understand existing modules and avoid conflicts.",
-    "Method Implementation Requirements:",
+    "Function Implementation Requirements:",
     "- Complete parameter lists with appropriate types",
-    "- Actual implementation logic in method bodies (operations field required)",
+    "- Actual implementation logic in Function bodies (operations field required)",
     "- Proper return type annotations",
     "- Descriptive docstrings",
     "Workflow Completion:",
@@ -41,7 +41,6 @@
   "notes": [
     "Agent determines workflow from available tools",
     "No hardcoded steps - let agent be intelligent",
-    "Tools contain their own documentation",
-    "Enhanced with method implementation guidance - under 4000 character limit"
+    "Tools contain their own documentation"
   ]
 }

@@ -1,38 +1,73 @@
-# AGENT TODO
+# AGENT_TODO.md - Local LLM MCP Agent System
 
-This file tracks issues and improvements needed across the local-llm-mcp system.
+## 🔥 CRITICAL - Model Output Issues (Priority 1)
+- [ ] Fix JSON-only output confusion in `tool_calling_json.json`
+- [ ] Add structure clarification to formatter.py prompt generation  
+- [ ] Implement minimum tool call validation in agent.py
+- [ ] Enhance parser error detection for Python code contamination
+- [ ] Add auto-completion with generate_from_metadata
 
-## CRITICAL Priority Issues
-*Issues that could cause system failure or security breaches*
+## 🎯 HIGH - Workflow Improvements (Priority 2)
+- [ ] Add tool call retry mechanism when model outputs wrong format
+- [ ] Implement progressive prompting (simpler instructions for confused models)
+- [ ] Create tool call validation middleware before execution
+- [ ] Add metrics tracking for successful vs failed tool call patterns
+- [ ] Build tool call sequence validator (ensures proper order)
 
-- [ ] **ASYNC TASK QUEUE HANGING**: Second MCP tool call for queuing tasks hangs indefinitely, indicating async task completion detection is malfunctioning. This blocks concurrent agent processing and makes the system unreliable for multi-agent workflows.
-- [ ] **WORKSPACE WRITE TOOL STILL AVAILABLE**: Despite previous removal attempts, workspace write operations are still accessible, bypassing the metadata-first workflow enforcement. This allows agents to write files directly without structured validation.
-- [ ] **SILENT FALLBACK FAILURE**: Agents generate generic template code when specific requirements fail, reporting "success" while actually failing to meet the task. This creates false positives where system appears to work but produces useless output. Must implement graceful failure with clear error reporting instead of fallback templates.
-- [x] **COMPLETED**: Successfully converted entire system from XML to JSON for tool calls, metadata, and schema enforcement. JSON provides better model compliance and structured output.
+## 📊 MEDIUM - Monitoring & Diagnostics (Priority 3)
+- [ ] Create dashboard for tool call success rates
+- [ ] Add model confusion detection (track when model outputs code vs JSON)
+- [ ] Build prompt effectiveness analyzer
+- [ ] Implement A/B testing for different prompt formats
+- [ ] Add telemetry for token usage per tool call
 
-## HIGH Priority Issues
-*Issues that significantly impact functionality or user experience*
+## 🔧 LOW - Quality of Life (Priority 4)
+- [ ] Create example gallery of successful tool call sequences
+- [ ] Build prompt template library for common tasks
+- [ ] Add tool call history viewer in UI
+- [ ] Create debugging mode with verbose model output
+- [ ] Implement prompt caching for frequently used patterns
 
-- [ ] **METADATA CONTEXT WINDOW OVERLOAD**: Local Qwen2.5-7B model (8192 context) loses track of JSON schema when generating large metadata structures, resulting in incomplete or malformed metadata. Need to break metadata generation into smaller, atomic operations.
-- [ ] **RAW TEXT IN METADATA BODY FIELDS**: System allows raw Python code in metadata "body" fields, defeating the purpose of structured data and Jinja2 templates. This prevents proper validation and schema enforcement.
-- [ ] **MISSING METADATA SCHEMA VALIDATION**: No JSON Schema validation exists to catch malformed metadata before it's written to files, allowing corrupted data to persist and break code generation.
-- [ ] **INTERFACE REGISTRY CONTENT EMPTY**: Interface registry isn't extracting meaningful export information from classes/functions, leaving dependent agents without context about available interfaces.
-- **Consider a change that allows us to use MCP protocols json rpc methodology to inform claude (or the orchestrator html) when a task has finished**
-- **Orchestrator html page needs updates - queue refresh doesnt show active tasks, consider adding a chat window to replace claude code for entirely local generation**
+## Recently Completed ✅
+- [x] Phase 1: MCP Bridge Infrastructure created
+- [x] Phase 2: Agent metadata workflow fixed (no direct file creation)
+- [x] Phase 3: Removed placeholder success returns
+- [x] Phase 4: Task queue integration with MCP tools
+- [x] Phase 5: Comprehensive logging throughout system
+- [x] Unified parser with JSON-only strategy
+- [x] Tool prompt formatter with prompt manager integration
 
-## MEDIUM Priority Issues
-*Issues that should be addressed for production readiness*
+## Known Issues 🐛
+1. **Model Confusion**: Qwen2.5-7B outputs Python code mixed with JSON tool calls
+2. **Incomplete Workflows**: Only 2 tool calls generated when 8-12 expected
+3. **Wrong Structure**: Model uses metadata structure instead of tool call structure
+4. **Silent Partial Success**: Agent reports success with incomplete tool calls
+5. **No Retry Logic**: Single attempt even when model is clearly confused
 
-- [ ] **Authentication Security Gap**: The MCP server authentication accepts ANY non-empty string as a private key (src/core/security/manager/manager.py:create_session()). This is development-mode only behavior that needs proper key validation before production use.
-- **Add additional supported code templates for Java, C/C++, C#**
+## Test Cases Needed 🧪
+- [ ] Calculator class with multiple methods
+- [ ] File with complex imports and dependencies
+- [ ] Class with inheritance and decorators
+- [ ] Module with multiple classes
+- [ ] Async function implementations
 
-## LOW Priority Issues
-*Nice-to-have improvements and optimizations*
+## Performance Targets 📈
+- Tool call success rate: >90%
+- Average tool calls per task: 8-12
+- Parser warning rate: <5%
+- Workflow completion rate: >95%
+- Model confusion incidents: <10%
 
-- [ ] **Consider adding some sort of sms notification system to allow remote prompting of the local model**
-- [ ] **Template Architecture**: Replace monolithic python_file.j2 template with smaller, modular templates (class.j2, function.j2, etc.) as specified by the model for better maintainability
-- [x] **COMPLETED**: Unified tool calling now uses JSON-only format with consistent "parameters" structure. XML parsing completely removed.
-- [x] **COMPLETED**: All tool calling now uses structured JSON format with proper schema validation.
+## Next Sprint Focus 🏃
+1. Implement all Priority 1 fixes from OPUS_REPORT.md
+2. Test with Calculator example
+3. Measure improvement in success metrics
+4. Document successful prompt patterns
+5. Create troubleshooting guide for common failures
 
----
-*File maintained by agents and developers - add issues as they are discovered*
+## Long-term Vision 🔭
+- Self-improving prompt system based on success patterns
+- Automatic model confusion detection and correction
+- Multi-model support with format adaptation
+- Tool call optimization for token efficiency
+- Automated testing of prompt effectiveness

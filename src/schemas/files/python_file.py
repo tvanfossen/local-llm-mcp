@@ -39,7 +39,7 @@ class PythonFunction:
 
 @dataclass
 class PythonMethod:
-    """Represents a class method"""
+    """Represents a class function"""
 
     name: str
     docstring: Optional[str]
@@ -57,31 +57,31 @@ class PythonMethod:
 
 @dataclass
 class PythonClass:
-    """Represents a Python class with methods and variables"""
+    """Represents a Python class with functions and variables"""
 
     name: str
     docstring: Optional[str]
     base_classes: list[str]
-    methods: list[PythonMethod]
+    functions: list[PythonMethod]
     class_variables: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return asdict(self)
 
-    def get_method(self, method_name: str) -> Optional[PythonMethod]:
-        """Get method by name"""
-        for method in self.methods:
-            if method.name == method_name:
-                return method
+    def get_function(self, function_name: str) -> Optional[PythonMethod]:
+        """Get function by name"""
+        for function in self.functions:
+            if function.name == function_name:
+                return function
         return None
 
-    def add_or_update_method(self, method: PythonMethod) -> None:
-        """Add new method or update existing one"""
-        # Remove existing method with same name
-        self.methods = [m for m in self.methods if m.name != method.name]
-        # Add the new/updated method
-        self.methods.append(method)
+    def add_or_update_function(self, function: PythonMethod) -> None:
+        """Add new function or update existing one"""
+        # Remove existing function with same name
+        self.functions = [f for f in self.functions if f.name != function.name]
+        # Add the new/updated function
+        self.functions.append(function)
 
 
 @dataclass
@@ -219,9 +219,9 @@ def create_function_from_dict(data: dict[str, Any]) -> PythonFunction:
 
 def create_class_from_dict(data: dict[str, Any]) -> PythonClass:
     """Create PythonClass from dictionary data"""
-    # Convert method dictionaries to PythonMethod objects
-    if "methods" in data:
-        data["methods"] = [PythonMethod(**method_data) for method_data in data["methods"]]
+    # Convert function dictionaries to PythonMethod objects
+    if "functions" in data:
+        data["functions"] = [PythonMethod(**function_data) for function_data in data["functions"]]
     return PythonClass(**data)
 
 

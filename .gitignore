@@ -29,6 +29,8 @@ MANIFEST
 .claude/
 node_modules/
 
+examples/CalculatorLocalModel
+
 # Precommit
 .mypycache/
 .ruff-cache/
