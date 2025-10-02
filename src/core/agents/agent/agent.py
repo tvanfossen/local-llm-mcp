@@ -376,7 +376,7 @@ class Agent:
             # CRITICAL: Use generate_with_tools() NOT generate_response()
             result = await self.llm_manager.generate_with_tools(
                 tool_prompt,
-                max_tokens=1024,  # Reduced from 8192 to prevent runaway generation
+                max_tokens=2048,  # Reduced from 8192 to prevent runaway generation
                 temperature=0.5,  # Increased from 0.3 to encourage generation
                 tools_enabled=True  # CRITICAL: Enable tool calling
             )
@@ -394,42 +394,8 @@ class Agent:
                     # COMPREHENSIVE LOGGING: Tool calls extracted from LLM
                     self._log_tool_calls_detailed(tool_calls, results)
 
-                    # WORKFLOW COMPLETION: Ensure workspace.generate_from_metadata is called
-                    # This is a graceful completion step - if LLM created metadata but forgot to build,
-                    # we complete the workflow automatically (prompted to do so, but 7B model may forget)
-                    has_generate_call = any(
-                        tc.get("tool_name") == "workspace" and
-                        tc.get("parameters", {}).get("action") == "generate_from_metadata"
-                        for tc in tool_calls
-                    )
-
-                    has_metadata_creation = any(
-                        tc.get("tool_name") == "file_metadata" and
-                        tc.get("parameters", {}).get("action") in ["create_file", "add_class", "add_function"]
-                        for tc in tool_calls
-                    )
-
-                    if not has_generate_call and has_metadata_creation:
-                        self.logger.info("📝 Auto-completing workflow: adding workspace.generate_from_metadata")
-                        completion_call = {
-                            "tool_name": "workspace",
-                            "parameters": {
-                                "action": "generate_from_metadata",
-                                "path": filename
-                            }
-                        }
-                        tool_calls.append(completion_call)
-
-                        # Add success result for the auto-added call
-                        results.append({
-                            "success": True,
-                            "queued": True,
-                            "tool_name": "workspace",
-                            "message": "Auto-added workflow completion call"
-                        })
-
                     # LIMIT: Increased max tool calls for incremental construction
-                    MAX_TOOL_CALLS = 10
+                    MAX_TOOL_CALLS = 20
                     SELF_QUEUE_THRESHOLD = 20  # Queue more work when approaching limit
 
                     # CRITICAL: Validate minimum tool calls for code generation
@@ -911,10 +877,22 @@ class Agent:
         if self.managed_files:
             context_parts.append(f"Managed files: {', '.join(sorted(self.managed_files))}")
 
+        # Include registry.yaml context for cross-file awareness
+        registry_path = self.system_config.workspace_root / ".meta" / "registry.yaml"
+        if registry_path.exists():
+            try:
+                with open(registry_path, 'r', encoding='utf-8') as f:
+                    registry_content = f.read()
+                context_parts.append("\nRegistry Context (existing files and classes):")
+                context_parts.append(registry_content)
+                self.logger.info(f"📋 Included registry.yaml context ({len(registry_content)} chars)")
+            except Exception as e:
+                self.logger.warning(f"Could not read registry.yaml: {e}")
+
         # Add recent conversation context (last 10 entries)
         recent_conversation = self.conversation_history[-10:]
         if recent_conversation:
-            context_parts.append("Recent conversation:")
+            context_parts.append("\nRecent conversation:")
             for entry in recent_conversation:
                 context_parts.append(f"{entry.role}: {entry.content[:200]}...")
 

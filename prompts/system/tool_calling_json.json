@@ -25,13 +25,17 @@
     }
   ],
   "instructions": [
-    "LIMIT OF 10 TOOL CALLS PER PROMPT, do not try to request more than this",
+    "LIMIT OF 20 TOOL CALLS PER PROMPT, do not try to request more than this",
     "Output JSON tool calls ONLY - no other text or code",
     "Every tool call must have 'tool_name' and 'parameters' fields",
+    "ALLOWED ACTIONS ONLY: file_metadata actions are: create_file, add_import, add_class, add_function, add_variable, add_field, complete_file",
+    "NEVER use: add_method, add_attribute, or any other action not listed above",
+    "For class methods, use add_function with class_name parameter",
     "CRITICAL ARRAY FORMAT: When a parameter is type 'array', it must be a JSON array with brackets [], NOT a dictionary with braces {}",
     "For file_metadata add_function: The 'parameters' field must be an array of parameter objects, each with 'name' and optionally 'type' keys",
     "MANDATORY: For file_metadata add_function: ALWAYS include 'operations' array with implementation logic. Without operations, functions will be empty and useless",
     "For file_metadata add_function: The 'operations' field must be an array of operation objects, each with 'type' and 'value' keys",
+    "OPERATION EXAMPLES: __init__ method [{\"type\": \"assignment\", \"value\": \"self.x = x\"}], getter [{\"type\": \"return\", \"value\": \"self.x\"}], setter [{\"type\": \"assignment\", \"value\": \"self.x = value\"}]",
     "Build incrementally using a series of small focused tool calls",
     "Complete workflow with workspace.generate_from_metadata as final step"
   ]

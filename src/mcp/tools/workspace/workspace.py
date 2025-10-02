@@ -95,6 +95,9 @@ def _convert_operations_to_body(operations: List[Dict[str, Any]]) -> str:
             value = operation.get('value', '')
             if target and value:
                 body_lines.append(f"{target} = {value}")
+            elif value and '=' in value:
+                # Support complete assignment statements from LLM
+                body_lines.append(value)
         elif op_type == 'validation':
             condition = operation.get('condition', '')
             exception_type = operation.get('exception_type', 'ValueError')
@@ -113,6 +116,49 @@ def _convert_operations_to_body(operations: List[Dict[str, Any]]) -> str:
                     body_lines.append(f"{target} = {call_str}")
                 else:
                     body_lines.append(call_str)
+        elif op_type == 'if':
+            condition = operation.get('condition', '')
+            then_ops = operation.get('then', [])
+            else_ops = operation.get('else', [])
+
+            if condition:
+                body_lines.append(f"if {condition}:")
+                # Process 'then' operations with indentation
+                if then_ops:
+                    for then_op in then_ops:
+                        then_type = then_op.get('type', '')
+                        if then_type == 'raise':
+                            exception = then_op.get('exception', 'Exception')
+                            message = then_op.get('message', '')
+                            body_lines.append(f"    raise {exception}('{message}')")
+                        elif then_type == 'return':
+                            value = then_op.get('value', '')
+                            body_lines.append(f"    return {value}" if value else "    return")
+                        else:
+                            # Recursive call for nested operations
+                            nested_body = _convert_operations_to_body([then_op])
+                            for line in nested_body.split('\n'):
+                                body_lines.append(f"    {line}")
+                else:
+                    body_lines.append("    pass")
+
+                # Process 'else' operations if present
+                if else_ops:
+                    body_lines.append("else:")
+                    for else_op in else_ops:
+                        else_type = else_op.get('type', '')
+                        if else_type == 'return':
+                            value = else_op.get('value', '')
+                            body_lines.append(f"    return {value}" if value else "    return")
+                        elif else_type == 'raise':
+                            exception = else_op.get('exception', 'Exception')
+                            message = else_op.get('message', '')
+                            body_lines.append(f"    raise {exception}('{message}')")
+                        else:
+                            # Recursive call for nested operations
+                            nested_body = _convert_operations_to_body([else_op])
+                            for line in nested_body.split('\n'):
+                                body_lines.append(f"    {line}")
         elif op_type == 'pass':
             body_lines.append("pass")
         else:
@@ -330,7 +376,7 @@ def _json_to_python_file(json_obj: Dict[str, Any], filename: str) -> PythonFile:
                         name=class_name,
                         docstring=docstring,
                         base_classes=[],
-                        methods=methods
+                        functions=methods
                     )
                     python_file.add_or_update_class(python_class)
 
