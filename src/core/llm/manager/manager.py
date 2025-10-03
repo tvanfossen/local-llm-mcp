@@ -219,14 +219,53 @@ class LLMManager:
 
         logger.debug(f"EXIT register_tools: bridge_ready={self.mcp_bridge.is_ready() if self.mcp_bridge else False}")
 
-    def _format_tools_for_qwen(self) -> str:
-        """Format tools for Qwen2.5-7B prompt"""
+    def _filter_tools_by_iteration(self, iteration_type: str, recursion_depth: int) -> list[str]:
+        """Filter tools based on iteration type to reduce token usage
+
+        Args:
+            iteration_type: Type of iteration (add_class, add_method, add_validation, etc.)
+            recursion_depth: Current recursion depth (0 = first iteration)
+
+        Returns:
+            List of tool names to include in prompt
+        """
+        # First iteration: include all tools for setup
+        if recursion_depth == 0:
+            return []  # Empty list = no filtering, include all
+
+        # Subsequent iterations: filter by task type
+        tool_filters = {
+            "add_class": ["file_metadata"],  # Only need metadata tool for adding classes
+            "add_method": ["file_metadata"],  # Only need metadata tool for adding methods
+            "add_function": ["file_metadata"],  # Only need metadata tool for adding functions
+            "add_validation": ["file_metadata", "validation"],  # Need both for validation work
+            "finalize": ["workspace", "validation"],  # Need workspace to generate and validation to test
+            "fix_errors": ["file_metadata", "workspace", "validation"],  # Need all for fixing
+        }
+
+        return tool_filters.get(iteration_type, [])  # Default to no filter if type unknown
+
+    def _format_tools_for_qwen(self, tool_filter: list[str] = None) -> str:
+        """Format tools for Qwen2.5-7B prompt with optional filtering
+
+        Args:
+            tool_filter: Optional list of tool names to include. If None, includes all tools.
+        """
         if not self.mcp_bridge:
             return ""
+
+        # If no filter provided, return all tools
+        if not tool_filter:
+            return self.mcp_bridge.get_tools_prompt()
+
+        # TODO: Implement filtered tool prompt (requires bridge modification)
+        # For now, return all tools - filtering implementation deferred
+        logger.info(f"Tool filtering requested for: {tool_filter} (not yet implemented, using all tools)")
         return self.mcp_bridge.get_tools_prompt()
 
     async def generate_with_tools(self, prompt: str, max_tokens: int = 512,
-                                 temperature: float = 0.7, tools_enabled: bool = True) -> Dict[str, Any]:
+                                 temperature: float = 0.7, tools_enabled: bool = True,
+                                 iteration_type: str = None, recursion_depth: int = 0) -> Dict[str, Any]:
         """Generate response with tool calling capability"""
         logger.debug(f"generate_with_tools called with tools_enabled={tools_enabled}")
         if not self.model_loaded:
@@ -240,9 +279,13 @@ class LLMManager:
         # Enhance prompt with tool definitions if available
         enhanced_prompt = prompt
         if tools_enabled and self.mcp_bridge:
-            tools_prompt = self._format_tools_for_qwen()
+            # Determine tool filter based on iteration
+            tool_filter = self._filter_tools_by_iteration(iteration_type, recursion_depth) if iteration_type else None
+            tools_prompt = self._format_tools_for_qwen(tool_filter)
+
+            filter_info = f" (filtered to {tool_filter})" if tool_filter else " (all tools)"
             logger.info(f"{'='*80}")
-            logger.info(f"🔧 TOOLS AVAILABLE: Enhanced prompt with {len(tools_prompt)} character tool definitions")
+            logger.info(f"🔧 TOOLS AVAILABLE: Enhanced prompt with {len(tools_prompt)} character tool definitions{filter_info}")
             logger.info(f"{'='*80}")
             logger.info(f"📋 FULL TOOLS PROMPT:")
             logger.info(tools_prompt)

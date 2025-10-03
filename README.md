@@ -2,9 +2,6 @@
 
 A **Model Context Protocol (MCP) server** that provides Claude Code with specialized agents powered by local CUDA-accelerated LLMs. Each agent owns exactly one file and uses structured **JSON-based tool calling** for autonomous code generation.
 
-## Status: ✅ FULLY FUNCTIONAL (2025-10-01)
-
-**Working Example**: See `examples/CalculatorLocalModel/` for complete demonstration of end-to-end code generation with Calculator class including conditional logic and error handling.
 
 ## Overview
 
@@ -25,20 +22,6 @@ This system enables Claude Code to orchestrate local agents that generate code u
 Claude Code → HTTP/MCP → Agent Registry → Individual Agents → Local LLM → Tool Execution
 ```
 
-### Core Components
-
-- **Agent Registry** (`src/core/agents/registry/`): Agent lifecycle and async task queue management
-- **MCP Bridge** (`src/core/mcp/bridge/`): JSON tool call parsing and execution coordination
-- **LLM Manager** (`src/core/llm/manager/`): Local model management with CUDA optimization
-- **Tool Executor** (`src/mcp/tools/executor/`): Consolidated tool execution (workspace, validation, git, file_metadata)
-- **File Manager** (`src/core/files/file_manager.py`): Jinja2 template rendering for code generation
-
-### Code Generation Flow
-
-```
-1. Agent receives task → 2. LLM generates JSON tool calls → 3. file_metadata builds .meta/*.json
-→ 4. workspace.generate_from_metadata renders Python → 5. Clean, executable code
-```
 
 ## Quick Start
 
@@ -64,16 +47,6 @@ inv auth                  # Authenticate with server
 inv run --repo=/home/user/Projects/local-llm-mcp/examples/CalculatorLocalModel
 ```
 
-## Working Example: Calculator
-
-The `examples/CalculatorLocalModel/` directory contains a complete working example:
-
-### Generated Files
-
-- `calculator.py` - Calculator class with 4 methods (add, subtract, multiply, divide)
-- `main.py` - Test harness demonstrating all operations
-- `.meta/calculator.py.json` - JSON metadata used for generation
-
 ### Features Demonstrated
 
 - ✅ Class definitions
@@ -83,15 +56,6 @@ The `examples/CalculatorLocalModel/` directory contains a complete working examp
 - ✅ Type annotations
 - ✅ Docstrings
 
-### Running the Example
-
-```bash
-# Start server with calculator workspace
-inv run --repo=/path/to/examples/CalculatorLocalModel
-
-# Inside container, test the calculator
-docker exec local-llm-mcp-server python3 /workspace/main.py
-```
 
 ## Tool System
 
@@ -164,64 +128,6 @@ mcp__local-llm-agents__agent_operations({
 })
 ```
 
-## Current Limitations & TODOs
-
-### High Priority
-
-1. **Registry Context Awareness**
-   - Issue: Model doesn't receive registry.yaml context
-   - Impact: Re-adds same functions, cannot manage multiple files
-   - Priority: HIGH - blocks multi-file projects
-
-2. **Task Granularity**
-   - Current: One large generation (7-10 tool calls)
-   - Proposed: Multiple small generations (1-2 tool calls each)
-   - Priority: MEDIUM - optimization for scaling
-
-### Medium Priority
-
-3. **Advanced Operations**
-   - TODO: for/while loops, try/except, elif chains
-   - Priority: MEDIUM - needed for complex logic
-
-4. **Multi-File Projects**
-   - TODO: Cross-file imports, dependency tracking
-   - Priority: MEDIUM - PyChess example
-
-## Performance Metrics
-
-- **Generation Success Rate**: 100% (on tested examples)
-- **Average Generation Time**: ~40 seconds (LLM + metadata + codegen)
-- **Token Usage**: ~2000-3000 tokens per file
-- **LLM Speed**: 15-25 tokens/second (Qwen2.5-7B Q6_K_L on RTX 1080ti)
-- **Parser Success Rate**: 100% (extracts all valid tool calls)
-- **Workflow Completion**: 100% (with auto-completion)
-
-## Recent Fixes (2025-10-01)
-
-### Critical Fixes
-
-1. **Parser Heuristic Removal**
-   - Removed bad check for `"type": "return"` that blocked valid nested operations
-   - Location: `src/core/mcp/bridge/unified_parser.py:115-117`
-
-2. **PythonClass Schema Fix**
-   - Changed `methods=` to `functions=` to match schema
-   - Location: `src/mcp/tools/workspace/workspace.py:333`
-
-3. **If/Else Operation Support**
-   - Implemented full conditional logic with proper indentation
-   - Location: `src/mcp/tools/workspace/workspace.py:116-158`
-
-4. **Auto-Completion**
-   - Gracefully adds `workspace.generate_from_metadata` when LLM forgets
-   - Location: `src/core/agents/agent/agent.py:397-429`
-
-## Documentation
-
-- **CLAUDE.md** - Comprehensive guide for Claude Code integration
-- **AGENT_TODO.md** - Current status, completed work, and future roadmap
-- **OPUS_REPORT.md** - Detailed analysis of system behavior and fixes
 
 ## File Structure
 

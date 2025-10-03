@@ -62,6 +62,12 @@ class AgentTaskExecutor(TaskExecutor):
                     task_type,
                     task.agent_id
                 )
+                # Add iteration metadata from task to request context
+                request.context = {
+                    "iteration_type": task.request.get("iteration_type"),
+                    "recursion_depth": task.recursion_depth,
+                    "parent_task_id": task.parent_task_id,
+                }
             else:
                 # Request is already a proper AgentRequest object
                 request = task.request

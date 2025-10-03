@@ -207,6 +207,41 @@ class AgentOperations:
             logger.error(f"Failed to queue task: {e}")
             return {"success": False, "error": str(e)}
 
+    def queue_task_for_agent(self, agent_id: str, task_request: dict, parent_task_id: str = None, recursion_depth: int = 0) -> dict[str, Any]:
+        """Queue a task for an agent with parent/depth tracking (for self-queueing)"""
+        if not self.agent_registry:
+            return {"success": False, "error": "Agent registry not available"}
+
+        try:
+            # Check agent exists
+            agent = self.agent_registry.get_agent(agent_id)
+            if not agent:
+                return {"success": False, "error": f"Agent not found: {agent_id}"}
+
+            # Create task with parent/depth tracking
+            from src.core.tasks.queue import AgentTask
+            task = AgentTask.create(
+                agent_id=agent_id,
+                request=task_request,
+                parent_task_id=parent_task_id,
+                recursion_depth=recursion_depth
+            )
+
+            # Queue the task
+            task_id = self.agent_registry.task_queue.queue_task(task)
+
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": "queued",
+                "recursion_depth": recursion_depth,
+                "message": f"Task {task_id} queued for agent {agent.state.name} (depth {recursion_depth})",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to queue task with parent tracking: {e}")
+            return {"success": False, "error": str(e)}
+
     def check_task_status(self, task_id: str) -> dict[str, Any]:
         """Check status of a queued task"""
         if not self.agent_registry:
@@ -458,6 +493,51 @@ async def agent_operations_tool(args: dict[str, Any]) -> dict[str, Any]:
                 return create_mcp_response(True, response_text)
             else:
                 return create_mcp_response(False, result.get("error", "Failed to get result"))
+
+        elif operation == "self_queue":
+            # Agent queuing task for itself (iterative generation)
+            agent_id = args.get("agent_id", "")
+            message = args.get("message", "")
+            iteration_type = args.get("iteration_type", "add_method")
+            context_hint = args.get("context_hint", {})
+            parent_task_id = args.get("parent_task_id", "")  # Current task ID
+            current_depth = args.get("recursion_depth", 0)
+
+            if not agent_id:
+                return create_mcp_response(False, "agent_id parameter required for self_queue")
+
+            if not message:
+                return create_mcp_response(False, "message parameter required for self_queue")
+
+            # Check recursion depth limit
+            MAX_RECURSION_DEPTH = 15
+            new_depth = current_depth + 1
+
+            if new_depth > MAX_RECURSION_DEPTH:
+                error_msg = f"Max recursion depth ({MAX_RECURSION_DEPTH}) reached. File may be too complex for iterative approach."
+                logger.warning(f"Self-queue blocked: {error_msg}")
+                return create_mcp_response(False, error_msg)
+
+            # Queue task for same agent with incremented depth
+            task_request = {
+                "message": message,
+                "task_type": "code_generation",
+                "iteration_type": iteration_type,
+                "context_hint": context_hint,
+                "parent_task_id": parent_task_id,
+                "recursion_depth": new_depth
+            }
+
+            result = _agent_operations_tool.queue_task_for_agent(agent_id, task_request, parent_task_id, new_depth)
+
+            if result["success"]:
+                response_text = f"**Follow-up Task Queued**\n\n"
+                response_text += f"🎫 Task ID: {result['task_id']}\n"
+                response_text += f"📊 Recursion depth: {new_depth}/{MAX_RECURSION_DEPTH}\n"
+                response_text += f"💬 Message: {message[:100]}...\n"
+                return create_mcp_response(True, response_text)
+            else:
+                return create_mcp_response(False, result.get("error", "Failed to queue follow-up task"))
 
         elif operation == "list_tasks":
             agent_id = args.get("agent_id")  # Optional filter

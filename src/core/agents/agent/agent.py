@@ -373,12 +373,18 @@ class Agent:
             self.logger.info(tool_prompt)
             self.logger.info(f"{'='*80}")
 
+            # Extract iteration metadata from request context
+            iteration_type = request.context.get("iteration_type") if request.context else None
+            recursion_depth = request.context.get("recursion_depth", 0) if request.context else 0
+
             # CRITICAL: Use generate_with_tools() NOT generate_response()
             result = await self.llm_manager.generate_with_tools(
                 tool_prompt,
                 max_tokens=2048,  # Reduced from 8192 to prevent runaway generation
                 temperature=0.5,  # Increased from 0.3 to encourage generation
-                tools_enabled=True  # CRITICAL: Enable tool calling
+                tools_enabled=True,  # CRITICAL: Enable tool calling
+                iteration_type=iteration_type,  # For tool filtering
+                recursion_depth=recursion_depth  # For tool filtering
             )
 
             # Verbose LLM result moved to debug log to reduce main container noise
@@ -888,6 +894,20 @@ class Agent:
                 self.logger.info(f"📋 Included registry.yaml context ({len(registry_content)} chars)")
             except Exception as e:
                 self.logger.warning(f"Could not read registry.yaml: {e}")
+
+        # Include current file metadata state for iterative development
+        if self.managed_files:
+            for managed_file in self.managed_files:
+                metadata_path = self.system_config.workspace_root / ".meta" / f"{managed_file}.json"
+                if metadata_path.exists():
+                    try:
+                        with open(metadata_path, 'r', encoding='utf-8') as f:
+                            metadata_content = f.read()
+                        context_parts.append(f"\nCurrent metadata state for {managed_file}:")
+                        context_parts.append(metadata_content)
+                        self.logger.info(f"📄 Included {managed_file}.json metadata ({len(metadata_content)} chars)")
+                    except Exception as e:
+                        self.logger.warning(f"Could not read {managed_file}.json: {e}")
 
         # Add recent conversation context (last 10 entries)
         recent_conversation = self.conversation_history[-10:]

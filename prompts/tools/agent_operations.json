@@ -8,7 +8,73 @@
       "name": "operation",
       "type": "string",
       "required": true,
-      "allowed_values": ["create", "list", "queue_task", "task_status", "task_result"]
+      "allowed_values": ["create", "list", "queue_task", "task_status", "task_result", "self_queue"]
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "Agent name (required for create operation)"
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "Agent description (required for create operation)"
+    },
+    {
+      "name": "specialized_files",
+      "type": "array",
+      "required": false,
+      "description": "List of files this agent manages (required for create operation)"
+    },
+    {
+      "name": "agent_id",
+      "type": "string",
+      "required": false,
+      "description": "Agent ID (required for queue_task, task_status, task_result, self_queue operations)"
+    },
+    {
+      "name": "task_id",
+      "type": "string",
+      "required": false,
+      "description": "Task ID (required for task_status and task_result operations)"
+    },
+    {
+      "name": "message",
+      "type": "string",
+      "required": false,
+      "description": "Task message/request (required for queue_task and self_queue operations)"
+    },
+    {
+      "name": "task_type",
+      "type": "string",
+      "required": false,
+      "description": "Task type: code_generation, file_edit, conversation (optional for queue_task, defaults to code_generation)"
+    },
+    {
+      "name": "iteration_type",
+      "type": "string",
+      "required": false,
+      "description": "Iteration type for tool filtering: add_class, add_method, add_function, add_validation, finalize, fix_errors (optional for self_queue)"
+    },
+    {
+      "name": "context_hint",
+      "type": "object",
+      "required": false,
+      "description": "Additional context for the task (optional for self_queue)"
+    },
+    {
+      "name": "parent_task_id",
+      "type": "string",
+      "required": false,
+      "description": "Parent task ID for tracking (internal use for self_queue)"
+    },
+    {
+      "name": "recursion_depth",
+      "type": "integer",
+      "required": false,
+      "description": "Current recursion depth (internal use for self_queue)"
     }
   ]
 }

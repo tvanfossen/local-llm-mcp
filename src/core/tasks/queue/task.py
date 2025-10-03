@@ -61,9 +61,11 @@ class AgentTask(Task):
     """Task for agent operations - maintains backward compatibility"""
     agent_id: str = ""
     request: dict[str, Any] = field(default_factory=dict)
+    parent_task_id: Optional[str] = None  # Track task chain for self-queueing
+    recursion_depth: int = 0  # Track depth to prevent infinite loops
 
     @classmethod
-    def create(cls, agent_id: str, request: dict[str, Any], priority: int = 0):
+    def create(cls, agent_id: str, request: dict[str, Any], priority: int = 0, parent_task_id: Optional[str] = None, recursion_depth: int = 0):
         """Create a new agent task"""
         return cls(
             task_id=str(uuid.uuid4())[:8],
@@ -72,7 +74,9 @@ class AgentTask(Task):
             created_at=datetime.now(timezone.utc).isoformat(),
             priority=priority,
             agent_id=agent_id,
-            request=request
+            request=request,
+            parent_task_id=parent_task_id,
+            recursion_depth=recursion_depth
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,6 +85,8 @@ class AgentTask(Task):
         base_dict.update({
             "agent_id": self.agent_id,
             "request": self.request,
+            "parent_task_id": self.parent_task_id,
+            "recursion_depth": self.recursion_depth,
         })
         return base_dict
 

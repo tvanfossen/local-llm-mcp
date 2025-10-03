@@ -1,1 +1,0 @@
-This folder is for claude to add any files necessary for intermediary testing - it is gitignored
